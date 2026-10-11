@@ -1,4 +1,4 @@
-# videokit
+# VideoKit
 
 [![Backend tests](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/<gist-user>/<gist-id>/raw/backend-tests.json)](.github/workflows/ci.yml)
 [![Backend coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/<gist-user>/<gist-id>/raw/backend-coverage.json)](.github/workflows/ci.yml)
@@ -6,9 +6,19 @@
 [![Frontend coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/<gist-user>/<gist-id>/raw/frontend-coverage.json)](.github/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-videokit is an open-source, self-hosted web app that hosts small video tools. You run it as a
+VideoKit is an open-source, self-hosted web app that hosts small video tools. You run it as a
 single Docker container on your own machine, with or without a GPU. The first tool is
 **YouTube Prep**.
+
+## About this project
+
+VideoKit is a large experiment in a fully AI-built application, taken from an idea to running
+software by combining [Spec Kit](https://github.com/github/spec-kit) and
+[Superpowers](https://github.com/obra/superpowers). The code, the tests and this documentation were
+all written by AI agents working under that combined workflow. The result is shared as is.
+
+No issues, no pull requests and no support: the repository is provided as is (see
+[`CONTRIBUTING.md`](CONTRIBUTING.md)).
 
 ## YouTube Prep
 
@@ -42,7 +52,7 @@ Other features:
 
 ## No authentication: protect it yourself
 
-**videokit has no login, no users and no access control.** Anyone who can reach the port can upload
+**VideoKit has no login, no users and no access control.** Anyone who can reach the port can upload
 videos, spend your provider credits and open any job link they know. Securing access is your
 responsibility as the operator.
 
@@ -65,8 +75,12 @@ You need Docker with the Compose plugin.
 ```bash
 cp .env.example .env     # then edit .env and fill in your API key placeholders
 mkdir -p .data           # create it yourself, or Docker creates it owned by root
-docker compose up -d --build
+docker compose up -d    # pulls ghcr.io/toshik1978/videokit:latest and starts it
 ```
+
+`compose.yaml` reserves an NVIDIA GPU for local transcription. On a host without the NVIDIA
+Container Toolkit, delete the `deploy:` block at the end of `compose.yaml` before running
+`docker compose up -d`, or the container will not start. The image itself runs fine on the CPU.
 
 Then open <http://localhost:8000>. The service listens on port 8000 and keeps its data (jobs,
 SQLite index, model cache) in the gitignored `./.data` directory next to `compose.yaml`, bind
@@ -75,8 +89,7 @@ set them to the output of `id -u` and `id -g` if yours differ) so it can write t
 must exist before the first start, hence the `mkdir`. To back up or wipe the
 data, copy or delete `./.data`.
 
-To build and run the image without Compose, use `task docker:build` and `task docker:run`
-(`task docker:run GPU=true` adds `--gpus all`). These use the same `./.data` directory.
+To build the image yourself instead of pulling it, see [Development](#development).
 
 The default configuration transcribes locally and generates text with Anthropic, so set
 `ANTHROPIC_API_KEY` in `.env`. The app refuses to start, with a message naming the problem, if a
@@ -116,10 +129,13 @@ OPENAI_MODEL=<your-openai-model-id>
 One image works on hosts with and without a GPU.
 
 - **CPU only (default):** local transcription runs on the CPU. It is slower, but jobs complete.
-- **GPU:** local transcription runs on an NVIDIA GPU. Install the NVIDIA Container Toolkit on the
-  host and enable the GPU block in `compose.yaml` (the `deploy.resources.reservations.devices`
-  section, commented out by default). With `WHISPER_DEVICE=cuda`, startup fails if no usable GPU is
-  found; `auto` uses the GPU when present.
+- **GPU:** local transcription runs on an NVIDIA GPU. The image already includes the GPU library
+  (cuBLAS) that local transcription needs; the host only needs the NVIDIA driver and the NVIDIA
+  Container Toolkit. `compose.yaml` requests the GPU through its `deploy.resources.reservations.devices`
+  block; delete that block on hosts without a GPU. With `WHISPER_DEVICE=cuda`, startup fails if no
+  usable GPU is found; `auto` uses the GPU when present.
+- **Verify a GPU host:** `task docker:build` followed by `task docker:gpu-check` runs a short
+  transcription check inside the image and fails unless it runs on the GPU.
 - **Cloud only:** set `TRANSCRIBE_PROVIDERS=openai` to skip local transcription entirely.
 
 ## Cost
@@ -135,7 +151,7 @@ configuration reference).
 
 ## Using it from a phone
 
-videokit is built for phone browsers (current iOS Safari and Android Chrome) as well as desktop.
+VideoKit is built for phone browsers (current iOS Safari and Android Chrome) as well as desktop.
 The layout fits screens from 360 px wide, and the file picker lets you choose a video from the
 gallery or files. If the screen locks during an upload, it resumes when you return, and if the page
 was reloaded, selecting the same file again continues from the last confirmed point. Processing
@@ -186,6 +202,10 @@ task e2e       # Playwright end-to-end tests (desktop and phone emulation)
 task format    # auto-format both stacks
 ```
 
+- Build and run the image locally with `task docker:build` and `task docker:run`
+  (`task docker:run GPU=true` adds `--gpus all`). They use the same `./.data` directory as Compose.
+- Releases are tag-driven; see [`docs/RELEASING.md`](docs/RELEASING.md). Working on the code:
+  [`CONTRIBUTING.md`](CONTRIBUTING.md).
 - The default test suite needs no API keys, no network access to AI providers and no GPU; it uses
   fakes and tiny generated video fixtures.
 - Tests that call real providers are opt-in. Provide keys in your environment and run
@@ -209,4 +229,4 @@ them.
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE), copyright Anton Krivenko.

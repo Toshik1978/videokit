@@ -144,19 +144,19 @@ VideoKit is and that it is shared as is.
 
 **Independent Test**: quickstart.md sections 4 (after the first release) and 5.
 
-- [ ] T015 [US3] Run the published image with GPU access by default in `compose.yaml`
+- [x] T015 [US3] Run the published image with GPU access by default in `compose.yaml`
   - `image: ghcr.io/toshik1978/videokit:latest`; remove `build:`; keep `env_file`, port 8000, `./.data:/data`, `user: "${PUID:-1000}:${PGID:-1000}"`, `restart: unless-stopped` and their comments.
   - Uncomment the GPU block (`deploy.resources.reservations.devices`: `driver: nvidia`, `count: all`, `capabilities: [gpu]`) with the comment: needs the NVIDIA container toolkit; delete this block on hosts without it (then local transcription runs on the CPU).
   - Tests: `backend/tests/unit/test_compose.py` (PyYAML) — image is `ghcr.io/toshik1978/videokit:latest`, no `build`, the nvidia device reservation exists, user and volume unchanged.
   - Verify: `docker compose config` succeeds.
-- [ ] T016 [P] [US4] Update `README.md` for VideoKit, the published image and the project's status
+- [x] T016 [P] [US4] Update `README.md` for VideoKit, the published image and the project's status
   - H1 `# VideoKit`; prose uses VideoKit (commands, image and package names stay lowercase).
   - New section `## About this project` near the top: VideoKit is a large experiment in a fully AI-built application, taken from idea to running software by combining [Spec Kit](https://github.com/github/spec-kit) and [Superpowers](https://github.com/obra/superpowers); the code, tests and docs were written by AI agents under that workflow; it is shared as is — no issues, no pull requests, no support (see CONTRIBUTING.md).
   - Quickstart: `cp .env.example .env` (fill keys), `mkdir -p .data`, `docker compose up -d` pulls `ghcr.io/toshik1978/videokit:latest`; on hosts without the NVIDIA container toolkit delete the GPU block in `compose.yaml` first.
   - GPU section: the image includes the GPU library local transcription needs and runs on CPU without a GPU; `task docker:gpu-check` verifies a GPU host.
   - Development section: local builds with `task docker:build` / `task docker:run`; releases → `docs/RELEASING.md`; contributing → `CONTRIBUTING.md`. License section names Anton Krivenko.
   - Keep the no-authentication warning prominent (Constitution VII). Verify: `grep -c "videokit is\|# videokit" README.md` → 0.
-- [ ] T017 [P] [US4] Write `CONTRIBUTING.md` for fork users
+- [x] T017 [P] [US4] Write `CONTRIBUTING.md` for fork users
   - Modeled on the author's firefly-jar CONTRIBUTING.md: title `# Working on VideoKit`; first paragraph: pull requests and issues are not accepted (link README "About this project"); the guide is for forks and local checkouts; `.claude/CLAUDE.md` holds the full rules for agents and wins where they differ.
   - Sections: Prerequisites (mise for the pinned toolchain, Task, pre-commit, Docker; optional NVIDIA container toolkit); Getting started (`mise install && task setup`, `pre-commit install`, `task lint`, `task test`, `task e2e`); The gate (what `task lint`/`task test` run, CI adds browser tests, image build + smoke + size guard and secret scan; never `--no-verify`); Conventions (Conventional Commits — the subject becomes the release note; Spec Kit + Superpowers, tests first; no new direct dependency without the author's approval); Never commit personal data (public repo; the denylist hook; placeholders); Releases (the author's act; `docs/RELEASING.md`).
   - Verify: every command exists (`task --list`); links resolve.

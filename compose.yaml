@@ -1,8 +1,7 @@
 # Example deployment. Copy .env.example to .env and fill in your keys first.
 services:
   videokit:
-    build: .
-    image: videokit:latest
+    image: ghcr.io/toshik1978/videokit:latest
     env_file: .env
     ports:
       - "8000:8000"
@@ -14,12 +13,12 @@ services:
     # Create ./.data first (`mkdir -p .data`); otherwise Docker creates it as root.
     user: "${PUID:-1000}:${PGID:-1000}"
     restart: unless-stopped
-    # Optional GPU for local transcription (needs the NVIDIA Container Toolkit on the host).
-    # Leave commented out on CPU-only hosts.
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: all
-    #           capabilities: [gpu]
+    # GPU access for local transcription; needs the NVIDIA container toolkit on the host.
+    # Delete this block on hosts without it (local transcription then runs on the CPU).
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
