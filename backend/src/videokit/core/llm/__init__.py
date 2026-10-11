@@ -14,6 +14,7 @@ from videokit.core.llm.base import (
     format_timestamp,
 )
 from videokit.core.llm.chain import LLMChain
+from videokit.core.llm.openai import OpenAIProvider
 
 __all__ = [
     "AllProvidersFailed",
@@ -23,6 +24,7 @@ __all__ = [
     "LLMChain",
     "LLMProvider",
     "LabeledFrame",
+    "OpenAIProvider",
     "ProviderError",
     "ProviderStatus",
     "Turn",

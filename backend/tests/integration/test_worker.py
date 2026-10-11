@@ -25,7 +25,7 @@ from videokit.core.media import MediaService
 from videokit.core.registry import CoreContext, JobHandle
 from videokit.core.transcribe import AllProvidersFailed, LocalWhisperTranscriber, TranscriberChain
 from videokit.core.worker import Providers, Worker
-from videokit.main import StartupError, create_app
+from videokit.main import create_app
 
 TUS = {"Tus-Resumable": "1.0.0"}
 PATCH_HEADERS = {**TUS, "Content-Type": "application/offset+octet-stream"}
@@ -482,39 +482,3 @@ def test_default_providers_are_built_from_settings_without_loading_anything(tmp_
     assert transcriber._model is None  # no Whisper model loaded at startup
     assert isinstance(llm, AnthropicProvider)
     assert llm._client is None  # no SDK client (and no network) at startup
-
-
-def test_providers_not_available_yet_are_skipped_with_a_log_line(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
-    settings = Settings(
-        data_dir=tmp_path / "data",
-        transcribe_providers=["openai", "local"],
-        llm_providers=["openai", "anthropic"],
-        anthropic_api_key=SecretStr("sk-test"),
-        openai_api_key=SecretStr("sk-test"),
-        openai_model="example-model",
-    )
-    app = create_app(settings, tools_package="videokit.tools", static_dir=tmp_path / "static")
-    with caplog.at_level(logging.INFO, logger="videokit"), TestClient(app):
-        providers: Providers = app.state.providers
-    assert [p.name for p in providers.transcriber.providers] == ["local"]
-    assert [p.name for p in providers.llm.providers] == ["anthropic"]
-    skipped = [r.getMessage() for r in caplog.records if "not available yet" in r.getMessage()]
-    assert len(skipped) == 2
-    assert "sk-test" not in caplog.text
-
-
-def test_startup_fails_when_no_configured_provider_is_available(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    settings = Settings(
-        data_dir=tmp_path / "data",
-        transcribe_providers=["openai"],
-        anthropic_api_key=SecretStr("sk-test"),
-        openai_api_key=SecretStr("sk-test"),
-    )
-    app = create_app(settings, tools_package="videokit.tools", static_dir=tmp_path / "static")
-    with pytest.raises(StartupError), TestClient(app):
-        pass
-    assert "TRANSCRIBE_PROVIDERS" in capsys.readouterr().err

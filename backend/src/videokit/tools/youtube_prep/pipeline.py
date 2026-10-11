@@ -18,7 +18,6 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from videokit.core.config import Settings
 from videokit.core.errors import AppError
 from videokit.core.llm import (
     AllProvidersFailed,
@@ -31,9 +30,9 @@ from videokit.core.llm import (
 )
 from videokit.core.media import MEDIA_JSON, MediaArtifacts
 from videokit.core.media import Segment as MediaSegment
-from videokit.core.pricing import estimate
+from videokit.core.pricing import estimate, transcription_cost
 from videokit.core.registry import CoreContext, JobHandle
-from videokit.core.transcribe import AudioFiles, Transcript
+from videokit.core.transcribe import AudioFiles
 from videokit.core.transcribe import Segment as TranscriptSegment
 from videokit.tools.youtube_prep import prompt, rules
 from videokit.tools.youtube_prep.schema import OUTPUT_SCHEMA, ModelOutput, Rendered, YouTubePrepResult
@@ -41,8 +40,6 @@ from videokit.tools.youtube_prep.schema import OUTPUT_SCHEMA, ModelOutput, Rende
 RESULT_JSON = "result.json"
 DEFAULT_LANGUAGE = "en"  # no speech: the output language defaults to English
 NOTICE_NO_SPEECH = "no_speech"
-LOCAL_TRANSCRIPTION = "local"  # runs on this machine: free (cost ruling on T020)
-OPENAI_TRANSCRIPTION = "openai"
 ENGLISH_INSTRUCTION = "No speech was detected; write all output in English (language code en)."
 MAX_LISTED_PROBLEMS = 3  # in a failure reason; the repair turn lists them all
 
@@ -144,19 +141,13 @@ def sanitize_segments(segments: Sequence[TranscriptSegment], duration_s: float) 
     return out
 
 
-def _transcription_cost(transcript: Transcript, settings: Settings) -> float | None:
-    if transcript.provider == LOCAL_TRANSCRIPTION:
-        return 0.0
-    model = settings.openai_transcribe_model if transcript.provider == OPENAI_TRANSCRIPTION else transcript.provider
-    return estimate(Usage(audio_minutes=transcript.audio_minutes), model, settings.pricing_overrides)
-
-
 def _transcribe(job: JobHandle, ctx: CoreContext, media: MediaArtifacts) -> tuple[MediaArtifacts, dict[str, str]]:
     """Fill the transcript fields of `media` (or mark no speech when there is no audio)."""
     if not media.has_audio:
         return media.model_copy(update={"language": DEFAULT_LANGUAGE, "no_speech": True}), {}
     transcript = ctx.transcriber.transcribe(AudioFiles(wav=job.dir / "audio.wav", mp3=job.dir / "audio.mp3"))
-    job.add_usage(Usage(audio_minutes=transcript.audio_minutes), _transcription_cost(transcript, ctx.settings))
+    cost = transcription_cost(transcript, ctx.settings.pricing_overrides)
+    job.add_usage(Usage(audio_minutes=transcript.audio_minutes), cost)
     providers = {"transcription": transcript.provider}
     job.record(providers=providers)
     segments = sanitize_segments(transcript.segments, media.duration_s)

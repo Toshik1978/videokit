@@ -4,9 +4,10 @@ import { useI18n } from 'vue-i18n';
 import { useRoute } from 'vue-router';
 
 import { ApiError, getJson, postJson } from '@/api/client';
-import { isTerminal, type JobSummary } from '@/components/job';
+import { isTerminal, type JobSummary, type Usage } from '@/components/job';
 import JobStatus from '@/components/JobStatus.vue';
 import ResultCard from '@/components/ResultCard.vue';
+import UsageFooter from '@/components/UsageFooter.vue';
 
 import RegenerateControl from './RegenerateControl.vue';
 import { type RegenerateResponse, type Section, SECTIONS, type YouTubePrepResult } from './types';
@@ -15,6 +16,8 @@ const POLL_MS = 2000;
 
 interface Job extends JobSummary {
   job_id: string;
+  providers?: { transcription?: string; llm?: string } | null;
+  usage?: Usage | null;
   result: YouTubePrepResult | null;
 }
 
@@ -67,7 +70,8 @@ async function poll(): Promise<void> {
 
 function onRegenerated(section: Section, response: RegenerateResponse): void {
   if (!job.value) return;
-  job.value = { ...job.value, result: response.result };
+  const usage = job.value.usage ? { ...job.value.usage, ...response.usage } : response.usage;
+  job.value = { ...job.value, result: response.result, usage: usage as Usage | undefined };
   revisions.value[section] = (revisions.value[section] ?? 0) + 1;
 }
 
@@ -118,6 +122,7 @@ onBeforeUnmount(() => {
             />
           </template>
         </ResultCard>
+        <UsageFooter v-if="job?.usage" :usage="job.usage" :providers="job.providers" />
       </template>
     </template>
   </section>

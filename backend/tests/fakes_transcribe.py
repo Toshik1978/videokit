@@ -15,6 +15,7 @@ class FakeTranscriber:
     - ``FakeTranscriber(segments=[...], language="de")`` -> a custom transcript.
     - ``FakeTranscriber(no_speech=True)`` -> empty transcript flagged ``no_speech``.
     - ``FakeTranscriber(name="local", error=ProviderError("boom"))`` -> always fails (for chain tests).
+    - ``FakeTranscriber(name="openai", model="whisper-1")`` -> the transcript reports that model (pricing).
 
     Every call's input is appended to ``calls``.
     """
@@ -23,6 +24,7 @@ class FakeTranscriber:
         self,
         *,
         name: str = "fake",
+        model: str = "",
         segments: list[Segment] | None = None,
         language: str = "en",
         language_probability: float = 0.99,
@@ -31,6 +33,7 @@ class FakeTranscriber:
         error: Exception | None = None,
     ) -> None:
         self.name = name
+        self.model = model
         self.segments = [] if no_speech else list(DEFAULT_SEGMENTS if segments is None else segments)
         self.language = language
         self.language_probability = language_probability
@@ -53,4 +56,5 @@ class FakeTranscriber:
             audio_minutes=self.audio_minutes,
             no_speech=self.no_speech,
             provider=self.name,
+            model=self.model,
         )

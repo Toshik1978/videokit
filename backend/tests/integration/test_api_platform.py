@@ -8,6 +8,7 @@ from pydantic import SecretStr
 
 from videokit.core.config import Settings
 from videokit.core.jobs import JobState, JobStore
+from videokit.core.transcribe import local_whisper
 from videokit.main import StartupError, app_from_env, create_app
 
 INDEX_HTML = "<!doctype html><title>spa</title>"
@@ -72,12 +73,14 @@ def client(settings: Settings, tools_pkg: str, static_dir: Path) -> Iterator[Tes
         yield c
 
 
-def test_health(client: TestClient) -> None:
+def test_health(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(local_whisper, "cuda_available", lambda: False)
     response = client.get("/api/health")
     body = response.json()
     assert body["status"] == "ok"
     assert body["queue_length"] == 0
-    assert body["providers"]["transcription"] == [{"name": "local", "ready": True, "detail": "device=auto"}]
+    local = {"name": "local", "ready": True, "detail": "device=cpu, model=large-v3-turbo (not loaded yet)"}
+    assert body["providers"]["transcription"] == [local]
     assert body["providers"]["llm"] == [{"name": "anthropic", "ready": True, "detail": "model=claude-opus-5-5"}]
     assert "sk-test-secret" not in response.text
 

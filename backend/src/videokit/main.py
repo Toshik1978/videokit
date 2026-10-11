@@ -11,14 +11,13 @@ from fastapi.responses import FileResponse, Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from videokit.core import api, uploads
+from videokit.core import providers as providers_module
 from videokit.core.config import ConfigurationError, Settings, load_settings, validate
 from videokit.core.errors import configure_logging, install_error_handlers, logger
 from videokit.core.jobs import JobStore
-from videokit.core.llm import AnthropicProvider, LLMChain, LLMProvider
 from videokit.core.media import MediaService
 from videokit.core.purge import run_purge_loop
 from videokit.core.registry import discover_tools
-from videokit.core.transcribe import LocalWhisperTranscriber, Transcriber, TranscriberChain
 from videokit.core.worker import Context, Providers, StoreJobAccess, Worker
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -38,31 +37,9 @@ def _fail(problems: list[str]) -> StartupError:
     return StartupError(problems)
 
 
-def _build_providers(settings: Settings) -> Providers:
-    """Provider chains in configured order. Constructors are cheap: no model load, no network call.
-
-    Only the providers implemented so far are built; `openai` entries are skipped (added with T036).
-    """
-    transcribers: list[Transcriber] = []
-    for name in settings.transcribe_providers:
-        if name == "local":
-            transcribers.append(LocalWhisperTranscriber(settings))
-        else:
-            logger.warning("Transcription provider %r is not available yet; skipping it", name)
-    llms: list[LLMProvider] = []
-    for name in settings.llm_providers:
-        if name == "anthropic":
-            llms.append(AnthropicProvider(settings))
-        else:
-            logger.warning("LLM provider %r is not available yet; skipping it", name)
-    problems = [
-        f"{var} lists no provider available in this version"
-        for var, chain in (("TRANSCRIBE_PROVIDERS", transcribers), ("LLM_PROVIDERS", llms))
-        if not chain
-    ]
-    if problems:
-        raise _fail(problems)
-    return Providers(transcriber=TranscriberChain(transcribers), llm=LLMChain(llms))
+def _checked(chains: Providers) -> list[str]:
+    """Run every provider's `check()` (no paid calls, no model loading); one problem line per unready provider."""
+    return providers_module.problems(providers_module.status(chains))
 
 
 def _mount_spa(app: FastAPI, static_dir: Path) -> None:
@@ -92,7 +69,10 @@ def create_app(
     tools_package: str = "videokit.tools",
     static_dir: Path = STATIC_DIR,
 ) -> FastAPI:
-    """Build the application. Without `providers`, the chains are built from settings at startup."""
+    """Build the application. Without `providers`, the chains are built from settings at startup.
+
+    Startup validates the settings, then checks every provider; any problem aborts it (`StartupError`, FR-012).
+    """
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -109,10 +89,12 @@ def create_app(
             return store
 
         if app.state.providers is None:
-            app.state.providers = _build_providers(settings)
+            app.state.providers = providers_module.build(settings)
         chains: Providers = app.state.providers
+        problems = await asyncio.to_thread(_checked, chains)
+        if problems:
+            raise _fail(problems)
         app.state.store = await asyncio.to_thread(open_store)
-        app.state.provider_status = api.provider_status(settings, ready=True)
         ctx = Context(media=MediaService(settings), transcriber=chains.transcriber, llm=chains.llm, settings=settings)
         worker = app.state.worker = Worker(app.state.store, app.state.tools, ctx)
         app.state.job_access = StoreJobAccess(app.state.store, ctx)
@@ -154,7 +136,10 @@ def create_app(
 
 
 def app_from_env() -> FastAPI:
-    """Uvicorn factory entry point (`uvicorn --factory videokit.main:app_from_env`)."""
+    """Uvicorn factory entry point (`uvicorn --factory videokit.main:app_from_env`).
+
+    Validates and checks providers eagerly so a bad configuration exits with one line per problem, no traceback.
+    """
     try:
         settings = load_settings()
     except ConfigurationError as exc:
@@ -164,4 +149,9 @@ def app_from_env() -> FastAPI:
     if problems:
         _fail(problems)
         raise SystemExit(1)
-    return create_app(settings)
+    chains = providers_module.build(settings)
+    problems = _checked(chains)
+    if problems:
+        _fail(problems)
+        raise SystemExit(1)
+    return create_app(settings, chains)

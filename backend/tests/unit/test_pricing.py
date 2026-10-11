@@ -2,7 +2,8 @@ import pytest
 
 from videokit.core import pricing
 from videokit.core.llm import Usage
-from videokit.core.pricing import DEFAULT_PRICES, estimate, price_table
+from videokit.core.pricing import DEFAULT_PRICES, estimate, price_table, transcription_cost
+from videokit.core.transcribe import Transcript
 
 USAGE = Usage(input_tokens=1_000_000, output_tokens=100_000, cache_read_tokens=2_000_000, cache_write_tokens=400_000)
 
@@ -61,3 +62,30 @@ def test_partial_override_for_new_model_prices_missing_fields_at_zero() -> None:
 def test_no_overrides_uses_defaults() -> None:
     assert price_table() == pricing.DEFAULT_PRICES
     assert price_table({}) == pricing.DEFAULT_PRICES
+
+
+def _transcript(provider: str, model: str, minutes: float = 2.0) -> Transcript:
+    return Transcript(
+        language="en",
+        language_probability=1.0,
+        segments=[],
+        audio_minutes=minutes,
+        no_speech=True,
+        provider=provider,
+        model=model,
+    )
+
+
+def test_local_transcription_is_free() -> None:
+    assert transcription_cost(_transcript("local", "large-v3-turbo")) == 0.0
+
+
+def test_cloud_transcription_is_priced_per_minute_of_its_model() -> None:
+    assert transcription_cost(_transcript("openai", "whisper-1")) == pytest.approx(2.0 * 0.006)
+    overrides = {"whisper-1": {"per_minute": 0.01}}
+    assert transcription_cost(_transcript("openai", "whisper-1"), overrides) == pytest.approx(0.02)
+
+
+@pytest.mark.parametrize("model", ["unpriced-model", ""])
+def test_unpriced_cloud_transcription_has_unknown_cost(model: str) -> None:
+    assert transcription_cost(_transcript("openai", model)) is None

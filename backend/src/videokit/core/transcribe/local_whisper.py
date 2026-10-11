@@ -22,6 +22,7 @@ class LocalWhisperTranscriber:
         self.device_setting = settings.whisper_device
         self.download_root = settings.data_dir / "models"
         self._model: Any = None
+        self._loading = False  # read without the lock by `check` (health must not wait for a download)
         self._lock = threading.Lock()
 
     def _device(self) -> tuple[str, str]:
@@ -30,23 +31,33 @@ class LocalWhisperTranscriber:
         return "cpu", "int8"
 
     def check(self) -> ProviderStatus:
+        """Device and model; the model is loaded (and downloaded on first use) by the first transcription."""
         if self.device_setting == "cuda" and not cuda_available():
-            return ProviderStatus(ready=False, detail=f"{self.model_name} (no usable GPU)")
+            return ProviderStatus(ready=False, detail="WHISPER_DEVICE is 'cuda' but no usable GPU was found")
         device, _ = self._device()
-        return ProviderStatus(ready=True, detail=f"{self.model_name} ({device})")
+        detail = f"device={device}, model={self.model_name}"
+        if self._loading:
+            return ProviderStatus(ready=False, detail=f"{detail} (downloading or loading)")
+        if self._model is None:
+            return ProviderStatus(ready=True, detail=f"{detail} (not loaded yet)")
+        return ProviderStatus(ready=True, detail=detail)
 
     def _load(self) -> Any:
         with self._lock:
             if self._model is None:
-                # Imported lazily: faster-whisper pulls in ctranslate2 and is untyped.
-                faster_whisper = importlib.import_module("faster_whisper")
-                device, compute_type = self._device()
-                self._model = faster_whisper.WhisperModel(
-                    self.model_name,
-                    device=device,
-                    compute_type=compute_type,
-                    download_root=str(self.download_root),
-                )
+                self._loading = True
+                try:
+                    # Imported lazily: faster-whisper pulls in ctranslate2 and is untyped.
+                    faster_whisper = importlib.import_module("faster_whisper")
+                    device, compute_type = self._device()
+                    self._model = faster_whisper.WhisperModel(
+                        self.model_name,
+                        device=device,
+                        compute_type=compute_type,
+                        download_root=str(self.download_root),
+                    )
+                finally:
+                    self._loading = False
             return self._model
 
     def transcribe(self, audio: AudioFiles) -> Transcript:
@@ -59,4 +70,5 @@ class LocalWhisperTranscriber:
             audio_minutes=info.duration / 60,
             no_speech=not segments,
             provider=self.name,
+            model=self.model_name,
         )

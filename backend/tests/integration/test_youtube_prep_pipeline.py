@@ -487,8 +487,7 @@ async def test_paid_transcription_is_priced_per_audio_minute(
 ) -> None:
     job_id = _queue(store, make_video(audio=True, **LONG))
     llm = FakeLLM([VALID], model=MODEL)
-    await _run(store, job_id, settings, FakeTranscriber(name="openai", audio_minutes=2.0), llm)
-    assert settings.openai_transcribe_model == "whisper-1"
+    await _run(store, job_id, settings, FakeTranscriber(name="openai", model="whisper-1", audio_minutes=2.0), llm)
     expected = 2.0 * 0.006 + (pricing.estimate(llm.usage, MODEL) or 0.0)
     assert _job(store, job_id).usage["cost_usd"] == pytest.approx(expected)
 
@@ -504,7 +503,8 @@ async def test_unpriced_paid_transcription_makes_the_cost_unknown(
     store: JobStore, settings: Settings, make_video: MakeVideo
 ) -> None:
     job_id = _queue(store, make_video(audio=True, **LONG))
-    await _run(store, job_id, settings, FakeTranscriber(name="cloud-stt"), FakeLLM([VALID], model=MODEL))
+    transcriber = FakeTranscriber(name="openai", model="unpriced-stt")
+    await _run(store, job_id, settings, transcriber, FakeLLM([VALID], model=MODEL))
     assert _job(store, job_id).usage["cost_usd"] is None
 
 

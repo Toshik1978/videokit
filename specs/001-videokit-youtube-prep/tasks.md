@@ -266,17 +266,17 @@ returns the persisted offset and the upload completes from there.
 **Independent Test**: Primary fake fails → fallback completes and is recorded; missing key → app
 refuses to start naming the variable; health lists providers; footer shows providers and cost.
 
-- [ ] T034 [P] [US4] Implement `OpenAITranscriber` in `backend/src/videokit/core/transcribe/openai.py`
+- [x] T034 [P] [US4] Implement `OpenAITranscriber` in `backend/src/videokit/core/transcribe/openai.py`
   - Research R8: `OPENAI_TRANSCRIBE_MODEL` (default `whisper-1`), `response_format=verbose_json` with segment timestamps, uploads `audio.mp3`, splits into time chunks when > 24 MB and restores segment offsets, reports `audio_minutes`; `check()` requires `OPENAI_API_KEY`.
   - Tests: `backend/tests/unit/test_transcribe_openai.py` with the SDK mocked (incl. chunk offset restoration).
-- [ ] T035 [P] [US4] Implement `OpenAIProvider` in `backend/src/videokit/core/llm/openai.py`
+- [x] T035 [P] [US4] Implement `OpenAIProvider` in `backend/src/videokit/core/llm/openai.py`
   - Research R9: Responses API; `input_image` base64 JPEG blocks each preceded by `[frame m:ss]`; `text.format` strict JSON schema; stable prefix first for automatic caching; usage incl. cached input tokens; `check()` requires `OPENAI_API_KEY` and `OPENAI_MODEL`.
   - Tests: `backend/tests/unit/test_llm_openai.py` with the SDK mocked.
-- [ ] T036 [US4] Wire providers in `backend/src/videokit/core/providers.py` and `backend/src/videokit/main.py`
+- [x] T036 [US4] Wire providers in `backend/src/videokit/core/providers.py` and `backend/src/videokit/main.py`
   - Build transcription and LLM chains in `TRANSCRIBE_PROVIDERS` / `LLM_PROVIDERS` order; run each provider's `check()` at startup, exiting non-zero naming the problem (FR-012).
   - `/api/health` reports real per-provider `ready`/`detail` (e.g. `device=cuda`, `model=…`, local model downloading) without secrets (FR-013).
   - Tests: `backend/tests/integration/test_providers.py` (failing primary → fallback used and recorded on the job, SC-006; startup failure messages; health shape).
-- [ ] T037 [US4] Add the usage footer `frontend/src/components/UsageFooter.vue` to `frontend/src/tools/youtube-prep/JobPage.vue`
+- [x] T037 [US4] Add the usage footer `frontend/src/components/UsageFooter.vue` to `frontend/src/tools/youtube-prep/JobPage.vue`
   - Providers used, input/output/cache tokens, audio minutes, estimated cost in USD or "n/a" when null; updated after regenerations (FR-032).
   - Tests: `frontend/tests/unit/usage-footer.spec.ts`.
 

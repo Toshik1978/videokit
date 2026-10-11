@@ -9,7 +9,7 @@ from videokit.core.errors import AppError
 
 @dataclass(frozen=True)
 class ProviderStatus:
-    """Startup validation result of one provider; ``detail`` is non-secret (e.g. a model id)."""
+    """Validation result of one provider; ``detail`` is non-secret (e.g. ``model=whisper-1`` or why not ready)."""
 
     ready: bool
     detail: str = ""
@@ -52,6 +52,7 @@ class Transcript:
     audio_minutes: float
     no_speech: bool
     provider: str  # name of the provider that produced it, e.g. "local"
+    model: str = ""  # the model that produced it, e.g. "whisper-1" (prices cloud transcription)
 
 
 @runtime_checkable

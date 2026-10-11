@@ -8,7 +8,7 @@ from typing import Any
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, StrictInt
 
-from videokit.core import uploads
+from videokit.core import providers, uploads
 from videokit.core.config import Settings
 from videokit.core.errors import AppError
 from videokit.core.jobs import InvalidTransition, Job, JobNotFound, JobState, JobStore
@@ -16,31 +16,6 @@ from videokit.core.registry import Tool
 from videokit.core.worker import Worker
 
 router = APIRouter(prefix="/api")
-
-
-def provider_status(settings: Settings, ready: bool) -> dict[str, list[dict[str, Any]]]:
-    """Configured providers with a non-secret detail. Real per-provider checks come with T036."""
-
-    def transcription(name: str) -> str:
-        if name == "local":
-            return f"device={settings.whisper_device}"
-        if name == "openai":
-            return f"model={settings.openai_transcribe_model}"
-        return "unknown provider"
-
-    def llm(name: str) -> str:
-        if name == "anthropic":
-            return f"model={settings.anthropic_model}"
-        if name == "openai":
-            return f"model={settings.openai_model}"
-        return "unknown provider"
-
-    return {
-        "transcription": [
-            {"name": n, "ready": ready, "detail": transcription(n)} for n in settings.transcribe_providers
-        ],
-        "llm": [{"name": n, "ready": ready, "detail": llm(n)} for n in settings.llm_providers],
-    }
 
 
 def _iso(timestamp: float) -> str:
@@ -83,7 +58,7 @@ async def health(request: Request) -> dict[str, Any]:
     store: JobStore = request.app.state.store
     return {
         "status": "ok",
-        "providers": request.app.state.provider_status,
+        "providers": await asyncio.to_thread(providers.status, request.app.state.providers),
         "queue_length": await asyncio.to_thread(store.queue_length),
     }
 

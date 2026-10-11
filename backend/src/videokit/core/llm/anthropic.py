@@ -86,8 +86,9 @@ class AnthropicProvider:
         self._lock = threading.Lock()
 
     def check(self) -> ProviderStatus:
-        ready = self._api_key is not None and bool(self._api_key.get_secret_value().strip())
-        return ProviderStatus(ready=ready, detail=self.model)
+        if self._api_key is None or not self._api_key.get_secret_value().strip():
+            return ProviderStatus(ready=False, detail="missing ANTHROPIC_API_KEY")
+        return ProviderStatus(ready=True, detail=f"model={self.model}")
 
     def _sdk(self) -> anthropic.Anthropic:
         with self._lock:

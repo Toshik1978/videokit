@@ -199,6 +199,7 @@ def test_local_whisper_transcribes_with_vad(
         audio_minutes=1.5,
         no_speech=False,
         provider="local",
+        model="large-v3-turbo",
     )
 
 
@@ -236,7 +237,31 @@ def test_local_whisper_does_not_import_faster_whisper_eagerly(monkeypatch: pytes
 def test_local_whisper_check(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(local_whisper, "cuda_available", lambda: False)
     assert LocalWhisperTranscriber(_settings(tmp_path, "cpu")).check() == ProviderStatus(
-        ready=True, detail="large-v3-turbo (cpu)"
+        ready=True, detail="device=cpu, model=large-v3-turbo (not loaded yet)"
     )
     assert LocalWhisperTranscriber(_settings(tmp_path, "auto")).check().ready is True
-    assert LocalWhisperTranscriber(_settings(tmp_path, "cuda")).check().ready is False
+    assert LocalWhisperTranscriber(_settings(tmp_path, "cuda")).check() == ProviderStatus(
+        ready=False, detail="WHISPER_DEVICE is 'cuda' but no usable GPU was found"
+    )
+    monkeypatch.setattr(local_whisper, "cuda_available", lambda: True)
+    assert LocalWhisperTranscriber(_settings(tmp_path, "auto")).check() == ProviderStatus(
+        ready=True, detail="device=cuda, model=large-v3-turbo (not loaded yet)"
+    )
+
+
+def test_local_whisper_check_after_loading(
+    whisper: type[_FakeWhisperModel], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(local_whisper, "cuda_available", lambda: False)
+    transcriber = LocalWhisperTranscriber(_settings(tmp_path))
+    transcriber.transcribe(AUDIO)
+    assert transcriber.check() == ProviderStatus(ready=True, detail="device=cpu, model=large-v3-turbo")
+
+
+def test_local_whisper_failed_load_is_not_stuck_loading(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(local_whisper, "cuda_available", lambda: False)
+    monkeypatch.setitem(sys.modules, "faster_whisper", None)
+    transcriber = LocalWhisperTranscriber(_settings(tmp_path))
+    with pytest.raises(ImportError):
+        transcriber.transcribe(AUDIO)
+    assert transcriber.check() == ProviderStatus(ready=True, detail="device=cpu, model=large-v3-turbo (not loaded yet)")

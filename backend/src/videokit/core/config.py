@@ -100,7 +100,9 @@ def validate(settings: Settings) -> list[str]:
         ("TRANSCRIBE_PROVIDERS", settings.transcribe_providers, TRANSCRIBE_PROVIDER_NAMES),
         ("LLM_PROVIDERS", settings.llm_providers, LLM_PROVIDER_NAMES),
     ):
-        if any(name not in allowed for name in names):
+        if not names:
+            problems.append(f"{var} must list at least one provider")
+        elif any(name not in allowed for name in names):
             problems.append(f"{var} contains an unknown provider (allowed: {', '.join(allowed)})")
 
     if "anthropic" in settings.llm_providers and not _has(settings.anthropic_api_key):

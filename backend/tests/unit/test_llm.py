@@ -266,8 +266,9 @@ def test_anthropic_api_errors_are_provider_errors() -> None:
 
 
 def test_anthropic_check() -> None:
-    assert _provider(_client()).check() == ProviderStatus(ready=True, detail="claude-opus-5-5")
-    assert _provider(_client(), anthropic_api_key=None).check().ready is False
+    assert _provider(_client()).check() == ProviderStatus(ready=True, detail="model=claude-opus-5-5")
+    missing = ProviderStatus(ready=False, detail="missing ANTHROPIC_API_KEY")
+    assert _provider(_client(), anthropic_api_key=None).check() == missing
 
 
 def test_anthropic_builds_sdk_client_lazily(monkeypatch: pytest.MonkeyPatch) -> None:

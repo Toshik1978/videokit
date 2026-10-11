@@ -63,6 +63,17 @@
       "generation_failed": "Generating a new version failed. The previous text was kept."
     }
   },
+  "usage": {
+    "heading": "Usage",
+    "transcription": "Transcription: {name}",
+    "llm": "Model: {name}",
+    "inputTokens": "Input tokens: {count}",
+    "outputTokens": "Output tokens: {count}",
+    "cacheTokens": "Cache tokens (read / written): {read} / {written}",
+    "audioMinutes": "Audio minutes: {minutes}",
+    "cost": "Estimated cost: {cost}",
+    "notAvailable": "n/a"
+  },
   "upload": {
     "choose": "Choose a video file",
     "limit": "Maximum file size: {limit}.",
