@@ -167,12 +167,12 @@ VideoKit is and that it is shared as is.
 
 ## Phase 5: Polish & Cross-Cutting Concerns
 
-- [ ] T018 Sync `.claude/CLAUDE.md` with the finished feature
+- [x] T018 Sync `.claude/CLAUDE.md` with the finished feature
   - Commands: `task changelog`, `task release:verify TAG=…`, `task docker:size`, `task docker:gpu-check`, `actionlint` in `task lint`.
   - Layout: `.cliff.toml`, `CHANGELOG.md`, `CONTRIBUTING.md`, `docs/RELEASING.md`, `.github/scripts/*`, `.github/workflows/release.yml`, `scripts/image_size_guard.sh`, `scripts/gpu_check.py`.
   - Workflow: releases are tag-driven (`docs/RELEASING.md`); the release workflow reruns all of CI through `workflow_call`, so CI jobs must stay callable from a tag push.
   - Verify: `grep -n "RELEASING\|release.yml\|changelog" .claude/CLAUDE.md`.
-- [ ] T019 Validate the feature with `specs/002-packaging-releases/quickstart.md` sections 1, 2, 3 and 5
+- [x] T019 Validate the feature with `specs/002-packaging-releases/quickstart.md` sections 1, 2, 3 and 5
   - Run each section; fix anything that deviates from its expected output. Section 4 (first real release) is the author's act after merge.
   - Verify: `task lint && task test && task e2e` green; `gitleaks detect --redact` finds nothing.
 

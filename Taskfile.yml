@@ -3,7 +3,9 @@ version: '3'
 # Single entry point for local development, git hooks and CI.
 
 vars:
-  GPU: 'false'
+  # GPU=true works as an environment variable and as a CLI variable (`task docker:run GPU=true`).
+  GPU:
+    sh: echo "${GPU:-false}"
 
 tasks:
   setup:
