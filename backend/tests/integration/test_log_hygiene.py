@@ -35,7 +35,7 @@ from videokit.core.worker import Providers, Worker
 from videokit.main import create_app
 
 MakeVideo = Callable[..., Path]
-pytestmark = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")
+needs_ffmpeg = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")
 
 TRANSCRIPT_MARKERS = ("Zebrafinch-transcript-7q2x", "Quokka-transcript-9w4v")
 ANTHROPIC_KEY = "sk-ant-loghygiene-anthropic-key-5k8m"
@@ -105,6 +105,7 @@ def _wait_done(client: TestClient, job_id: str) -> dict[str, Any]:
         time.sleep(0.05)
 
 
+@needs_ffmpeg
 def test_full_run_logs_no_transcript_frames_hints_or_keys(
     tmp_path: Path, make_video: MakeVideo, captured: Capture
 ) -> None:
@@ -166,19 +167,31 @@ def _quiet_app(tmp_path: Path) -> FastAPI:
 
 
 @contextmanager
-def _uvicorn(app: FastAPI) -> Iterator[tuple[uvicorn.Server, int]]:
-    """A real uvicorn server in a thread; yields once it has started (or given up starting), then stops it."""
+def _uvicorn(app: FastAPI) -> Iterator[tuple[uvicorn.Server, int, list[BaseException]]]:
+    """A real uvicorn server in a thread; yields once it has started (or given up starting), then stops it.
+
+    Anything that ends the server thread (uvicorn exits via SystemExit when startup fails) is caught and recorded in
+    the yielded list instead of escaping the thread, so pytest sees no unhandled thread exception.
+    """
     sock = socket.socket()
     sock.bind(("127.0.0.1", 0))
     server = uvicorn.Server(uvicorn.Config(app, log_config=None, log_level="debug", lifespan="on"))
-    thread = threading.Thread(target=server.run, kwargs={"sockets": [sock]}, daemon=True)
+    exits: list[BaseException] = []
+
+    def run() -> None:
+        try:
+            server.run(sockets=[sock])
+        except BaseException as exc:  # noqa: BLE001 - incl. SystemExit; recorded for the test to assert on
+            exits.append(exc)
+
+    thread = threading.Thread(target=run, daemon=True)
     thread.start()
     try:
         deadline = time.monotonic() + 10
         while not server.started and thread.is_alive():
             assert time.monotonic() < deadline, "uvicorn did not start"
             time.sleep(0.02)
-        yield server, sock.getsockname()[1]
+        yield server, sock.getsockname()[1], exits
     finally:
         server.should_exit = True
         thread.join(timeout=10)
@@ -199,7 +212,7 @@ def test_unhandled_route_error_under_uvicorn_logs_no_traceback_or_message(
 ) -> None:
     secret = f"store failed near {TRANSCRIPT_MARKERS[0]} with key {ANTHROPIC_KEY}"
     app = _quiet_app(tmp_path)
-    with _uvicorn(app) as (server, port):
+    with _uvicorn(app) as (server, port, _):
         assert server.started
 
         def broken_get(job_id: str) -> None:
@@ -224,10 +237,11 @@ def test_startup_failure_under_uvicorn_logs_no_traceback_or_message(
         raise RuntimeError(secret)
 
     monkeypatch.setattr(JobStore, "recover_after_restart", broken_recover)
-    with _uvicorn(_quiet_app(tmp_path)) as (server, _):
+    with _uvicorn(_quiet_app(tmp_path)) as (server, _, exits):
         pass
 
     assert not server.started  # what `uvicorn.run` / the CLI turn into a non-zero exit status
+    assert [type(e) for e in exits] == [SystemExit]  # the thread's exit was recorded, not leaked
     log = "\n".join(captured.lines)
     assert "uvicorn.error ERROR Startup failed (RuntimeError)" in log
     assert "uvicorn.error ERROR Application startup failed. Exiting." in log
@@ -243,10 +257,11 @@ def test_shutdown_failure_under_uvicorn_logs_no_traceback_or_message(
         raise RuntimeError(secret)
 
     monkeypatch.setattr(Worker, "stop", broken_stop)
-    with _uvicorn(_quiet_app(tmp_path)) as (server, _):
+    with _uvicorn(_quiet_app(tmp_path)) as (server, _, exits):
         assert server.started
 
     log = "\n".join(captured.lines)
+    assert exits == []
     assert "uvicorn.error ERROR Shutdown failed (RuntimeError)" in log
     assert "uvicorn.error ERROR Application shutdown failed. Exiting." in log
     _assert_no_traceback_or_message(log, secret)
