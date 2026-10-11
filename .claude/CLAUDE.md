@@ -107,6 +107,11 @@ Dockerfile, compose.yaml, scripts/docker_smoke.sh, .github/workflows/{ci,commit-
 
 - `faster-whisper` is incompatible with `av` 19 — keep the `av<19` pin (see `pyproject.toml`
   comment and `tests/unit/test_whisper_audio_compat.py`) until faster-whisper supports it.
+- The Python version lives in four places — `.mise.toml`, `backend/.python-version`,
+  `requires-python` and the Dockerfile's `uv python install` — and Dependabot bumps none of them.
+  Before moving to a new minor, check that `ctranslate2`, `onnxruntime` and `av` ship wheels for it.
+  The CUDA base image must stay on 12.x while `ctranslate2` links `libcublas.so.12`. TypeScript
+  stays on 6.x until `typescript-eslint` accepts 7.
 - The Docker image defaults to uid 10001 with a read-only `/app`; Hugging Face/XDG caches point to
   `/data` (`HF_HOME`, `XDG_CACHE_HOME`, set after the build steps). Compose and `task docker:run`
   instead run it as the host uid:gid with `./.data` (gitignored and in `.dockerignore`) bind

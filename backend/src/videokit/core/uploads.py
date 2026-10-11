@@ -192,7 +192,7 @@ async def _patch(job_id: str, offset: int, request: Request) -> Response:
     except AppError:  # chunk too large
         await asyncio.to_thread(_discard_if_gone, store, job_id)
         raise
-    except (FileNotFoundError, JobNotFound, InvalidTransition):  # cancelled or purged mid-upload
+    except FileNotFoundError, JobNotFound, InvalidTransition:  # cancelled or purged mid-upload
         await asyncio.to_thread(_discard_if_gone, store, job_id)
         raise _not_found() from None
     if new_offset == job.upload_length:  # also on a repeated PATCH, to retry a completion that never ran (idempotent)

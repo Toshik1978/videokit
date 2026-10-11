@@ -52,7 +52,7 @@ class JobHandle(Protocol):
         """Record job info without a state change (`duration_s`, `language`, `no_speech`, `providers`)."""
         ...
 
-    def add_usage(self, usage: "Usage", cost_usd: float | None) -> None:
+    def add_usage(self, usage: Usage, cost_usd: float | None) -> None:
         """Add one call's usage and estimated cost to the job's totals; `None` makes the total cost unknown."""
         ...
 
@@ -64,10 +64,10 @@ class JobHandle(Protocol):
 class CoreContext(Protocol):
     """What tools may use from core."""
 
-    media: "MediaService"
-    transcriber: "TranscriberChain"  # the fallback chain, not a single provider
-    llm: "LLMChain"  # the fallback chain
-    settings: "Settings"
+    media: MediaService
+    transcriber: TranscriberChain  # the fallback chain, not a single provider
+    llm: LLMChain  # the fallback chain
+    settings: Settings
 
 
 class JobAccess(Protocol):

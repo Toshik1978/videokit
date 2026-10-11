@@ -5,7 +5,7 @@ decision, why, and what else was considered.
 
 ## R1. Backend language and framework
 
-- **Decision**: Python 3.13, FastAPI, Uvicorn, dependencies managed with `uv`.
+- **Decision**: Python 3.14, FastAPI, Uvicorn, dependencies managed with `uv`.
 - **Rationale**: Local GPU transcription (`faster-whisper`) is native to Python; official Anthropic
   and OpenAI SDKs are first-class; one language for the whole backend (Constitution II).
 - **Alternatives**: Go (great single binary, but local Whisper needs CGO + CUDA builds or a Python

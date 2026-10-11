@@ -10,7 +10,7 @@ RUN npm run build
 
 # Stage 2: runtime. The CUDA/cuDNN runtime lets faster-whisper use a GPU when one is passed
 # through; the same image runs on CPU-only hosts.
-FROM nvidia/cuda:12.9.1-cudnn-runtime-ubuntu24.04
+FROM nvidia/cuda:12.9.2-cudnn-runtime-ubuntu24.04
 
 ENV DEBIAN_FRONTEND=noninteractive \
     UV_PYTHON_INSTALL_DIR=/opt/python \
@@ -26,13 +26,13 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=ghcr.io/astral-sh/uv:0.9 /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.13 /uv /usr/local/bin/uv
 
 WORKDIR /app
 
 # Dependencies first so this layer is cached until the lockfile changes.
 COPY backend/pyproject.toml backend/uv.lock ./
-RUN uv python install 3.13 \
+RUN uv python install 3.14 \
     && uv sync --locked --no-dev --no-install-project
 
 COPY backend/src ./src

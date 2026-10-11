@@ -70,7 +70,7 @@ def probe(path: Path) -> ProbeResult:
             s.get("codec_type") == "video" and not s.get("disposition", {}).get("attached_pic") for s in streams
         )
         duration = float(info["format"]["duration"])
-    except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError, ValueError, TypeError):
+    except subprocess.CalledProcessError, json.JSONDecodeError, KeyError, ValueError, TypeError:
         raise _not_a_video() from None
     if not has_video or duration <= 0:
         raise _not_a_video()

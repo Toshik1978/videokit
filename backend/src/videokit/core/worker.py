@@ -158,7 +158,7 @@ class Worker:
         try:
             await asyncio.to_thread(self._store.update_info, job_id, duration_s=info.duration_s)
             await asyncio.to_thread(self._store.set_state, job_id, JobState.QUEUED)
-        except (InvalidTransition, JobNotFound):  # completed twice, cancelled or purged meanwhile
+        except InvalidTransition, JobNotFound:  # completed twice, cancelled or purged meanwhile
             return
         self.notify()
 
@@ -214,7 +214,7 @@ class Worker:
     def _mark_cancelled(self, job_id: str) -> None:
         try:
             self._store.set_state(job_id, JobState.CANCELLED)
-        except (InvalidTransition, JobNotFound):  # already terminal, or purged meanwhile
+        except InvalidTransition, JobNotFound:  # already terminal, or purged meanwhile
             logger.warning("Job %s could not be marked cancelled", job_id)
             return
         self._remove_dir(job_id)
@@ -228,7 +228,7 @@ class Worker:
         """Mark the job failed with a user-safe reason and catalog code; delete its source video (FR-014)."""
         try:
             self._store.set_state(job_id, JobState.FAILED, reason, code)
-        except (InvalidTransition, JobNotFound):  # already terminal (e.g. cancelled meanwhile) or purged
+        except InvalidTransition, JobNotFound:  # already terminal (e.g. cancelled meanwhile) or purged
             return
         (self._store.job_dir(job_id) / SOURCE_NAME).unlink(missing_ok=True)
 

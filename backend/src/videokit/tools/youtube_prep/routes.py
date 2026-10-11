@@ -39,7 +39,7 @@ def _regenerate(access: JobAccess, job_id: str, section: str, hint: str | None) 
         raise AppError("job_not_done", "This job is not finished yet, so it cannot be regenerated.", 409)
     try:
         result = pipeline.regenerate(access.handle(job_id), access.ctx, section, hint, job.providers)
-    except (FileNotFoundError, JobNotFound):  # the job (files or row) was purged meanwhile
+    except FileNotFoundError, JobNotFound:  # the job (files or row) was purged meanwhile
         raise _not_found() from None
     after = access.get(job_id)
     if after is None:

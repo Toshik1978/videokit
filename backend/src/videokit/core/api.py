@@ -46,7 +46,7 @@ def _read_result(store: JobStore, job: Job) -> Any:
         return None
     try:
         return json.loads((store.job_dir(job.id) / "result.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return None
 
 

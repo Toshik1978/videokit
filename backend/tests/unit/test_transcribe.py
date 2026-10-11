@@ -122,7 +122,7 @@ class _Info:
 
 
 class _FakeWhisperModel:
-    instances: list["_FakeWhisperModel"] = []
+    instances: list[_FakeWhisperModel] = []
     segments: list[_Seg] = []
     info = _Info("en", 0.97, 90.0)
 

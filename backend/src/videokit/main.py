@@ -52,7 +52,7 @@ def _mount_spa(app: FastAPI, static_dir: Path) -> None:
         try:
             candidate = (root / path).resolve()
             servable = candidate.is_file() and candidate.is_relative_to(root)
-        except (ValueError, OSError):  # e.g. embedded NUL in the path
+        except ValueError, OSError:  # e.g. embedded NUL in the path
             servable = False
         if servable:
             return FileResponse(candidate)

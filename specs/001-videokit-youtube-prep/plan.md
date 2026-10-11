@@ -18,7 +18,7 @@ caching). See [research.md](research.md) for decisions R1–R14.
 
 ## Technical Context
 
-**Language/Version**: Python 3.13 (backend); TypeScript 5 / Vue 3 (frontend)
+**Language/Version**: Python 3.14 (backend); TypeScript 6 / Vue 3 (frontend)
 
 **Primary Dependencies**: FastAPI, Uvicorn, `anthropic`, `openai`, `faster-whisper`, Pydantic
 (settings + schemas); Vue 3, vue-router, vue-i18n, tus-js-client, Vite; ffmpeg/ffprobe (system)
