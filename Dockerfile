@@ -1,5 +1,9 @@
 # syntax=docker/dockerfile:1
 
+# Stage 0: the uv binary. A named FROM stage is what Dependabot tracks; it is only mounted into the
+# sync steps below and never copied, so uv is not part of the runtime image.
+FROM ghcr.io/astral-sh/uv:0.13 AS uv
+
 # Stage 1: build the SPA.
 FROM node:24-slim AS frontend
 WORKDIR /build
@@ -37,12 +41,12 @@ RUN apt-get update \
 
 WORKDIR /app
 
-# uv is bind-mounted on the sync steps only, so it is not shipped in the image. The engine never
+# uv is bind-mounted from the uv stage on the sync steps only. The engine never
 # loads nvrtc (research R2), so it is left out.
 # Dependencies first so this layer is cached until the lockfile changes.
 COPY backend/pyproject.toml backend/uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    --mount=from=ghcr.io/astral-sh/uv:0.13,source=/uv,target=/usr/local/bin/uv \
+    --mount=from=uv,source=/uv,target=/usr/local/bin/uv \
     uv sync --locked --no-dev --no-install-package nvidia-cuda-nvrtc-cu12 --no-install-project
 
 # Make the pip-installed CUDA libraries (cuBLAS) visible to the dynamic loader.
@@ -50,7 +54,7 @@ RUN find /app/.venv -path "*/nvidia/*/lib" -type d > /etc/ld.so.conf.d/nvidia.co
 
 COPY backend/src ./src
 RUN --mount=type=cache,target=/root/.cache/uv \
-    --mount=from=ghcr.io/astral-sh/uv:0.13,source=/uv,target=/usr/local/bin/uv \
+    --mount=from=uv,source=/uv,target=/usr/local/bin/uv \
     uv sync --locked --no-dev --no-install-package nvidia-cuda-nvrtc-cu12
 
 COPY --from=frontend /build/dist ./src/videokit/static

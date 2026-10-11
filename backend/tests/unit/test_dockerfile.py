@@ -35,11 +35,14 @@ def test_both_uv_sync_steps_use_cache_mount() -> None:
 
 
 def test_uv_is_bind_mounted_not_copied_into_the_image() -> None:
+    assert not [line for line in _logical_lines() if line.startswith("COPY") and "uv" in line.split()[-2:]]
     assert not [line for line in _logical_lines() if line.startswith("COPY") and "astral-sh/uv" in line]
+    # A named FROM stage is what Dependabot's docker ecosystem tracks; RUN --mount=from=<image> is not.
+    assert "FROM ghcr.io/astral-sh/uv:0.13 AS uv" in _logical_lines()
     syncs = [line for line in _logical_lines() if "uv sync" in line]
     assert len(syncs) == 2
     for line in syncs:
-        assert "--mount=from=ghcr.io/astral-sh/uv:0.13,source=/uv,target=/usr/local/bin/uv" in line
+        assert "--mount=from=uv,source=/uv,target=/usr/local/bin/uv" in line
 
 
 def test_nvrtc_is_not_installed() -> None:
