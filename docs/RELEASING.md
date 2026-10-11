@@ -17,7 +17,7 @@ The git tag is the version. Nothing else in the repository carries a version num
 
 Versions follow [semver](https://semver.org). git-cliff computes the next version from the
 Conventional Commit types since the last tag. Pass `TAG=` to override it, for example
-`TAG=v1.0.0` for the first release.
+`TAG=v1.0.0` when you decide to go 1.0. The first release is the computed `v0.1.0`.
 
 ## Step 0: before the first push only, sweep the whole history
 
@@ -57,7 +57,18 @@ an environment variable that changed.
 
 ## Step 2: verify, commit and tag
 
-Five commands, in order. Replace `vX.Y.Z` with the version `task changelog` printed.
+Check first (optional):
+
+```bash
+.github/scripts/extract-changelog.sh vX.Y.Z   # preview the exact release body
+task lint && task test                        # the gate, which the pre-push hook runs anyway
+```
+
+The preview prints the section from `## vX.Y.Z` to the next `## ` heading. It exits non-zero when
+the section is missing or empty, which is the guard against publishing a release with empty notes.
+
+Then be on `main`, up to date with the remote. Five commands, in order. Replace `vX.Y.Z` with the
+version `task changelog` printed.
 
 ```bash
 task release:verify TAG=vX.Y.Z
@@ -71,16 +82,6 @@ git push origin vX.Y.Z
 version, and its section extracts with content. The `chore(release)` subject keeps the commit out
 of the next release's notes. The pre-push hook runs `task lint` and `task test` on the first push,
 so the gate needs no separate run.
-
-Optional checks before the first command:
-
-```bash
-.github/scripts/extract-changelog.sh vX.Y.Z   # preview the exact release body
-task lint && task test                        # the gate, which the pre-push hook runs anyway
-```
-
-The preview prints the section from `## vX.Y.Z` to the next `## ` heading. It exits non-zero when
-the section is missing or empty, which is the guard against publishing a release with empty notes.
 
 The tag must be on `main`. Pushing a tag that matches `vX.Y.Z` starts the **Publish release**
 workflow (`.github/workflows/release.yml`). It never commits, tags or pushes to the repository. Its

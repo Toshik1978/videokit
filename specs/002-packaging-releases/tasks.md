@@ -242,3 +242,21 @@ Then:        T004 (GPU check; shares Taskfile.yml with T002)
 - [x] T030 Remove the default OpenAPI version and use the display name in `backend/src/videokit/main.py` per FR-016, FR-023 (unrequested)
   - `FastAPI(title="VideoKit", version="0.0.0")` or equivalent neutral value with a comment that the git tag is the version (FastAPI defaults to `0.1.0`, a fake release number).
   - Tests: a unit test reads `/api/openapi.json` (or `app.openapi()`) and asserts the title and that the version is not `0.1.0`.
+
+## Phase 7: Convergence
+
+- [x] T031 Report a GPU that is visible but unusable with its own reason in `scripts/gpu_check.py` per spec edge case "driver too old" (partial)
+  - When `ctranslate2.get_cuda_device_count()` is 0 but an NVIDIA device is present in the container (`/dev/nvidia*` exists), print `GPU visible but CUDA unavailable (driver too old?)`, exit 1; otherwise keep `no GPU visible to the container`.
+  - Tests: `backend/tests/unit/test_gpu_check.py` covers both branches (patch the device probe); `contracts/commands.md` lists the new line.
+- [x] T032 Document what `task docker:gpu-check` does on a host without the NVIDIA container runtime in `README.md` and `specs/002-packaging-releases/quickstart.md` per FR-009 (partial)
+  - Docker refuses `--gpus all` with its own error before the script runs; the script's `no GPU visible to the container` line appears when the image runs without `--gpus` (quickstart section 2's manual command).
+- [x] T033 Move the optional release-notes preview before the required commands in `docs/RELEASING.md` per FR-015 (contradicts)
+  - Order: changelog and summary, optional preview and checks, then the required commands, then tagging; add an "on `main`, up to date with the remote" reminder before the required commands.
+- [x] T034 Reword the `TAG=v1.0.0` example in `docs/RELEASING.md` per FR-010, US2/AC2 (contradicts)
+  - "for example `TAG=v1.0.0` when you decide to go 1.0"; the first release is the computed `v0.1.0`.
+- [x] T035 Add a CPU transcription check of the built image to `specs/002-packaging-releases/quickstart.md` section 1 per US1/AC2 (partial)
+  - A manual step (network for the model download is acceptable; CI stays network-free): run Whisper `tiny` with `device="cpu"` inside `videokit:local` as the host user with `./.data` mounted, e.g. a short `docker run … --entrypoint python videokit:local -c …` snippet that generates a sine with ffmpeg and transcribes it; expected: completes without error. Run it once and record the result.
+- [x] T036 Fix the expected output of `check-release-version.sh` in `specs/002-packaging-releases/quickstart.md` section 3 per contracts/commands.md (contradicts)
+  - `release version: v0.1.0 (tag v0.1.0)`.
+- [x] T037 Merge the repeated `GPU libraries failed to load` entry in the `scripts/gpu_check.py` row of `specs/002-packaging-releases/contracts/commands.md` per contracts/commands.md (contradicts)
+  - One entry with a parenthetical (library import, or a model-load `ImportError`/`OSError`/`RuntimeError` mentioning CUDA, cuBLAS or cuDNN); `model could not be loaded` stays separate; include T031's new line.

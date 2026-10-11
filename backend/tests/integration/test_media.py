@@ -48,16 +48,32 @@ def _last_video_frame_s(path: Path) -> float:
     return max(float(p["pts_time"]) for p in info["packets"]) - float(info["format"]["start_time"])
 
 
-def _make_h264_mp3_mkv(tmp_path: Path, seconds: float = 2.0) -> Path:
-    """The container smoke test's H.264/MP3 .mkv clip: the container outlasts the video stream slightly."""
-    out = tmp_path / "clip.mkv"
+def _make_h264_mp3_mkv(tmp_path: Path, seconds: float = 2.0, *, ts_offset_s: float = 0.0) -> Path:
+    """The container smoke test's H.264/MP3 .mkv clip: the container outlasts the video stream slightly.
+
+    ``ts_offset_s`` shifts every timestamp, so the streams and the container start later than 0.
+    """
+    out = tmp_path / f"clip-{ts_offset_s}.mkv"
     subprocess.run(
         ["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", f"testsrc=duration={seconds}:size=320x240:rate=15",
          "-f", "lavfi", "-i", f"sine=frequency=440:duration={seconds}", "-c:v", "libx264", "-c:a", "libmp3lame",
-         "-shortest", str(out)],
+         "-shortest", "-output_ts_offset", str(ts_offset_s), str(out)],
         check=True, capture_output=True,
     )  # fmt: skip
     return out
+
+
+def _spy_requested_frame_times(monkeypatch: pytest.MonkeyPatch) -> list[float]:
+    """Record every frame time ``MediaService.extract`` asks ffmpeg for."""
+    requested: list[float] = []
+    extract_frames = media_module._extract_frames
+
+    def spy(src: Path, job_dir: Path, times: list[float], width: int) -> list[media_module.Frame]:
+        requested.extend(times)
+        return extract_frames(src, job_dir, times, width)
+
+    monkeypatch.setattr(media_module, "_extract_frames", spy)
+    return requested
 
 
 def test_probe_duration_and_audio(make_video: MakeVideo) -> None:
@@ -158,13 +174,27 @@ def test_extract_non_video_raises_and_keeps_nothing_else(tmp_path: Path, make_no
 
 
 def test_probe_reads_the_video_stream_end(tmp_path: Path, make_video: MakeVideo) -> None:
-    # mp4 carries a stream duration; Matroska only a DURATION tag. Both are relative to the container start.
+    # mp4 carries a stream duration (a length); Matroska only a DURATION tag (the stream's end timestamp).
+    # video_end_s is relative to the container start, which is what ffmpeg -ss seeks in.
     longer_audio = probe(make_video("a.mp4", colors=("red", "blue"), segment_s=2.0, audio=True, audio_s=8.0))
     assert longer_audio.duration_s == pytest.approx(8.0, abs=0.1)
     assert longer_audio.video_end_s == pytest.approx(4.0, abs=0.1)
     mkv = probe(_make_h264_mp3_mkv(tmp_path))
     assert mkv.video_end_s == pytest.approx(mkv.duration_s, abs=0.01)
     assert probe(make_video("b.mp4")).video_end_s == pytest.approx(6.0, abs=0.1)
+    # Shifted timestamps: video starts at 1.5 s, its DURATION tag (end) is 3.5 s, the container starts at
+    # ~1.475 s (audio priming), so the video ends ~2.025 s after the container start.
+    shifted = probe(_make_h264_mp3_mkv(tmp_path, ts_offset_s=1.5))
+    assert shifted.video_end_s == pytest.approx(2.025, abs=0.01)
+
+
+def test_shifted_timestamps_keep_frames_within_the_video(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    source = _make_h264_mp3_mkv(tmp_path, ts_offset_s=1.5)
+    last_frame = _last_video_frame_s(source)
+    requested = _spy_requested_frame_times(monkeypatch)
+    media = MediaService(_settings(tmp_path)).extract(_job_dir(tmp_path, source))
+    assert requested and max(requested) <= last_frame, (requested, last_frame)
+    assert media.frames
 
 
 def test_frame_time_at_the_container_end_does_not_fail_the_job(tmp_path: Path) -> None:
@@ -183,14 +213,7 @@ def test_audio_longer_than_video_keeps_frames_within_the_video(
 ) -> None:
     source = make_video(colors=("red", "blue"), segment_s=2.0, audio=True, audio_s=8.0)
     last_frame = _last_video_frame_s(source)
-    requested: list[float] = []
-    extract_frames = media_module._extract_frames
-
-    def spy(src: Path, job_dir: Path, times: list[float], width: int) -> list[media_module.Frame]:
-        requested.extend(times)
-        return extract_frames(src, job_dir, times, width)
-
-    monkeypatch.setattr(media_module, "_extract_frames", spy)
+    requested = _spy_requested_frame_times(monkeypatch)
     job = _job_dir(tmp_path, source)
     media = MediaService(_settings(tmp_path)).extract(job)
     assert requested and max(requested) <= last_frame  # no seek past the video, not just skipped failures

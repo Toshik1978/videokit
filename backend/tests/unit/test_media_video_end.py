@@ -17,6 +17,11 @@ FORMAT: dict[str, Any] = {"start_time": "0.000000", "duration": "10.000000"}
         ({"tags": {"duration": "0:00:06.5"}}, {"duration": "10.0"}, 6.5),  # no start times at all
         # Times are relative to the container start, which can precede the video stream.
         ({"start_time": "0.000000", "duration": "2.0"}, {"start_time": "-0.025000"}, 2.025),
+        ({"start_time": "1.500000", "duration": "2.0"}, {"start_time": "1.475000"}, 2.025),
+        # The Matroska DURATION tag is the stream's end timestamp, not its length: no start offset added.
+        ({"start_time": "1.500000", "tags": {"DURATION": "00:00:03.500000000"}}, {"start_time": "1.475000"}, 2.025),
+        # An unusable duration field falls through to the tag.
+        ({"duration": "N/A", "tags": {"DURATION": "00:00:04.000000000"}}, FORMAT, 4.0),
     ],
 )
 def test_video_end_from_stream_duration_or_tag(

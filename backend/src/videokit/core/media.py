@@ -68,10 +68,15 @@ def _run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(cmd, check=True, capture_output=True, text=True, errors="replace")
 
 
-def _stream_duration(stream: dict[str, Any]) -> float | None:
-    """The stream's own duration: ``duration`` (mp4, mov) or the Matroska/WebM ``DURATION`` tag."""
-    if (value := stream.get("duration")) is not None:
+def _seconds(value: Any) -> float | None:
+    try:
         return float(value)
+    except ValueError, TypeError:
+        return None
+
+
+def _tag_end(stream: dict[str, Any]) -> float | None:
+    """The Matroska/WebM ``DURATION`` tag: the stream's end *timestamp* (not its length)."""
     tags = {str(k).upper(): v for k, v in (stream.get("tags") or {}).items()}
     if (m := _TAG_DURATION.fullmatch(str(tags.get("DURATION", "")).strip())) is None:
         return None
@@ -79,13 +84,14 @@ def _stream_duration(stream: dict[str, Any]) -> float | None:
 
 
 def _video_end(video: dict[str, Any], container: dict[str, Any], duration: float) -> float:
-    try:
-        length = _stream_duration(video)
-        if length is None:
-            return duration
-        container_start = float(container.get("start_time", 0.0))
-        end = float(video.get("start_time", container_start)) - container_start + length
-    except ValueError, TypeError:
+    """Video stream end relative to the container start; ``duration`` when unknown or implausible."""
+    container_start = _seconds(container.get("start_time")) or 0.0
+    if (length := _seconds(video.get("duration"))) is not None:  # mp4, mov: a real length
+        start = _seconds(video.get("start_time"))
+        end = (container_start if start is None else start) - container_start + length
+    elif (tag_end := _tag_end(video)) is not None:  # Matroska, WebM: an end timestamp
+        end = tag_end - container_start
+    else:
         return duration
     return end if 0 < end <= duration else duration
 

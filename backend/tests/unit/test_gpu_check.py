@@ -60,6 +60,7 @@ def run(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> 
         fail_load: BaseException | None = None,
         fail_audio: bool = False,
         fail_transcribe: bool = False,
+        nvidia_device: bool = False,
     ) -> tuple[int, str, str]:
         ct2 = types.SimpleNamespace(get_cuda_device_count=lambda: gpus)
         model = type(
@@ -78,6 +79,7 @@ def run(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> 
             path.write_bytes(b"x")
 
         monkeypatch.setattr(module, "make_audio", make_audio)
+        monkeypatch.setattr(module, "nvidia_device_present", lambda: nvidia_device, raising=False)
         code = int(module.main())
         out = capsys.readouterr()
         assert "Traceback" not in out.out + out.err
@@ -89,6 +91,14 @@ def run(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> 
 
 def test_no_gpu(run: Run) -> None:
     assert run(gpus=0) == (1, "", "no GPU visible to the container\n")
+
+
+def test_gpu_visible_but_cuda_unavailable(run: Run) -> None:
+    assert run(gpus=0, nvidia_device=True) == (
+        1,
+        "",
+        "GPU visible but CUDA unavailable (driver too old?)\n",
+    )
 
 
 def test_gpu_library_error_on_model_load(run: Run) -> None:

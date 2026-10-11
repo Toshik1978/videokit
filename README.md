@@ -136,7 +136,10 @@ One image works on hosts with and without a GPU.
   block; delete that block on hosts without a GPU. With `WHISPER_DEVICE=cuda`, startup fails if no
   usable GPU is found; `auto` uses the GPU when present.
 - **Verify a GPU host:** `task docker:build` followed by `task docker:gpu-check` runs a short
-  transcription check inside the image and fails unless it runs on the GPU.
+  transcription check inside the image and fails unless it runs on the GPU. On a host without the
+  NVIDIA Container Toolkit, Docker itself refuses `--gpus all` with its own error before the script
+  runs. The script's `no GPU visible to the container` line appears when the image runs without
+  `--gpus`.
 - **Cloud only:** set `TRANSCRIBE_PROVIDERS=openai` to skip local transcription entirely.
 
 ## Cost

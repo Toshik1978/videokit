@@ -14,8 +14,17 @@ docker run --rm --entrypoint sh videokit:local -c 'ls /usr/local/cuda 2>&1; ldco
                                       # → no such directory; 0
 ```
 
+CPU transcription (US1 scenario 2; needs network once for the Whisper `tiny` download, cached
+under `./.data/huggingface`). Runs as the host user with `./.data` mounted:
+
+```bash
+mkdir -p .data
+docker run --rm --user "$(id -u):$(id -g)" -v "$PWD/.data:/data" --entrypoint python videokit:local -c 'import subprocess, faster_whisper; subprocess.run(["ffmpeg", "-loglevel", "error", "-f", "lavfi", "-i", "sine=duration=5", "-ar", "16000", "-ac", "1", "/tmp/t.wav"], check=True); m = faster_whisper.WhisperModel("tiny", device="cpu", compute_type="int8"); list(m.transcribe("/tmp/t.wav")[0]); print("cpu transcription ok:", m.model.device)'
+                                      # → cpu transcription ok: cpu
+```
+
 Expected: size under the limit; smoke test passes for the default user and the host user with a
-bind-mounted `/data`; no CUDA toolkit or cuDNN in the image.
+bind-mounted `/data`; the CPU transcription completes without error; no CUDA toolkit or cuDNN in the image.
 
 ## 2. GPU (US1 scenario 3, FR-008/FR-009) — on a host with an NVIDIA GPU
 
@@ -25,6 +34,10 @@ task docker:gpu-check   # → GPU check passed: 1 GPU(s), … in a few seconds
 docker run --rm -v "$PWD/scripts/gpu_check.py:/gpu_check.py:ro" videokit:local python /gpu_check.py
                         # no --gpus → "no GPU visible to the container", exit 1
 ```
+
+On a host without the NVIDIA container runtime, `task docker:gpu-check` fails earlier: Docker
+refuses `--gpus all` with its own error before the script runs. The script's `no GPU visible to the
+container` line appears only when the image runs without `--gpus`, as in the manual command above.
 
 Then `GPU=true task docker:run` and `curl -s localhost:8000/api/health`: the local transcription
 provider reports `device=cuda`.
@@ -36,7 +49,7 @@ In a scratch clone (so the real `CHANGELOG.md` stays untouched):
 ```bash
 task changelog                         # no tags yet → "## v0.1.0 — <date>" prepended
 .github/scripts/extract-changelog.sh v0.1.0     # prints the section
-.github/scripts/check-release-version.sh v0.1.0 # → release version: v0.1.0
+.github/scripts/check-release-version.sh v0.1.0 # → release version: v0.1.0 (tag v0.1.0)
 .github/scripts/check-release-version.sh v0.2.0 # → exit 1, names both versions
 git add CHANGELOG.md && git commit -m "chore(release): v0.1.0"
 git tag -a v0.1.0 -m v0.1.0

@@ -14,6 +14,7 @@ Hugging Face, is reported as "model could not be loaded".
 
 from __future__ import annotations
 
+import glob
 import importlib
 import subprocess
 import sys
@@ -53,6 +54,11 @@ def _is_gpu_library_error(exc: Exception) -> bool:
     return isinstance(exc, _GPU_LIBRARY_ERRORS) and any(hint in text for hint in _GPU_LIBRARY_HINTS)
 
 
+def nvidia_device_present() -> bool:
+    """True when the container sees an NVIDIA device node (`/dev/nvidia*`)."""
+    return bool(glob.glob("/dev/nvidia*"))
+
+
 def _fail(message: str) -> int:
     print(message, file=sys.stderr)
     return 1
@@ -66,6 +72,8 @@ def main() -> int:
     except Exception as exc:
         return _fail(f"GPU libraries failed to load: {type(exc).__name__}")
     if gpus == 0:
+        if nvidia_device_present():
+            return _fail("GPU visible but CUDA unavailable (driver too old?)")
         return _fail("no GPU visible to the container")
 
     with tempfile.TemporaryDirectory() as tmp:
