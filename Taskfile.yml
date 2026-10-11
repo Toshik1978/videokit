@@ -1,0 +1,123 @@
+version: '3'
+
+# Single entry point for local development, git hooks and CI.
+
+tasks:
+  setup:
+    desc: Install backend and frontend dependencies
+    cmds:
+      - task: setup:backend
+      - task: setup:frontend
+
+  setup:backend:
+    internal: true
+    dir: backend
+    cmds:
+      - uv sync
+
+  setup:frontend:
+    internal: true
+    dir: frontend
+    cmds:
+      - npm install
+
+  setup:ci:
+    desc: Install dependencies from lockfiles (CI)
+    cmds:
+      - task: setup:ci:backend
+      - task: setup:ci:frontend
+
+  setup:ci:backend:
+    internal: true
+    dir: backend
+    cmds:
+      - uv sync --locked
+
+  setup:ci:frontend:
+    internal: true
+    dir: frontend
+    cmds:
+      - npm ci
+
+  lint:backend:
+    desc: Lint and type-check the backend
+    dir: backend
+    cmds:
+      - uv run ruff check . ../scripts
+      - uv run ruff format --check . ../scripts
+      - uv run mypy
+
+  lint:frontend:
+    desc: Lint and type-check the frontend
+    dir: frontend
+    cmds:
+      - npm run typecheck
+      - npm run lint
+      - npm run format:check
+
+  lint:
+    desc: Lint both stacks
+    cmds:
+      - task: lint:backend
+      - task: lint:frontend
+
+  test:backend:
+    desc: Run backend tests with coverage
+    dir: backend
+    cmds:
+      - uv run pytest
+
+  test:frontend:
+    desc: Run frontend tests
+    dir: frontend
+    cmds:
+      - npm test
+
+  test:backend:ci:
+    desc: Run backend tests with Cobertura XML, JSON coverage and JUnit reports
+    dir: backend
+    cmds:
+      - uv run pytest --cov-report=xml:coverage.xml --cov-report=json:coverage.json --junitxml=junit.xml
+
+  test:frontend:ci:
+    desc: Run frontend tests with coverage reports
+    dir: frontend
+    cmds:
+      - npm run test:ci
+
+  test:
+    desc: Test both stacks
+    cmds:
+      - task: test:backend
+      - task: test:frontend
+
+  format:
+    desc: Auto-format both stacks
+    cmds:
+      - task: format:backend
+      - task: format:frontend
+
+  format:backend:
+    internal: true
+    dir: backend
+    cmds:
+      - uv run ruff format . ../scripts
+      - uv run ruff check --fix . ../scripts
+
+  format:frontend:
+    internal: true
+    dir: frontend
+    cmds:
+      - npm run format
+
+  build:frontend:
+    desc: Build the frontend bundle
+    dir: frontend
+    cmds:
+      - npm run build
+
+  e2e:
+    desc: Run Playwright end-to-end tests
+    dir: frontend
+    cmds:
+      - npm run e2e

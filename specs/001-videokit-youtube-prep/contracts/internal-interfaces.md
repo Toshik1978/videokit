@@ -1,0 +1,73 @@
+# Internal Interface Contracts (backend)
+
+These are the seams between `core` and tools (Constitution III) and between `core` and vendors
+(Constitution IV). Signatures are indicative Python; exact types are settled in implementation.
+
+## Tool
+
+```python
+class Tool(Protocol):
+    id: str                      # "youtube_prep"
+    name: str
+    description: str
+    router: APIRouter            # mounted at /api/tools/{id}
+    async def run(self, job: JobHandle, ctx: CoreContext) -> None: ...
+```
+
+- Tools live in `videokit/tools/<id>/` and expose a module-level `TOOL`; the registry imports every
+  subpackage of `videokit.tools` at startup.
+- `run` is called by the worker after upload completes. It drives stages via `job.set_state(...)`
+  and must call `job.check_cancelled()` at each stage boundary (raises `JobCancelled`).
+
+## CoreContext (what tools may use)
+
+```python
+class CoreContext(Protocol):
+    media: MediaService          # extract(job) -> MediaArtifacts (audio, frames, deletes source)
+    transcriber: Transcriber     # the fallback chain, not a single provider
+    llm: LLMClient               # the fallback chain
+    settings: Settings
+```
+
+## Transcriber
+
+```python
+class Transcriber(Protocol):
+    name: str
+    def check(self) -> ProviderStatus: ...               # startup validation, no network calls that cost money
+    def transcribe(self, audio: AudioFiles) -> Transcript: ...
+    # Transcript = language, language_probability, segments[{start, end, text}], audio_minutes
+```
+
+Implementations: `LocalWhisperTranscriber`, `OpenAITranscriber`, `FakeTranscriber` (tests).
+Chain: tries providers in configured order; raises `AllProvidersFailed(stage="transcription")`.
+
+## LLMProvider
+
+```python
+class LLMProvider(Protocol):
+    name: str                    # "anthropic" | "openai"
+    model: str
+    def check(self) -> ProviderStatus: ...
+    def generate(self, req: GenerationRequest) -> GenerationResponse: ...
+
+@dataclass
+class GenerationRequest:
+    system: str
+    context_text: str                     # timestamped transcript lines "[m:ss] text"
+    frames: list[LabeledFrame]            # (t_seconds, jpeg_bytes), labeled "[frame m:ss]"
+    schema: dict                          # JSON schema of expected output
+    turns: list[Turn]                     # follow-ups: instruction, prior output, repair feedback
+
+@dataclass
+class GenerationResponse:
+    data: dict                            # parsed, schema-valid JSON
+    usage: Usage                          # tokens incl. cache read/write
+    provider: str                         # "anthropic:claude-opus-5-5"
+```
+
+- The stable prefix (system + context + frames) comes first so providers can cache it; `turns`
+  vary per call (generate / repair / regenerate).
+- Implementations: `AnthropicProvider`, `OpenAIProvider`, `FakeLLM` (tests; scripted responses).
+- Chain: tries providers in order; SDK retries handle 429/5xx; on exhaustion or non-retryable
+  error the next provider is tried; raises `AllProvidersFailed(stage="generation")`.

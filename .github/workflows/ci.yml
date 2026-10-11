@@ -1,0 +1,215 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Tool versions come from .mise.toml, the same file local development uses.
+      - uses: jdx/mise-action@v4
+
+      - name: Setup project
+        run: task setup:ci
+
+      - name: Lint
+        run: task lint
+
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: jdx/mise-action@v4
+
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg
+
+      - name: Setup project
+        run: task setup:ci
+
+      # The two suites must not fail their step: the summary, comment and badges
+      # below still have to run. The exit codes are captured and enforced by the
+      # gate step at the end.
+      - name: Run backend tests
+        run: |
+          set +e
+          task test:backend:ci
+          echo "BACKEND_EXIT=$?" >> "$GITHUB_ENV"
+
+      - name: Run frontend tests
+        run: |
+          set +e
+          task test:frontend:ci
+          echo "FRONTEND_EXIT=$?" >> "$GITHUB_ENV"
+
+      # Reads both Cobertura reports plus the test counts and writes the PR comment
+      # (coverage-summary.md) and the badge values to $GITHUB_ENV.
+      - name: Summarize results
+        shell: python
+        run: |
+          import json
+          import os
+          import xml.etree.ElementTree as ET
+
+
+          def color(pct):
+              return "green" if pct >= 80 else "yellow" if pct >= 50 else "red"
+
+
+          def message(passed, failed, skipped):
+              parts = [f"{n} {label}" for n, label in ((passed, "passed"), (failed, "failed"), (skipped, "skipped")) if n]
+              return ", ".join(parts) or "0 tests"
+
+
+          def coverage(path):
+              """Line coverage percent and per-package rows from a Cobertura report."""
+              if not os.path.exists(path):
+                  return 0.0, []
+              root = ET.parse(path).getroot()
+              rows = [(p.get("name"), float(p.get("line-rate", 0)) * 100) for p in root.iter("package")]
+              return float(root.get("line-rate", 0)) * 100, rows
+
+
+          # A missing or unparsable results file returns None: that counts as a failure
+          # (fail closed), never as "0 tests".
+          def backend_tests():
+              try:
+                  suite = next(ET.parse("backend/junit.xml").getroot().iter("testsuite"))
+                  total, skipped = int(suite.get("tests", 0)), int(suite.get("skipped", 0))
+                  failed = int(suite.get("failures", 0)) + int(suite.get("errors", 0))
+              except (OSError, ET.ParseError, StopIteration, ValueError):
+                  return None
+              return total - failed - skipped, failed, skipped
+
+
+          def frontend_tests():
+              try:
+                  with open("frontend/coverage/test-results.json") as f:
+                      data = json.load(f)
+                  return int(data["numPassedTests"]), int(data["numFailedTests"]), int(data["numPendingTests"])
+              except (OSError, ValueError, KeyError, TypeError):
+                  return None
+
+
+          stacks = {
+              "BE": ("Backend", backend_tests(), coverage("backend/coverage.xml"), "BACKEND_EXIT"),
+              "FE": ("Frontend", frontend_tests(), coverage("frontend/coverage/cobertura-coverage.xml"), "FRONTEND_EXIT"),
+          }
+
+          lines = ["## Test and coverage summary", "", "| Stack | Tests | Line coverage |", "| --- | --- | --- |"]
+          env = []
+          details = []
+          for key, (name, results, (pct, rows), exit_var) in stacks.items():
+              exit_code = int(os.environ.get(exit_var, "1"))
+              if results is None:
+                  passed = failed = skipped = 0
+                  test_msg = "no test report"
+              else:
+                  passed, failed, skipped = results
+                  test_msg = message(passed, failed, skipped)
+              failing = results is None or failed > 0 or exit_code != 0
+              test_color = "red" if failing else "yellow" if skipped else "green"
+              lines.append(f"| {name} | {test_msg} | {pct:.1f}% |")
+              env += [
+                  f"{key}_TEST_MSG={test_msg}",
+                  f"{key}_TEST_COLOR={test_color}",
+                  f"{key}_TESTS_FAILED={'true' if failing else 'false'}",
+                  f"{key}_COVERAGE={pct:.1f}",
+                  f"{key}_COVERAGE_COLOR={color(pct)}",
+              ]
+              if rows:
+                  details += ["", f"<details><summary>{name} packages</summary>", "", "| Package | Line coverage |", "| --- | --- |"]
+                  details += [f"| `{pkg}` | {rate:.1f}% |" for pkg, rate in rows]
+                  details += ["", "</details>"]
+
+          with open("coverage-summary.md", "w") as out:
+              out.write("\n".join(lines + details) + "\n")
+          with open(os.environ["GITHUB_ENV"], "a") as out:
+              out.write("\n".join(env) + "\n")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as out:
+              out.write(open("coverage-summary.md").read())
+
+      - name: Comment coverage on the pull request
+        if: github.event_name == 'pull_request'
+        # Pull requests from forks get a read-only token and cannot comment.
+        continue-on-error: true
+        uses: marocchino/sticky-pull-request-comment@v3
+        with:
+          recreate: true
+          path: coverage-summary.md
+
+      # Badges live in a gist and only reflect main. Needs the GIST_ID secret and a
+      # GIST_TOKEN secret (a token with the gist scope).
+      - name: Publish badges
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: actions/github-script@v9
+        env:
+          GIST_ID: ${{ secrets.GIST_ID }}
+        with:
+          github-token: ${{ secrets.GIST_TOKEN }}
+          script: |
+            const badge = (label, message, color) => ({
+              content: JSON.stringify({ schemaVersion: 1, label, message, color, cacheSeconds: 180 }, null, 2),
+            });
+            const e = process.env;
+            await github.rest.gists.update({
+              gist_id: e.GIST_ID,
+              files: {
+                'backend-tests.json': badge('Backend tests', e.BE_TEST_MSG, e.BE_TEST_COLOR),
+                'backend-coverage.json': badge('Backend coverage', `${e.BE_COVERAGE}%`, e.BE_COVERAGE_COLOR),
+                'frontend-tests.json': badge('Frontend tests', e.FE_TEST_MSG, e.FE_TEST_COLOR),
+                'frontend-coverage.json': badge('Frontend coverage', `${e.FE_COVERAGE}%`, e.FE_COVERAGE_COLOR),
+              },
+            });
+
+      # Runs last so red badges still publish.
+      - name: Check test and coverage gates
+        run: |
+          failed=0
+          for stack in BE FE; do
+            tests_failed="${stack}_TESTS_FAILED"
+            coverage="${stack}_COVERAGE"
+            if [ "${!tests_failed}" = "true" ]; then
+              echo "::error::${stack} tests failed"
+              failed=1
+            fi
+            if [ "$(awk -v c="${!coverage}" 'BEGIN { print (c < 80) }')" = "1" ]; then
+              echo "::error::${stack} line coverage ${!coverage}% is below the 80% floor"
+              failed=1
+            fi
+          done
+          exit "$failed"
+
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Scan the whole history, not just the tip.
+          fetch-depth: 0
+
+      - uses: jdx/mise-action@v4
+        with:
+          install_args: gitleaks
+
+      - name: Scan history for secrets
+        run: gitleaks detect --redact --verbose

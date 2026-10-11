@@ -1,0 +1,29 @@
+# Secrets and personal data guard
+.env
+.denylist
+
+# Runtime data
+data/
+
+# Python
+.venv/
+__pycache__/
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+.coverage
+coverage/
+coverage.xml
+coverage.json
+junit.xml
+
+# Node
+node_modules/
+
+# Build output
+frontend/dist/
+backend/src/videokit/static/
+
+# Playwright
+test-results/
+playwright-report/

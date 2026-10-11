@@ -1,0 +1,71 @@
+version: 2
+updates:
+  # Backend (uv). Minor and patch updates share one PR; majors get their own.
+  - package-ecosystem: uv
+    directory: "/backend"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: build
+      include: scope
+    groups:
+      backend:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
+  # Frontend (npm). Same grouping as the backend.
+  - package-ecosystem: npm
+    directory: "/frontend"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: build
+      include: scope
+    groups:
+      frontend:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
+  # Base images in the Dockerfile.
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: build
+      include: scope
+
+  # GitHub Actions used by the workflows.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: ci
+      include: scope
+    # Every action is pinned to a moving major tag (@vN), which already receives
+    # minor and patch releases. Without this ignore, Dependabot would "upgrade"
+    # `@v4` to a frozen `@v4.x.y`, losing that. Only major bumps are proposed.
+    # If an action is ever pinned to an exact version, replace the wildcard with
+    # an explicit list of the actions that are still on moving tags.
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-minor"
+          - "version-update:semver-patch"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+        update-types:
+          - major

@@ -1,0 +1,56 @@
+[project]
+name = "videokit"
+version = "0.1.0"
+description = "Self-hosted web app hosting video tools."
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "pydantic",
+    "pydantic-settings",
+    "anthropic",
+    "openai",
+    "faster-whisper",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "pytest-cov",
+    "httpx",
+    "ruff",
+    "mypy",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/videokit"]
+
+[tool.ruff]
+line-length = 120
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC"]
+
+[tool.mypy]
+strict = true
+files = ["src/videokit", "tests", "../scripts"]
+mypy_path = "src"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = ["live: tests that call real providers (need API keys/network)"]
+addopts = "-m 'not live' --cov=videokit --cov-report=term-missing"
+
+[tool.coverage.run]
+source = ["videokit"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 80

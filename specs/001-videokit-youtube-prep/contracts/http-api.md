@@ -1,0 +1,88 @@
+# HTTP API Contract
+
+Base path `/api`. JSON unless noted. Errors: `{"error": {"code": "<snake_case>", "message": "<user-safe text>"}}`
+with an appropriate status; messages never include secrets, transcript text or stack traces
+(FR-016). FastAPI also serves its generated OpenAPI at `/api/openapi.json`.
+
+## Platform
+
+### `GET /api/health`
+`200` always while the process runs (FR-013).
+```json
+{
+  "status": "ok",
+  "providers": {
+    "transcription": [{"name": "local", "ready": true, "detail": "device=cuda"},
+                      {"name": "openai", "ready": true, "detail": "model=whisper-1"}],
+    "llm": [{"name": "anthropic", "ready": true, "detail": "model=claude-opus-5-5"},
+            {"name": "openai", "ready": false, "detail": "missing OPENAI_API_KEY"}]
+  },
+  "queue_length": 1
+}
+```
+(A provider that is listed but not ready prevents startup, FR-012; `ready: false` appears only for
+transient conditions, e.g. local model still downloading.)
+
+### `GET /api/config`
+```json
+{"max_upload_bytes": 10737418240, "upload_chunk_bytes": 52428800, "job_ttl_hours": 24}
+```
+
+### `GET /api/tools`
+```json
+[{"id": "youtube_prep", "name": "YouTube Prep", "description": "Title, description, tags and chapters for a video."}]
+```
+
+### `POST /api/jobs`
+Creates a job in `uploading` state and its upload resource.
+Request: `{"tool_id": "youtube_prep", "size": 1234567890}`
+- `201` → `{"job_id": "<id>", "upload_url": "/api/uploads/<id>"}`
+- `404 unknown_tool`, `413 file_too_large` (size > max, FR-004), `422 invalid_request`
+
+### `GET /api/jobs/{job_id}`
+```json
+{
+  "job_id": "<id>",
+  "tool_id": "youtube_prep",
+  "state": "uploading|queued|extracting|transcribing|generating|done|failed|cancelled",
+  "upload": {"offset": 0, "length": 1234567890},
+  "queue_position": 2,
+  "failure_reason": null,
+  "expires_at": "2026-10-12T10:00:00Z",
+  "duration_s": 1234.5,
+  "language": "en",
+  "providers": {"transcription": "local", "llm": "anthropic:claude-opus-5-5"},
+  "usage": {"input_tokens": 51234, "output_tokens": 5120, "cache_read_tokens": 0,
+            "cache_write_tokens": 48000, "audio_minutes": 0, "cost_usd": 0.31},
+  "result": null
+}
+```
+`result` is the tool's result object (for YouTube Prep: `YouTubePrepResult` from data-model.md)
+when `state == "done"`. `404 job_not_found` for unknown or purged ids (UI shows "expired").
+Polled every 2 s by the UI while not terminal.
+
+### `POST /api/jobs/{job_id}/cancel`
+- `202` → job state after the request (`cancelled`, or the running state with cancellation
+  pending until the stage boundary, FR-037).
+- `409 not_cancellable` when `done|failed|cancelled`.
+
+## Uploads (tus 1.0.0 core)
+
+All responses include `Tus-Resumable: 1.0.0`. Requests must send `Tus-Resumable: 1.0.0`
+(`412` otherwise).
+
+| Method | Path | Behavior |
+|---|---|---|
+| `OPTIONS` | `/api/uploads/{job_id}` | `204`, `Tus-Version: 1.0.0`, `Tus-Max-Size` |
+| `HEAD` | `/api/uploads/{job_id}` | `200`, `Upload-Offset`, `Upload-Length`, `Cache-Control: no-store`; `404` if job unknown or not `uploading` |
+| `PATCH` | `/api/uploads/{job_id}` | `Content-Type: application/offset+octet-stream`, `Upload-Offset` must equal stored offset (`409` otherwise); body ≤ 50 MB (`413`); appends; `204` with new `Upload-Offset`. When offset reaches length → ffprobe validation → `queued` or `failed` (`not_a_video`) |
+
+## YouTube Prep tool (`/api/tools/youtube_prep`)
+
+### `POST /api/tools/youtube_prep/jobs/{job_id}/regenerate`
+Request: `{"section": "cover_titles|title|description|tags|hashtags|chapters", "hint": "optional, ≤ 500 chars"}`
+- `200` → full updated `YouTubePrepResult` (only `section` changed) and updated `usage`
+  (as in `GET /api/jobs/{id}`: `{"result": {...}, "usage": {...}}`).
+- `409 job_not_done`, `409 regeneration_in_progress` (per-job lock), `404 job_not_found`
+  (incl. expired, US2-AS4), `422 invalid_section`, `502 generation_failed` (all providers failed or
+  output still invalid after repair; previous section kept).

@@ -1,0 +1,8 @@
+[tools]
+python = "3.13"
+uv = "latest"
+node = "24"
+task = "latest"
+gitleaks = "latest"
+hadolint = "latest"
+pre-commit = "latest"

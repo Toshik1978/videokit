@@ -1,0 +1,5 @@
+# Beads Project Configuration
+# issue_prefix: vk
+# default_priority: 2
+# default_type: task
+actor: videokit

@@ -1,0 +1,92 @@
+# See https://pre-commit.com for more information.
+#
+# Plain `pre-commit install` only wires the pre-commit stage, which would leave
+# every other hook below dormant. Declaring the hook types here means one
+# `pre-commit install` wires all stages for every contributor.
+default_install_hook_types: [pre-commit, pre-push, commit-msg, post-checkout, post-merge, post-rewrite]
+
+repos:
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v4.4.0
+    hooks:
+      # Enforces Conventional Commits on every commit message. CI re-checks the
+      # same rule (commit-lint.yml), so a contributor who never installed the
+      # hooks is still caught before merge.
+      - id: conventional-pre-commit
+        stages:
+          - commit-msg
+
+  - repo: local
+    hooks:
+      # Pre-commit stage: seconds only. Secrets and personal strings must be
+      # stopped before they enter history, so they cannot wait for pre-push.
+      #
+      # Staged paths are relative to the repo root; ruff runs from backend/ (its
+      # config lives there), so each path is prefixed with ../.
+      - id: ruff-check
+        name: ruff check
+        entry: bash -c 'cd backend && uv run ruff check "${@/#/../}"' --
+        language: system
+        files: ^(backend|scripts)/.*\.py$
+      - id: ruff-format
+        name: ruff format --check
+        entry: bash -c 'cd backend && uv run ruff format --check "${@/#/../}"' --
+        language: system
+        files: ^(backend|scripts)/.*\.py$
+      - id: gitleaks
+        name: gitleaks (staged)
+        entry: gitleaks protect --staged --redact --verbose
+        language: system
+        pass_filenames: false
+        always_run: true
+      - id: check-denylist
+        name: personal-data denylist
+        entry: python scripts/check_denylist.py
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      # Pre-push stage: the full gates. Keeping them off pre-commit avoids the
+      # `--no-verify` habit.
+      - id: task-lint
+        name: task lint
+        entry: task lint
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages:
+          - pre-push
+      - id: task-test
+        name: task test
+        entry: task test
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages:
+          - pre-push
+
+      # Stops a push from a clone that would line-merge the beads tracker: git
+      # falls back silently when the `beads` merge driver is not configured.
+      # Local by design; CI has no br.
+      - id: beads-setup
+        name: beads merge driver configured
+        entry: ./tools/beads/check-setup.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages:
+          - pre-push
+
+      # The beads DB is per clone while issues.jsonl is per branch, so it must
+      # follow the checked-out branch. Warns and skips when the DB holds
+      # unflushed changes, which --rebuild would drop.
+      - id: beads-follow-branch
+        name: beads DB follows the branch
+        entry: ./tools/beads/follow-branch.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages:
+          - post-checkout
+          - post-merge
+          - post-rewrite

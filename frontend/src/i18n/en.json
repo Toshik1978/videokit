@@ -1,0 +1,17 @@
+{
+  "app": {
+    "title": "videokit"
+  },
+  "home": {
+    "heading": "Your tools",
+    "empty": "No tools are installed yet."
+  },
+  "notFound": {
+    "title": "Page not found",
+    "body": "The page you are looking for does not exist.",
+    "back": "Back to home"
+  },
+  "errors": {
+    "generic": "Something went wrong. Please try again."
+  }
+}
