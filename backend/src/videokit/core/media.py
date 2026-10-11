@@ -147,25 +147,22 @@ def _extract_audio(source: Path, job_dir: Path) -> None:
 
 
 def _extract_frames(source: Path, job_dir: Path, times: list[float], width: int) -> list[Frame]:
-    """Extract one JPEG per time. Frames are optional evidence, so a time that yields no frame is skipped;
-    only a source where every attempt fails raises (``CalledProcessError``)."""
+    """Extract one JPEG per time. Frames are optional evidence, so a time that yields no frame is skipped,
+    whether ffmpeg fails (newer releases) or exits cleanly without writing a file (older ones). The caller
+    decides what an empty result means."""
     frames_dir = job_dir / "frames"
     frames_dir.mkdir(exist_ok=True)
     frames: list[Frame] = []
-    failure: subprocess.CalledProcessError | None = None
     for t in times:
         rel = f"frames/{round(t * 1000)}.jpg"
         cmd = ["ffmpeg", "-v", "error", "-y", "-ss", f"{t:.3f}", "-i", str(source)]
         try:
             _run([*cmd, "-frames:v", "1", "-vf", f"scale={width}:-2", "-q:v", "3", str(job_dir / rel)])
-        except subprocess.CalledProcessError as exc:
-            failure = exc
+        except subprocess.CalledProcessError:
             (job_dir / rel).unlink(missing_ok=True)
             continue
         if (job_dir / rel).is_file():
             frames.append(Frame(t=t, file=rel))
-    if not frames and failure is not None:
-        raise failure
     return frames
 
 
@@ -186,6 +183,9 @@ class MediaService:
             frames = _extract_frames(source, job_dir, times, self._settings.frame_width)
         except subprocess.CalledProcessError:
             raise AppError("extraction_failed", "The video could not be processed.", 500) from None
+        if not frames:
+            # Frame 0 is always requested, so no frame at all means the video stream is unreadable.
+            raise AppError("extraction_failed", "The video could not be processed.", 500)
         media = MediaArtifacts(duration_s=info.duration_s, has_audio=info.has_audio, frames=frames)
         (job_dir / MEDIA_JSON).write_text(media.model_dump_json(indent=2), encoding="utf-8")
         source.unlink()

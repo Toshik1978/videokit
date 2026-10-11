@@ -241,3 +241,22 @@ def test_no_extractable_frame_still_fails_extraction(
     with pytest.raises(AppError) as exc:
         MediaService(_settings(tmp_path)).extract(job)
     assert exc.value.code == "extraction_failed"
+
+
+def test_no_frame_written_fails_extraction_even_when_ffmpeg_exits_cleanly(
+    tmp_path: Path, make_video: MakeVideo, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Older ffmpeg releases exit 0 without writing a file when the seek lands past the last frame;
+    # newer ones exit non-zero. Either way, a job with no frame at all must fail the same way.
+    real_run = media_module._run
+
+    def run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+        if "-frames:v" in cmd:
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        return real_run(cmd)
+
+    monkeypatch.setattr(media_module, "_run", run)
+    job = _job_dir(tmp_path, make_video())
+    with pytest.raises(AppError) as exc:
+        MediaService(_settings(tmp_path)).extract(job)
+    assert exc.value.code == "extraction_failed"
