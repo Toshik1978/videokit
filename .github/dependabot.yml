@@ -9,6 +9,13 @@ updates:
     commit-message:
       prefix: build
       include: scope
+    ignore:
+      # Pinned below 19: faster-whisper still passes `metadata_errors` to `av.open()`,
+      # which av 19 removed (backend/tests/unit/test_whisper_audio_compat.py guards it).
+      # Revisit once faster-whisper supports av 19.
+      - dependency-name: "av"
+        update-types:
+          - "version-update:semver-major"
     groups:
       backend:
         patterns:
@@ -26,6 +33,13 @@ updates:
     commit-message:
       prefix: build
       include: scope
+    ignore:
+      # Pinned to 6.x: nothing here invokes tsc. vue-tsc and typescript-eslint consume the
+      # TypeScript programmatic API, which 7.0 dropped and 7.1 is expected to restore.
+      # Revisit once Volar and typescript-eslint support it.
+      - dependency-name: "typescript"
+        update-types:
+          - "version-update:semver-major"
     groups:
       frontend:
         patterns:
@@ -52,6 +66,11 @@ updates:
         update-types:
           - "version-update:semver-major"
           - "version-update:semver-minor"
+      # The frontend build stage stays on a Node LTS line, the same one .mise.toml pins;
+      # both move together by hand to the next LTS (odd majors never become LTS).
+      - dependency-name: "node"
+        update-types:
+          - "version-update:semver-major"
 
   # GitHub Actions used by the workflows.
   - package-ecosystem: github-actions

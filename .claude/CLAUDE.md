@@ -120,14 +120,19 @@ Dockerfile, compose.yaml, scripts/{docker_smoke.sh,image_size_guard.sh,gpu_check
 
 ## Gotchas
 
-- `faster-whisper` is incompatible with `av` 19 — keep the `av<19` pin (see `pyproject.toml`
-  comment and `tests/unit/test_whisper_audio_compat.py`) until faster-whisper supports it.
+- `faster-whisper` is incompatible with `av` 19 (it still passes `metadata_errors` to `av.open()`)
+  — keep the `av<19` pin (see `pyproject.toml` comment and `tests/unit/test_whisper_audio_compat.py`)
+  until faster-whisper supports it; Dependabot ignores `av` majors.
 - The Python version lives in four places — `.mise.toml`, `backend/.python-version`,
   `requires-python` and the Dockerfile's `python:X.Y-slim` tag (now `python:3.14-slim`) — and
   Dependabot bumps none of them (it ignores minor/major of the `python` image).
   Before moving to a new minor, check that `ctranslate2`, `onnxruntime` and `av` ship wheels for it.
   The GPU library package must stay `-cu12` (`nvidia-cublas-cu12`) while `ctranslate2` links
-  `libcublas.so.12`. TypeScript stays on 6.x until `typescript-eslint` accepts 7.
+  `libcublas.so.12`.
+- TypeScript stays on 6.x: vue-tsc and typescript-eslint use the TypeScript programmatic API,
+  which 7.0 dropped (7.1 is expected to restore it); Dependabot ignores `typescript` majors.
+- Node stays on an LTS line, pinned in `.mise.toml` and the Dockerfile's `node:N-slim` build stage;
+  Dependabot ignores `node` image majors, so move both together by hand to the next LTS.
 - The image ships only cuBLAS for the GPU (ctranslate2 loads nothing else — research R2), from pip
   and registered via `ldconfig`. Run `task docker:gpu-check` after any `ctranslate2` /
   `faster-whisper` upgrade. The compressed-size limit (1.25 GB) lives in
