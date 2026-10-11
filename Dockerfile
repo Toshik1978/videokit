@@ -5,7 +5,7 @@
 FROM ghcr.io/astral-sh/uv:0.13 AS uv
 
 # Stage 1: build the SPA.
-FROM node:24-slim AS frontend
+FROM node:25-slim AS frontend
 WORKDIR /build
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
