@@ -245,11 +245,11 @@ returns the persisted offset and the upload completes from there.
 **Independent Test**: Playwright mobile emulation runs the full flow with no horizontal scroll and
 ≥ 44 px touch targets; manifest is valid.
 
-- [ ] T032 [P] [US6] Make videokit installable via `frontend/public/manifest.webmanifest`, `frontend/public/icons/` and `frontend/index.html`
+- [x] T032 [P] [US6] Make videokit installable via `frontend/public/manifest.webmanifest`, `frontend/public/icons/` and `frontend/index.html`
   - Manifest: name "videokit", short_name, `display: standalone`, theme/background colors, icons 192 and 512 px generated from a simple original SVG.
   - `index.html`: manifest link, `apple-touch-icon`, `apple-mobile-web-app-capable` meta.
   - Tests: `frontend/tests/unit/manifest.spec.ts` (required fields, icon files exist).
-- [ ] T033 [US6] Add Playwright e2e in `frontend/playwright.config.ts`, `frontend/tests/e2e/flow.spec.ts`, `backend/tests/e2e_app.py`
+- [x] T033 [US6] Add Playwright e2e in `frontend/playwright.config.ts`, `frontend/tests/e2e/flow.spec.ts`, `backend/tests/e2e_app.py`
   - Projects: Desktop Chrome, iPhone (WebKit), Pixel (Chromium).
   - `backend/tests/e2e_app.py`: `create_app` with `FakeTranscriber`/`FakeLLM` from `backend/tests/fakes_transcribe.py` and `backend/tests/fakes_llm.py`, temp `DATA_DIR`, built SPA; tiny ffmpeg-generated video.
   - Assert: upload → done → edit → copy (fallback over HTTP); no horizontal overflow at 360 px on every page; interactive elements ≥ 44×44 px; home page to all six sections copied in ≤ 9 clicks excluding file picker and waiting (SC-005, SC-010).
