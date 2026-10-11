@@ -4,6 +4,8 @@
 # Before that, as the image's user and without any keys, check that the caches the local
 # transcription stack writes to (Hugging Face hub/xet, XDG) resolve to a writable place under /data;
 # a cache under the read-only home directory makes every local transcription job fail.
+# Also generate tiny clips in the codecs users upload (H.264, HEVC, VP9, AV1, MP3 audio) with the
+# image's own ffmpeg and run each through the app's media code (probe, audio and frame extraction).
 # Then repeat the health/SPA checks with the container running as the invoking uid:gid and a
 # bind-mounted temp directory as /data (how Compose and `task docker:run` run it), and verify the
 # SQLite DB and caches were written there, owned by that uid.
@@ -24,6 +26,42 @@ for path in (constants.HF_HOME, constants.HF_HUB_CACHE, os.environ.get("XDG_CACH
     (pathlib.Path(path) / ".write-test").write_text("ok")
 print("cache dirs writable")
 ' || { echo "model cache directories are not writable for the container user" >&2; exit 1; }
+
+docker run --rm --entrypoint python "$image" -c '
+import shutil, subprocess, sys, tempfile
+from pathlib import Path
+
+from videokit.core.config import Settings
+from videokit.core.media import SOURCE_NAME, MediaService
+
+encoders = subprocess.run(["ffmpeg", "-hide_banner", "-encoders"], capture_output=True, text=True).stdout
+av1 = next((e for e in ("libsvtav1", "libaom-av1") if f" {e} " in encoders), "libsvtav1")
+clips = {
+    "h264-aac.mp4": ["-c:v", "libx264", "-c:a", "aac"],
+    "hevc-aac.mp4": ["-c:v", "libx265", "-c:a", "aac"],
+    "vp9-opus.webm": ["-c:v", "libvpx-vp9", "-c:a", "libopus"],
+    "av1-opus.webm": ["-c:v", av1, "-c:a", "libopus"],
+    "h264-mp3.mkv": ["-c:v", "libx264", "-c:a", "libmp3lame"],
+}
+source = ["-f", "lavfi", "-i", "testsrc=duration=3:size=320x240:rate=15",
+          "-f", "lavfi", "-i", "sine=frequency=440:duration=3"]
+settings = Settings(_env_file=None)
+with tempfile.TemporaryDirectory() as tmp:
+    for name, codecs in clips.items():
+        job_dir = Path(tmp) / name
+        job_dir.mkdir()
+        try:
+            subprocess.run(["ffmpeg", "-v", "error", "-y", *source, *codecs, "-shortest", str(job_dir / name)],
+                           check=True, capture_output=True)
+            shutil.move(job_dir / name, job_dir / SOURCE_NAME)
+            media = MediaService(settings).extract(job_dir)
+            assert media.has_audio and media.frames
+            assert (job_dir / "audio.wav").stat().st_size > 0 and (job_dir / "audio.mp3").stat().st_size > 0
+        except Exception:
+            print(f"codec check failed: {name}", file=sys.stderr)
+            sys.exit(1)
+print("codecs ok")
+' || { echo "the image cannot decode every common video codec" >&2; exit 1; }
 
 name_bind="${name}-bind"
 bind_dir="$(mktemp -d)"

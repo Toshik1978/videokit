@@ -252,6 +252,9 @@ jobs:
       - name: Container smoke test
         run: scripts/docker_smoke.sh videokit:ci
 
+      - name: Image size guard
+        run: scripts/image_size_guard.sh videokit:ci
+
   secrets:
     runs-on: ubuntu-latest
     steps:

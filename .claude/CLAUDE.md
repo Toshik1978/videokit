@@ -38,6 +38,8 @@ cd backend && uv run pytest -m live   # opt-in real-provider smoke tests (needs 
 gitleaks detect --redact        # full-history secret scan (CI does the same; see .gitleaks.toml)
 docker build -t videokit:ci . && scripts/docker_smoke.sh videokit:ci
 task docker:build && task docker:run   # run the image directly with ./.data bind-mounted
+task docker:size                # compressed image size vs the limit (scripts/image_size_guard.sh)
+task docker:gpu-check           # Whisper on the GPU inside videokit:local (needs a GPU host)
 ```
 
 Git hooks: `pre-commit install` (one call wires commit-msg, pre-commit, pre-push and the beads
@@ -108,10 +110,15 @@ Dockerfile, compose.yaml, scripts/docker_smoke.sh, .github/workflows/{ci,commit-
 - `faster-whisper` is incompatible with `av` 19 — keep the `av<19` pin (see `pyproject.toml`
   comment and `tests/unit/test_whisper_audio_compat.py`) until faster-whisper supports it.
 - The Python version lives in four places — `.mise.toml`, `backend/.python-version`,
-  `requires-python` and the Dockerfile's `uv python install` — and Dependabot bumps none of them.
+  `requires-python` and the Dockerfile's `python:X.Y-slim` tag (now `python:3.14-slim`) — and
+  Dependabot bumps none of them (it ignores minor/major of the `python` image).
   Before moving to a new minor, check that `ctranslate2`, `onnxruntime` and `av` ship wheels for it.
-  The CUDA base image must stay on 12.x while `ctranslate2` links `libcublas.so.12`. TypeScript
-  stays on 6.x until `typescript-eslint` accepts 7.
+  The GPU library package must stay `-cu12` (`nvidia-cublas-cu12`) while `ctranslate2` links
+  `libcublas.so.12`. TypeScript stays on 6.x until `typescript-eslint` accepts 7.
+- The image ships only cuBLAS for the GPU (ctranslate2 loads nothing else — research R2), from pip
+  and registered via `ldconfig`. Run `task docker:gpu-check` after any `ctranslate2` /
+  `faster-whisper` upgrade. The compressed-size limit (1.25 GB) lives in
+  `scripts/image_size_guard.sh` (`task docker:size`, also a CI step).
 - The Docker image defaults to uid 10001 with a read-only `/app`; Hugging Face/XDG caches point to
   `/data` (`HF_HOME`, `XDG_CACHE_HOME`, set after the build steps). Compose and `task docker:run`
   instead run it as the host uid:gid with `./.data` (gitignored and in `.dockerignore`) bind

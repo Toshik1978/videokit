@@ -35,6 +35,10 @@ updates:
           - patch
 
   # Base images in the Dockerfile.
+  # The Python minor version moves together in .mise.toml, backend/.python-version,
+  # requires-python and the Dockerfile, only after checking wheel availability for
+  # ctranslate2, onnxruntime and av. Dependabot must not propose minor or major
+  # Python bumps on its own; patch releases still arrive as proposals.
   - package-ecosystem: docker
     directory: "/"
     schedule:
@@ -43,6 +47,11 @@ updates:
     commit-message:
       prefix: build
       include: scope
+    ignore:
+      - dependency-name: "python"
+        update-types:
+          - "version-update:semver-major"
+          - "version-update:semver-minor"
 
   # GitHub Actions used by the workflows.
   - package-ecosystem: github-actions

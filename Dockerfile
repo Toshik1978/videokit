@@ -8,18 +8,27 @@ RUN npm ci
 COPY frontend/ ./
 RUN npm run build
 
-# Stage 2: runtime. The CUDA/cuDNN runtime lets faster-whisper use a GPU when one is passed
-# through; the same image runs on CPU-only hosts.
-FROM nvidia/cuda:12.9.2-cudnn-runtime-ubuntu24.04
+# Stage 2: runtime. One image for CPU and GPU hosts: cuBLAS comes from pip (nvidia-cublas-cu12) and
+# is registered with ldconfig; the host driver is injected by the NVIDIA container toolkit when a
+# GPU is passed through. Without a GPU, faster-whisper simply runs on the CPU.
+FROM python:3.14-slim
+
+LABEL org.opencontainers.image.title="VideoKit" \
+      org.opencontainers.image.description="Self-hosted video tools in one container, starting with YouTube Prep." \
+      org.opencontainers.image.authors="Anton Krivenko" \
+      org.opencontainers.image.licenses="MIT"
 
 ENV DEBIAN_FRONTEND=noninteractive \
-    UV_PYTHON_INSTALL_DIR=/opt/python \
+    UV_PYTHON_DOWNLOADS=never \
+    UV_PYTHON=/usr/local/bin/python3 \
     UV_PROJECT_ENVIRONMENT=/app/.venv \
     UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
     PATH=/app/.venv/bin:$PATH \
     DATA_DIR=/data \
-    PORT=8000
+    PORT=8000 \
+    NVIDIA_VISIBLE_DEVICES=all \
+    NVIDIA_DRIVER_CAPABILITIES=compute,utility
 
 # hadolint ignore=DL3008
 RUN apt-get update \
@@ -32,11 +41,13 @@ WORKDIR /app
 
 # Dependencies first so this layer is cached until the lockfile changes.
 COPY backend/pyproject.toml backend/uv.lock ./
-RUN uv python install 3.14 \
-    && uv sync --locked --no-dev --no-install-project
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --locked --no-dev --no-install-project
+
+# Make the pip-installed CUDA libraries (cuBLAS) visible to the dynamic loader.
+RUN find /app/.venv -path "*/nvidia/*/lib" -type d > /etc/ld.so.conf.d/nvidia.conf && ldconfig
 
 COPY backend/src ./src
-RUN uv sync --locked --no-dev
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --locked --no-dev
 
 COPY --from=frontend /build/dist ./src/videokit/static
 
@@ -44,7 +55,7 @@ COPY --from=frontend /build/dist ./src/videokit/static
 RUN useradd --uid 10001 --user-group --no-create-home --home-dir /app videokit \
     && mkdir -p /data \
     && chown videokit:videokit /data \
-    && chmod -R a+rX /app /opt/python
+    && chmod -R a+rX /app
 
 # The user's home (/app) is read-only, so runtime caches (Hugging Face hub/xet, XDG) live in the /data
 # volume. Set only here, after the build steps, so build-time tools (uv) do not write into /data.
