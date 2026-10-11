@@ -291,7 +291,7 @@ refuses to start naming the variable; health lists providers; footer shows provi
 **Independent Test**: Home shows the YouTube Prep card from `GET /api/tools`; a test-only tool also
 appears without shared-code changes.
 
-- [ ] T038 [US5] Implement the home page in `frontend/src/pages/HomePage.vue` and `frontend/src/components/ToolCard.vue`
+- [x] T038 [US5] Implement the home page in `frontend/src/pages/HomePage.vue` and `frontend/src/components/ToolCard.vue`
   - Fetch `GET /api/tools`; render a card (name, description) per tool that has a matching frontend tool module, linking to its route; empty and error states; route `/`.
   - Tests: `frontend/tests/unit/home.spec.ts` incl. a test-only tool appearing.
 

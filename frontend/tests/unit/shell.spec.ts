@@ -1,4 +1,4 @@
-import { mount } from '@vue/test-utils';
+import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createMemoryHistory } from 'vue-router';
 
@@ -85,11 +85,18 @@ describe('App', () => {
     expect(wrapper.text()).toContain(en.notFound.title);
   });
 
-  it('renders the home placeholder', async () => {
+  it('renders the empty home page when no tools are available', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(new Response('[]', { headers: { 'Content-Type': 'application/json' } })),
+    );
     const router = createAppRouter(createMemoryHistory(), []);
     await router.push('/');
     await router.isReady();
     const wrapper = mount(App, { global: { plugins: [router, createI18nInstance()] } });
+    await flushPromises();
     expect(wrapper.text()).toContain(en.home.empty);
   });
 });

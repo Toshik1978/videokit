@@ -4,6 +4,7 @@
   },
   "home": {
     "heading": "Your tools",
+    "loading": "Loading tools...",
     "empty": "No tools are installed yet."
   },
   "notFound": {
