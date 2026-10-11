@@ -7,16 +7,17 @@ package (default `videokit.tools`) that expose a module-level `TOOL`.
 import importlib
 import pkgutil
 import re
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from fastapi import APIRouter
 
 if TYPE_CHECKING:
-    # Tightened by later tasks once these types exist.
-    Settings = Any
-    MediaService = Any
-    Transcriber = Any
-    LLMClient = Any
+    from videokit.core.config import Settings
+    from videokit.core.llm.base import Usage
+    from videokit.core.llm.chain import LLMChain
+    from videokit.core.media import MediaService
+    from videokit.core.transcribe.chain import TranscriberChain
 
 TOOL_ID_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 
@@ -30,9 +31,27 @@ class RegistryError(Exception):
 
 
 class JobHandle(Protocol):
-    """What a tool's `run` may do to the job it is processing."""
+    """What a tool's `run` may do to the job it is processing. Usable from worker threads."""
 
-    def set_state(self, state: str, **fields: Any) -> None: ...
+    @property
+    def id(self) -> str: ...
+
+    @property
+    def dir(self) -> Path:
+        """The job directory `DATA_DIR/jobs/<id>/`."""
+        ...
+
+    def set_state(self, state: str, **fields: Any) -> None:
+        """Move to the next stage; `fields` (`duration_s`, `language`, `no_speech`, `providers`) are recorded too."""
+        ...
+
+    def record(self, **fields: Any) -> None:
+        """Record job info without a state change (`duration_s`, `language`, `no_speech`, `providers`)."""
+        ...
+
+    def add_usage(self, usage: "Usage", cost_usd: float | None) -> None:
+        """Add one call's usage and estimated cost to the job's totals; `None` makes the total cost unknown."""
+        ...
 
     def check_cancelled(self) -> None:
         """Raise `JobCancelled` if cancellation was requested; call at each stage boundary."""
@@ -43,8 +62,8 @@ class CoreContext(Protocol):
     """What tools may use from core."""
 
     media: "MediaService"
-    transcriber: "Transcriber"
-    llm: "LLMClient"
+    transcriber: "TranscriberChain"  # the fallback chain, not a single provider
+    llm: "LLMChain"  # the fallback chain
     settings: "Settings"
 
 

@@ -5,17 +5,21 @@ import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
 
 from fastapi import FastAPI
 from fastapi.responses import FileResponse, Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from videokit.core import api
+from videokit.core import api, uploads
 from videokit.core.config import ConfigurationError, Settings, load_settings, validate
 from videokit.core.errors import configure_logging, install_error_handlers, logger
 from videokit.core.jobs import JobStore
+from videokit.core.llm import AnthropicProvider, LLMChain, LLMProvider
+from videokit.core.media import MediaService
+from videokit.core.purge import run_purge_loop
 from videokit.core.registry import discover_tools
+from videokit.core.transcribe import LocalWhisperTranscriber, Transcriber, TranscriberChain
+from videokit.core.worker import Context, Providers, Worker
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -32,6 +36,33 @@ def _fail(problems: list[str]) -> StartupError:
     for problem in problems:
         print(f"Configuration error: {problem}", file=sys.stderr)
     return StartupError(problems)
+
+
+def _build_providers(settings: Settings) -> Providers:
+    """Provider chains in configured order. Constructors are cheap: no model load, no network call.
+
+    Only the providers implemented so far are built; `openai` entries are skipped (added with T036).
+    """
+    transcribers: list[Transcriber] = []
+    for name in settings.transcribe_providers:
+        if name == "local":
+            transcribers.append(LocalWhisperTranscriber(settings))
+        else:
+            logger.warning("Transcription provider %r is not available yet; skipping it", name)
+    llms: list[LLMProvider] = []
+    for name in settings.llm_providers:
+        if name == "anthropic":
+            llms.append(AnthropicProvider(settings))
+        else:
+            logger.warning("LLM provider %r is not available yet; skipping it", name)
+    problems = [
+        f"{var} lists no provider available in this version"
+        for var, chain in (("TRANSCRIBE_PROVIDERS", transcribers), ("LLM_PROVIDERS", llms))
+        if not chain
+    ]
+    if problems:
+        raise _fail(problems)
+    return Providers(transcriber=TranscriberChain(transcribers), llm=LLMChain(llms))
 
 
 def _mount_spa(app: FastAPI, static_dir: Path) -> None:
@@ -56,12 +87,12 @@ def _mount_spa(app: FastAPI, static_dir: Path) -> None:
 
 def create_app(
     settings: Settings,
-    providers: Any = None,
+    providers: Providers | None = None,
     *,
     tools_package: str = "videokit.tools",
     static_dir: Path = STATIC_DIR,
 ) -> FastAPI:
-    """Build the application. `providers` is reserved for injecting provider chains (built in later tasks)."""
+    """Build the application. Without `providers`, the chains are built from settings at startup."""
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -77,18 +108,37 @@ def create_app(
                 logger.info("Marked %d interrupted job(s) as failed after restart", recovered)
             return store
 
+        if app.state.providers is None:
+            app.state.providers = _build_providers(settings)
+        chains: Providers = app.state.providers
         app.state.store = await asyncio.to_thread(open_store)
         app.state.provider_status = api.provider_status(settings, ready=True)
-        yield
+        ctx = Context(media=MediaService(settings), transcriber=chains.transcriber, llm=chains.llm, settings=settings)
+        worker = app.state.worker = Worker(app.state.store, app.state.tools, ctx)
+        worker.start()
+        purge_task = asyncio.create_task(run_purge_loop(app.state.store))
+        try:
+            yield
+        finally:
+            purge_task.cancel()
+            await asyncio.gather(purge_task, return_exceptions=True)
+            await worker.stop()
 
     app = FastAPI(title="videokit", lifespan=lifespan, openapi_url="/api/openapi.json", docs_url=None, redoc_url=None)
     app.state.settings = settings
     app.state.providers = providers
+
+    async def on_upload_complete(job_id: str) -> None:
+        await app.state.worker.on_upload_complete(job_id)
+
+    app.state.on_upload_complete = on_upload_complete
     install_error_handlers(app)
+    app.add_middleware(uploads.TusResumableMiddleware)
 
     # Tools are mounted at creation (not in the lifespan) so their routes precede the SPA catch-all.
     app.state.tools = discover_tools(tools_package)
     app.include_router(api.router)
+    app.include_router(uploads.router, prefix="/api")
     for tool in app.state.tools.values():
         app.include_router(tool.router, prefix=f"/api/tools/{tool.id}")
 

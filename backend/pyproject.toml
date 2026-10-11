@@ -44,6 +44,7 @@ mypy_path = "src"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["tests"]
 asyncio_mode = "auto"
 markers = ["live: tests that call real providers (need API keys/network)"]
 addopts = "-m 'not live' --cov=videokit --cov-report=term-missing"

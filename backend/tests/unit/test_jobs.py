@@ -217,6 +217,47 @@ def test_request_cancel_sets_flag(store: JobStore) -> None:
         store.request_cancel("nope")
 
 
+def test_next_queued_is_fifo_by_queued_at(store: JobStore) -> None:
+    assert store.next_queued() is None
+    store.create("t", 10)  # still uploading: never picked
+    first, second = queue(store), queue(store)
+    assert store.next_queued() == first.id
+    store.set_state(first.id, JobState.EXTRACTING)
+    assert store.next_queued() == second.id
+
+
+def test_cancel_uploading_or_idle_queued_is_immediate(store: JobStore) -> None:
+    uploading = store.create("t", 10)
+    assert store.cancel(uploading.id).state is JobState.CANCELLED
+    queued = queue(store)
+    assert store.cancel(queued.id).state is JobState.CANCELLED
+
+
+def test_cancel_active_or_running_sets_flag(store: JobStore) -> None:
+    claimed = queue(store)
+    job = store.cancel(claimed.id, active=True)
+    assert (job.state, job.cancel_requested) == (JobState.QUEUED, True)
+    running = queue(store)
+    store.set_state(running.id, JobState.EXTRACTING)
+    job = store.cancel(running.id)
+    assert (job.state, job.cancel_requested) == (JobState.EXTRACTING, True)
+
+
+@pytest.mark.parametrize("terminal", [JobState.DONE, JobState.FAILED, JobState.CANCELLED])
+def test_cancel_terminal_or_unknown_is_rejected(store: JobStore, terminal: JobState) -> None:
+    job = queue(store)
+    if terminal is JobState.DONE:
+        advance(store, job.id, JobState.EXTRACTING, JobState.TRANSCRIBING, JobState.GENERATING, JobState.DONE)
+    elif terminal is JobState.FAILED:
+        store.set_state(job.id, JobState.FAILED, failure_reason="x")
+    else:
+        store.set_state(job.id, JobState.CANCELLED)
+    with pytest.raises(InvalidTransition):
+        store.cancel(job.id)
+    with pytest.raises(JobNotFound):
+        store.cancel("nope")
+
+
 def test_queue_position(store: JobStore) -> None:
     first, second, third = queue(store), queue(store), queue(store)
     assert [store.queue_position(j.id) for j in (first, second, third)] == [1, 2, 3]
@@ -312,8 +353,16 @@ def test_recover_after_restart(store: JobStore) -> None:
     done = queue(store)
     advance(store, done.id, JobState.EXTRACTING, JobState.TRANSCRIBING, JobState.GENERATING, JobState.DONE)
 
+    sources = {}
+    for job in (uploading, queued, extracting, transcribing, generating, done):
+        sources[job.id] = store.job_dir(job.id) / "source.bin"
+        sources[job.id].parent.mkdir(parents=True)
+        sources[job.id].write_bytes(b"x")
+
     assert store.recover_after_restart() == 4
 
+    # FR-014: failed jobs lose their source video; other jobs keep theirs.
+    assert {job_id for job_id, path in sources.items() if path.exists()} == {uploading.id, done.id}
     for job in (queued, extracting, transcribing, generating):
         got = store.get(job.id)
         assert got is not None

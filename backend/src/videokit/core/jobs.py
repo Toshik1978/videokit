@@ -1,5 +1,6 @@
 """Job model, state machine and SQLite-backed job store (see data-model.md)."""
 
+import contextlib
 import json
 import re
 import secrets
@@ -15,6 +16,7 @@ from typing import Any
 from videokit.core import db
 
 RESTART_FAILURE_REASON = "Server restarted, please upload again"
+SOURCE_FILE = "source.bin"  # the uploaded video inside a job directory
 _ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
@@ -216,6 +218,33 @@ class JobStore:
             conn.execute("UPDATE jobs SET cancel_requested = 1, updated_at = ? WHERE id = ?", (self._clock(), job_id))
             return self._load(conn, job_id)
 
+    def cancel(self, job_id: str, *, active: bool = False) -> Job:
+        """Cancel a job (FR-037): `uploading` or idle `queued` jobs become `cancelled` at once; a running job, or
+        a `queued` one the worker is already starting (`active`), gets `cancel_requested` for the next stage
+        boundary. Raises `InvalidTransition` for terminal jobs and `JobNotFound` for unknown ones."""
+        with self._tx() as conn:
+            job = self._load(conn, job_id)
+            if not TRANSITIONS[job.state]:
+                raise InvalidTransition(f"cannot cancel a {job.state.value} job")
+            if job.state is S.UPLOADING or (job.state is S.QUEUED and not active):
+                self._transition(conn, job, S.CANCELLED)
+            else:
+                conn.execute(
+                    "UPDATE jobs SET cancel_requested = 1, updated_at = ? WHERE id = ?", (self._clock(), job_id)
+                )
+            return self._load(conn, job_id)
+
+    def next_queued(self) -> str | None:
+        """Id of the job that has waited longest in the queue (FIFO by `queued_at`), or None."""
+        conn = db.connect(self._db_path)
+        try:
+            row = conn.execute(
+                "SELECT id FROM jobs WHERE state = 'queued' ORDER BY queued_at, rowid LIMIT 1"
+            ).fetchone()
+        finally:
+            conn.close()
+        return None if row is None else str(row["id"])
+
     def queue_position(self, job_id: str) -> int:
         """1 + number of queued jobs ahead of this one; 0 when the job is not queued."""
         conn = db.connect(self._db_path)
@@ -292,8 +321,30 @@ class JobStore:
             )
             return self._load(conn, job_id)
 
+    def list_expired(self, now: float) -> list[Job]:
+        """Jobs with `expires_at < now` that are not waiting or running (those are never purged)."""
+        conn = db.connect(self._db_path)
+        try:
+            rows = conn.execute(
+                f"SELECT * FROM jobs WHERE expires_at < ? AND state NOT IN ({','.join('?' * len(RUNNING_STATES))})",
+                [now, *(s.value for s in RUNNING_STATES)],
+            ).fetchall()
+        finally:
+            conn.close()
+        return [_job_from_row(row) for row in rows]
+
+    def delete(self, job_id: str) -> bool:
+        """Delete the row of a job that is not waiting or running; returns whether a row was removed."""
+        with self._tx() as conn:
+            cur = conn.execute(
+                f"DELETE FROM jobs WHERE id = ? AND state NOT IN ({','.join('?' * len(RUNNING_STATES))})",
+                [job_id, *(s.value for s in RUNNING_STATES)],
+            )
+            return cur.rowcount > 0
+
     def recover_after_restart(self) -> int:
-        """Fail every job that was waiting or running when the server stopped; returns how many."""
+        """Fail every job that was waiting or running when the server stopped and delete its source video
+        (FR-019, FR-014); returns how many."""
         with self._tx() as conn:
             rows = conn.execute(
                 f"SELECT * FROM jobs WHERE state IN ({','.join('?' * len(RUNNING_STATES))})",
@@ -301,4 +352,7 @@ class JobStore:
             ).fetchall()
             for row in rows:
                 self._transition(conn, _job_from_row(row), S.FAILED, RESTART_FAILURE_REASON)
-            return len(rows)
+        for row in rows:
+            with contextlib.suppress(OSError, ValueError):  # never block startup on a leftover file
+                (self.job_dir(row["id"]) / SOURCE_FILE).unlink(missing_ok=True)
+        return len(rows)

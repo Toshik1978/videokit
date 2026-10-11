@@ -13,5 +13,48 @@
   },
   "errors": {
     "generic": "Something went wrong. Please try again."
+  },
+  "youtubePrep": {
+    "heading": "YouTube Prep",
+    "intro": "Upload a video to get a title, description, tags and chapters."
+  },
+  "job": {
+    "expired": "This job has expired or does not exist. Results are deleted after a while.",
+    "state": {
+      "uploading": "Uploading",
+      "queued": "Waiting in the queue",
+      "extracting": "Extracting audio and frames",
+      "transcribing": "Transcribing",
+      "generating": "Generating metadata",
+      "done": "Done",
+      "failed": "Failed",
+      "cancelled": "Cancelled"
+    },
+    "uploadPercent": "Uploaded: {percent}%",
+    "queuePosition": "Position in queue: {position}",
+    "failureReason": "Reason: {reason}",
+    "cancel": "Cancel job",
+    "copy": "Copy",
+    "copied": "Copied to clipboard.",
+    "pressCopy": "Text selected. Press your device's copy command to copy it.",
+    "notices": {
+      "no_speech": "No speech was detected, so these results are based on the visuals only.",
+      "too_short_for_chapters": "The video is too short for chapters."
+    },
+    "sections": {
+      "cover_titles": "Cover titles",
+      "title": "Title",
+      "description": "Description",
+      "tags": "Tags",
+      "hashtags": "Hashtags",
+      "chapters": "Chapters"
+    }
+  },
+  "upload": {
+    "choose": "Choose a video file",
+    "limit": "Maximum file size: {limit}.",
+    "tooLarge": "This file is too large. The maximum size is {limit}.",
+    "progress": "Uploading: {percent}%",
+    "failed": "The upload failed. Please choose the file again to retry."
   }
 }

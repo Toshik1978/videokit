@@ -136,61 +136,61 @@ with exact chapter formatting, queueing and cancel.
 stages progress and six sections; chapters follow `m:ss "Title"` and all YouTube rules; cancel
 works for queued and running jobs.
 
-- [ ] T016 [US1] Implement job creation and tus core uploads in `backend/src/videokit/core/api.py` and `backend/src/videokit/core/uploads.py`
+- [x] T016 [US1] Implement job creation and tus core uploads in `backend/src/videokit/core/api.py` and `backend/src/videokit/core/uploads.py`
   - `POST /api/jobs` `{tool_id, size}` → `201 {job_id, upload_url: "/api/uploads/<id>"}`; `404 unknown_tool`; `413 file_too_large` when size > `max_upload_bytes` (FR-004); `422 invalid_request`.
   - tus 1.0.0: `OPTIONS` (`204`, `Tus-Version`, `Tus-Max-Size`); `HEAD` (`Upload-Offset`, `Upload-Length`, `Cache-Control: no-store`; `404` if not `uploading`); `PATCH` (`Content-Type: application/offset+octet-stream`, `Upload-Offset` must equal stored offset else `409`, body > 50 MB → `413`, append to `source.bin`, `204` with new offset).
   - `Tus-Resumable: 1.0.0` on all responses; `412` when missing on requests; completion callback when offset reaches length.
   - Tests: `backend/tests/integration/test_uploads.py`.
-- [ ] T017 [P] [US1] Implement media extraction in `backend/src/videokit/core/media.py` with the `make_video` fixture in `backend/tests/conftest.py`
+- [x] T017 [P] [US1] Implement media extraction in `backend/src/videokit/core/media.py` with the `make_video` fixture in `backend/tests/conftest.py`
   - `probe()` via ffprobe: duration, has_audio; non-video → `AppError("not_a_video")`.
   - `extract()`: `audio.wav` (16 kHz mono) and `audio.mp3` (32 kbps mono) when audio exists; frames: scene candidates from `scale=320:-2,select='gt(scene,0.3)',showinfo` + uniform baseline every `duration / MAX_FRAMES`, drop candidates < 2 s apart, evenly downsample to `MAX_FRAMES`, extract JPEG at `FRAME_WIDTH` to `frames/<ms>.jpg` (research R6).
   - Write `media.json` per data-model: "segments sorted by `start`, `0 ≤ start < end ≤ duration_s`; frames sorted by `t`, unique, `len(frames) ≤ MAX_FRAMES`"; delete `source.bin` (FR-014).
   - `make_video` fixture: tiny ffmpeg-generated videos (color segments for known scene changes, optional sine audio, configurable duration).
   - Tests: `backend/tests/integration/test_media.py`.
-- [ ] T018 [P] [US1] Implement transcription interfaces and local Whisper in `backend/src/videokit/core/transcribe/` (`base.py`, `chain.py`, `local_whisper.py`)
+- [x] T018 [P] [US1] Implement transcription interfaces and local Whisper in `backend/src/videokit/core/transcribe/` (`base.py`, `chain.py`, `local_whisper.py`)
   - `base.py`: `Transcriber`, `Transcript` (language, language_probability, segments `{start, end, text}`, audio_minutes), `ProviderStatus`, `AllProvidersFailed(stage)` per `contracts/internal-interfaces.md`.
   - `chain.py`: ordered fallback; records the provider used.
   - `local_whisper.py` (research R7): `WHISPER_MODEL`; `WHISPER_DEVICE=auto` → CUDA `float16` when available else CPU `int8`; `download_root=DATA_DIR/models`; VAD on; empty transcript → `no_speech`.
   - `FakeTranscriber` in `backend/tests/fakes_transcribe.py`. Tests: `backend/tests/unit/test_transcribe.py` with `faster_whisper` mocked.
-- [ ] T019 [P] [US1] Implement LLM interfaces and the Anthropic provider in `backend/src/videokit/core/llm/` (`base.py`, `chain.py`, `anthropic.py`)
+- [x] T019 [P] [US1] Implement LLM interfaces and the Anthropic provider in `backend/src/videokit/core/llm/` (`base.py`, `chain.py`, `anthropic.py`)
   - `base.py`: `LLMProvider`, `GenerationRequest` (system, context_text, frames, schema, turns), `GenerationResponse`, `Usage` incl. cache read/write tokens.
   - `chain.py`: ordered fallback on non-retryable or exhausted-retry errors; raises `AllProvidersFailed("generation")`.
   - `anthropic.py` (research R9; read the claude-api skill's Python docs before writing SDK calls): streaming with the final-message helper, adaptive thinking, `output_config.effort` from `ANTHROPIC_EFFORT`, `output_config.format` JSON schema, server-side refusal fallback enabled, each frame preceded by text `[frame m:ss]`, `cache_control` breakpoint after the frames + transcript prefix, `stop_reason` refusal/max_tokens → provider error.
   - `FakeLLM` (scripted responses incl. invalid ones) in `backend/tests/fakes_llm.py`. Tests: `backend/tests/unit/test_llm.py` asserting request shape with the SDK client mocked.
-- [ ] T020 [P] [US1] Implement cost estimation in `backend/src/videokit/core/pricing.py`
+- [x] T020 [P] [US1] Implement cost estimation in `backend/src/videokit/core/pricing.py`
   - Default $/MTok (input/output/cache_read/cache_write): `claude-opus-5-5` 4/20/0.20/5.00, `claude-sonnet-5-5` 2/10/0.20/2.50, `claude-haiku-5-5` 0.10/0.50/0.01/0.125; `whisper-1` $0.006/min.
   - Merge `PRICING_OVERRIDES`; `estimate(usage, model) -> float | None` (None for unknown models).
   - Tests: `backend/tests/unit/test_pricing.py`.
-- [ ] T021 [US1] Implement the worker and cancellation in `backend/src/videokit/core/worker.py` and `backend/src/videokit/core/api.py`
+- [x] T021 [US1] Implement the worker and cancellation in `backend/src/videokit/core/worker.py` and `backend/src/videokit/core/api.py`
   - One asyncio worker started/stopped in the lifespan, processing `queued` jobs by `queued_at` one at a time (FR-005); blocking work via `asyncio.to_thread`.
   - Upload completion → `probe()` → `queued`, or `failed` (`not_a_video`, source deleted).
   - Runs `tool.run(job, ctx)`; `JobCancelled` → `cancelled` + delete job directory; `AllProvidersFailed`/`AppError` → `failed` with a user-safe reason naming the stage; other exceptions → `failed` "Internal error".
   - `POST /api/jobs/{id}/cancel` per contract: `202`; uploading/queued cancelled immediately; running sets `cancel_requested`, honored at the next stage boundary; `409 not_cancellable` for terminal states (FR-037).
   - Tests: `backend/tests/integration/test_worker.py` with a dummy tool.
-- [ ] T022 [P] [US1] Implement TTL purge in `backend/src/videokit/core/purge.py`
+- [x] T022 [P] [US1] Implement TTL purge in `backend/src/videokit/core/purge.py`
   - Periodic task every 10 min, started in the lifespan: delete rows and directories where `expires_at < now`, including stale `uploading` jobs (FR-015); cancelled rows kept until expiry with directory already removed.
   - Tests: `backend/tests/unit/test_purge.py` with an injectable clock.
-- [ ] T023 [P] [US1] Implement output rules in `backend/src/videokit/tools/youtube_prep/rules.py`
+- [x] T023 [P] [US1] Implement output rules in `backend/src/videokit/tools/youtube_prep/rules.py`
   - Pure normalize → validate → render functions per data-model "YouTubePrepResult".
   - Normalize: cover titles "trim, collapse spaces"; title "trim"; description "trim, `\n\n` paragraph breaks"; tags "trim, dedupe, drop trailing until joined ≤ 500 chars"; hashtags "add `#`, remove spaces, dedupe, keep first 5"; chapters "strip dashes, emojis, decorative symbols, `\"`; collapse spaces".
   - Violations: cover_titles "count ≠ 3; any > 5 words"; title "> 100 chars"; description "< 2 or > 4 paragraphs; > 5000 chars; contains timestamp lines"; tags "empty"; hashtags "< 3"; chapters "first ≠ 0; < 3; gap < 10 s; not ascending; ≥ duration; empty title".
   - `chapters` is `[]` with notice `too_short_for_chapters` when `duration_s < 30`.
   - Render: time "`m:ss` when < 3600 s, else `h:mm:ss`"; line `<time> "<title>"`; tags joined `, `; hashtags joined by a space; cover titles one per line.
   - Tests: exhaustive `backend/tests/unit/test_youtube_prep_rules.py`.
-- [ ] T024 [P] [US1] Implement the model contract in `backend/src/videokit/tools/youtube_prep/schema.py` and `backend/src/videokit/tools/youtube_prep/prompt.py`
+- [x] T024 [P] [US1] Implement the model contract in `backend/src/videokit/tools/youtube_prep/schema.py` and `backend/src/videokit/tools/youtube_prep/prompt.py`
   - `schema.py`: output JSON schema (`language`, `cover_titles`, `title`, `description`, `tags`, `hashtags`, `chapters[{start_seconds, title}]`); Pydantic result model matching data-model incl. `rendered`, `notices`, `regenerations`.
   - `prompt.py`: system prompt — write everything in the detected spoken language, YouTube best practices, cover titles ≤ 5 words, no chapters in the description, short plain chapter titles; transcript lines `[m:ss] text`; builders for the generate turn, a repair turn listing violations, and a regenerate turn with section, optional hint and current result.
   - Tests: `backend/tests/unit/test_youtube_prep_prompt.py`.
-- [ ] T025 [US1] Implement the YouTube Prep pipeline in `backend/src/videokit/tools/youtube_prep/pipeline.py` and `backend/src/videokit/tools/youtube_prep/__init__.py`
+- [x] T025 [US1] Implement the YouTube Prep pipeline in `backend/src/videokit/tools/youtube_prep/pipeline.py` and `backend/src/videokit/tools/youtube_prep/__init__.py`
   - `TOOL` with id `youtube_prep`, name "YouTube Prep".
   - Stages extracting → transcribing (skipped with `no_speech` when no audio) → generating; no speech → output language defaults to English (`en`).
   - Normalize → validate → at most one repair call → still invalid → `failed` with a readable reason (FR-029); render; write `result.json`; record providers, language, duration and accumulated usage/cost; `check_cancelled()` at each stage boundary.
   - Tests: `backend/tests/integration/test_youtube_prep_pipeline.py` with fakes: happy path, repair success, repair failure, no speech notice with language `en`, too short for chapters, cancel mid-pipeline, and repair reusing the identical request prefix (system, transcript, frames) so it can be served from cache (SC-004).
-- [ ] T026 [US1] Implement the upload UI in `frontend/src/tools/youtube-prep/index.ts`, `frontend/src/tools/youtube-prep/YouTubePrepPage.vue`, `frontend/src/components/UploadPanel.vue`
+- [x] T026 [US1] Implement the upload UI in `frontend/src/tools/youtube-prep/index.ts`, `frontend/src/tools/youtube-prep/YouTubePrepPage.vue`, `frontend/src/components/UploadPanel.vue`
   - `<input type="file" accept="video/*">`; size check against `GET /api/config` before upload with a message stating the limit.
   - `POST /api/jobs`; tus-js-client with `uploadUrl`, `chunkSize` from config, retry delays; progress percentage; then navigate to `/tools/youtube-prep/jobs/:id`. Strings via i18n.
   - Tests: `frontend/tests/unit/upload.spec.ts` with tus and fetch mocked.
-- [ ] T027 [US1] Implement the job UI in `frontend/src/tools/youtube-prep/JobPage.vue` and `frontend/src/components/` (`JobStatus.vue`, `ResultCard.vue`, `CopyButton.vue`)
+- [x] T027 [US1] Implement the job UI in `frontend/src/tools/youtube-prep/JobPage.vue` and `frontend/src/components/` (`JobStatus.vue`, `ResultCard.vue`, `CopyButton.vue`)
   - Poll `GET /api/jobs/{id}` every 2 s until terminal; show stage, upload %, queue position, failure reason, "expired" on 404; cancel button for non-terminal states.
   - Six result cards (cover titles, title, description, tags, hashtags, chapters) with editable textareas holding rendered text; edits local only (FR-030).
   - Copy uses `navigator.clipboard.writeText`, falling back to selecting the text with a "press copy" hint (FR-040); notices for no speech / too short.
