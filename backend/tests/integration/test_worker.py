@@ -304,6 +304,16 @@ def test_cancel_before_a_patch_writes_leaves_no_directory(
     assert not _store(client).job_dir(job_id).exists()
 
 
+def test_cancel_before_an_empty_patch_leaves_no_directory(
+    client: TestClient, video: bytes, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    job_id = _create(client, len(video))
+    assert _patch(client, job_id, video[:100]) == 204
+    _cancel_before_first_call(client, monkeypatch, "_prepare", job_id)
+    assert _patch(client, job_id, b"", offset=100) == 404
+    assert not _store(client).job_dir(job_id).exists()
+
+
 def test_cancel_before_an_oversized_patch_leaves_no_directory(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

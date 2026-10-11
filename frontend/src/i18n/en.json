@@ -68,6 +68,7 @@
     "limit": "Maximum file size: {limit}.",
     "tooLarge": "This file is too large. The maximum size is {limit}.",
     "progress": "Uploading: {percent}%",
+    "cancel": "Cancel upload",
     "failed": "The upload failed. Please choose the file again to retry."
   }
 }

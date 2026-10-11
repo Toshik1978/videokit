@@ -227,10 +227,10 @@ increases, other sections are untouched; expired job returns 404.
 **Independent Test**: Upload a > 100 MB synthetic file in 50 MB chunks; interrupt mid-PATCH; HEAD
 returns the persisted offset and the upload completes from there.
 
-- [ ] T030 [US3] Harden uploads in `backend/src/videokit/core/uploads.py`
+- [x] T030 [US3] Harden uploads in `backend/src/videokit/core/uploads.py`
   - Stream PATCH bodies to disk without buffering whole chunks; enforce the 50 MB cap while streaming; persist `upload_offset` after each write (partial bodies count up to bytes actually written); serialize concurrent PATCHes per job; reject PATCH when the job is not `uploading`.
   - Tests: `backend/tests/integration/test_uploads_resume.py` (interrupted PATCH, offset conflict, > 100 MB total in chunks, concurrent PATCH).
-- [ ] T031 [US3] Make the client upload resumable in `frontend/src/components/UploadPanel.vue`
+- [x] T031 [US3] Make the client upload resumable in `frontend/src/components/UploadPanel.vue`
   - Store `{fingerprint → job_id, upload_url}` in `localStorage`; re-selecting the same file after reload resumes when `GET /api/jobs/{id}` still says `uploading`, else start fresh; pause on `offline`, resume on `online`; clear the entry on completion or cancel.
   - Tests: `frontend/tests/unit/upload-resume.spec.ts`.
 

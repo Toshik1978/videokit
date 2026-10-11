@@ -117,6 +117,12 @@ def create_app(
         worker = app.state.worker = Worker(app.state.store, app.state.tools, ctx)
         app.state.job_access = StoreJobAccess(app.state.store, ctx)
         worker.start()
+        # Uploads whose last byte was recorded before a stop but never completed: tus clients see them as done.
+        for job_id in await asyncio.to_thread(app.state.store.finished_uploads):
+            try:
+                await app.state.on_upload_complete(job_id)
+            except Exception as exc:  # never block startup on one upload
+                logger.error("Upload completion failed at startup (%s)", type(exc).__name__)
         purge_task = asyncio.create_task(run_purge_loop(app.state.store))
         try:
             yield

@@ -262,6 +262,17 @@ class JobStore:
             conn.close()
         return int(ahead) + 1
 
+    def finished_uploads(self) -> list[str]:
+        """Ids of `uploading` jobs that already received every byte (their completion has not run yet)."""
+        conn = db.connect(self._db_path)
+        try:
+            rows = conn.execute(
+                "SELECT id FROM jobs WHERE state = 'uploading' AND upload_offset = upload_length ORDER BY rowid"
+            ).fetchall()
+        finally:
+            conn.close()
+        return [str(row["id"]) for row in rows]
+
     def queue_length(self) -> int:
         """Number of jobs currently waiting in the queue."""
         conn = db.connect(self._db_path)
