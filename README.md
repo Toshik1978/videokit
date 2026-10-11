@@ -64,13 +64,15 @@ You need Docker with the Compose plugin.
 
 ```bash
 cp .env.example .env     # then edit .env and fill in your API key placeholders
-UID=$(id -u) GID=$(id -g) docker compose up -d --build
+mkdir -p .data           # create it yourself, or Docker creates it owned by root
+docker compose up -d --build
 ```
 
 Then open <http://localhost:8000>. The service listens on port 8000 and keeps its data (jobs,
 SQLite index, model cache) in the gitignored `./.data` directory next to `compose.yaml`, bind
-mounted as `/data`. The container runs as your user (`UID`/`GID`, default 1000) so it can write
-there; bash does not export `UID`, hence the explicit assignment above. To back up or wipe the
+mounted as `/data`. The container runs as your user (`PUID`/`PGID` in `.env`, default 1000;
+set them to the output of `id -u` and `id -g` if yours differ) so it can write there. `./.data`
+must exist before the first start, hence the `mkdir`. To back up or wipe the
 data, copy or delete `./.data`.
 
 To build and run the image without Compose, use `task docker:build` and `task docker:run`

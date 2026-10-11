@@ -1,7 +1,8 @@
 # Configuration Contract (environment variables)
 
 All configuration is via environment variables (FR-018). `.env.example` mirrors this table with
-placeholder values only.
+placeholder values only. It also holds `PUID`/`PGID`, which are read by `docker compose` only
+(container user) and are not application settings.
 
 | Variable | Default | Meaning |
 |---|---|---|

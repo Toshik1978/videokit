@@ -13,7 +13,8 @@ Runnable scenarios proving the feature end-to-end. Contracts: [http-api](contrac
 
 ```bash
 cp .env.example .env            # fill in <your-anthropic-api-key> etc.; .env is gitignored
-UID=$(id -u) GID=$(id -g) docker compose up -d --build   # builds the image; runtime data goes to
+mkdir -p .data                  # else Docker creates it as root; set PUID/PGID in .env if not 1000
+docker compose up -d --build    # builds the image; runtime data goes to
                                 # the gitignored ./.data bind mount; GPU block in compose.yaml is optional
 # or without Compose: task docker:build && task docker:run
 open http://localhost:8000      # or any host you expose it on

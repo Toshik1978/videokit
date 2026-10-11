@@ -111,8 +111,9 @@ Dockerfile, compose.yaml, scripts/docker_smoke.sh, .github/workflows/{ci,commit-
   `/data` (`HF_HOME`, `XDG_CACHE_HOME`, set after the build steps). Compose and `task docker:run`
   instead run it as the host uid:gid with `./.data` (gitignored and in `.dockerignore`) bind
   mounted as `/data`, so the image must work under any uid: keep `/app` and the Python env
-  world-readable and never write outside `/data`. bash does not export `UID`, so Compose needs
-  `UID=$(id -u) GID=$(id -g) docker compose up -d --build`. The smoke test checks both runs.
+  world-readable and never write outside `/data`. `UID` is readonly in bash, so Compose
+  uses `PUID`/`PGID` from `.env` (default 1000), and `./.data` must be created (`mkdir -p .data`)
+  before `docker compose up`, or Docker creates it as root. The smoke test checks both runs.
 - Backend tests are isolated from the developer's shell env by an autouse fixture (except `live`
   tests). Don't rely on exported provider keys in default tests.
 - gitleaks false positives are handled with narrow, `condition = "AND"` path+exact-regex

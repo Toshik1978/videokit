@@ -9,10 +9,10 @@ services:
     # Runtime data (SQLite DB, jobs, model caches) lives in the gitignored ./.data directory.
     volumes:
       - ./.data:/data
-    # Run as the host user so the bind-mounted ./.data is writable. bash does not export UID, so
-    # pass it explicitly if your user is not 1000:
-    #   UID=$(id -u) GID=$(id -g) docker compose up -d --build
-    user: "${UID:-1000}:${GID:-1000}"
+    # Run as the host user so the bind-mounted ./.data is writable. Set PUID/PGID in .env to the
+    # output of `id -u` / `id -g` if your user is not 1000 (UID is readonly in bash, so not used).
+    # Create ./.data first (`mkdir -p .data`); otherwise Docker creates it as root.
+    user: "${PUID:-1000}:${PGID:-1000}"
     restart: unless-stopped
     # Optional GPU for local transcription (needs the NVIDIA Container Toolkit on the host).
     # Leave commented out on CPU-only hosts.
