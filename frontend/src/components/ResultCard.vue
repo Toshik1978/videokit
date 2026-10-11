@@ -1,16 +1,28 @@
 <script setup lang="ts">
-import { computed, ref, useId } from 'vue';
+import { computed, ref, useId, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 
 import CopyButton from '@/components/CopyButton.vue';
 
-const props = defineProps<{ sectionKey: string; label: string; text: string }>();
+const props = defineProps<{
+  sectionKey: string;
+  label: string;
+  text: string;
+  revision?: number;
+}>();
 
 const { t } = useI18n();
 const inputId = useId();
 
 // Edits stay in the browser (FR-030); the server copy is never modified from here.
 const value = ref(props.text);
+// A new `text` (or a bumped `revision`, for identical text) replaces the local copy and its edits.
+watch(
+  () => [props.text, props.revision],
+  () => {
+    value.value = props.text;
+  },
+);
 const area = ref<HTMLTextAreaElement | null>(null);
 const status = ref<'idle' | 'copied' | 'fallback'>('idle');
 

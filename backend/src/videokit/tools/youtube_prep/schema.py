@@ -43,21 +43,6 @@ OUTPUT_SCHEMA: dict[str, Any] = {
 }
 
 
-def section_schema(section: str) -> dict[str, Any]:
-    """Schema for regenerating a single section (plus `language`)."""
-    if section not in SECTIONS:
-        raise ValueError(f"unknown section: {section}")
-    return {
-        "type": "object",
-        "properties": {
-            "language": copy.deepcopy(OUTPUT_SCHEMA["properties"]["language"]),
-            section: copy.deepcopy(OUTPUT_SCHEMA["properties"][section]),
-        },
-        "required": ["language", section],
-        "additionalProperties": False,
-    }
-
-
 class _StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
 

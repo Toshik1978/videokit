@@ -19,7 +19,7 @@ from videokit.core.media import MediaService
 from videokit.core.purge import run_purge_loop
 from videokit.core.registry import discover_tools
 from videokit.core.transcribe import LocalWhisperTranscriber, Transcriber, TranscriberChain
-from videokit.core.worker import Context, Providers, Worker
+from videokit.core.worker import Context, Providers, StoreJobAccess, Worker
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -115,6 +115,7 @@ def create_app(
         app.state.provider_status = api.provider_status(settings, ready=True)
         ctx = Context(media=MediaService(settings), transcriber=chains.transcriber, llm=chains.llm, settings=settings)
         worker = app.state.worker = Worker(app.state.store, app.state.tools, ctx)
+        app.state.job_access = StoreJobAccess(app.state.store, ctx)
         worker.start()
         purge_task = asyncio.create_task(run_purge_loop(app.state.store))
         try:

@@ -10,7 +10,10 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
+
+from videokit.core.jobs import Job
+from videokit.core.jobs import JobNotFound as JobNotFound  # re-exported: part of the route seam
 
 if TYPE_CHECKING:
     from videokit.core.config import Settings
@@ -65,6 +68,30 @@ class CoreContext(Protocol):
     transcriber: "TranscriberChain"  # the fallback chain, not a single provider
     llm: "LLMChain"  # the fallback chain
     settings: "Settings"
+
+
+class JobAccess(Protocol):
+    """What a tool's HTTP routes may use from core, outside the worker (reach it with `job_access(request)`)."""
+
+    @property
+    def ctx(self) -> CoreContext: ...
+
+    def get(self, job_id: str) -> Job | None:
+        """A read-only snapshot of the job (state, tool id, providers, accumulated usage), or None if unknown."""
+        ...
+
+    def handle(self, job_id: str) -> JobHandle:
+        """A handle to record usage/providers on an existing job (usable from worker threads).
+
+        Its methods raise `JobNotFound` if the job was deleted meanwhile (e.g. purged at the end of its TTL).
+        """
+        ...
+
+
+def job_access(request: Request) -> JobAccess:
+    """The running app's `JobAccess` (available once the app has started)."""
+    access: JobAccess = request.app.state.job_access
+    return access
 
 
 @runtime_checkable

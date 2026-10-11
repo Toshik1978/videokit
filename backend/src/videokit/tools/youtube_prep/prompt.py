@@ -94,7 +94,8 @@ def regenerate_turn(section: str, hint: str | None, current_result: Mapping[str,
         raise ValueError(f"unknown section: {section}")
     current = json.dumps(current_result.get(section), ensure_ascii=False)
     parts = [
-        f'Regenerate only the "{section}" section. Return JSON with "language" and "{section}" only.',
+        f'Regenerate only the "{section}" section. Return the complete JSON object with "language" and a new '
+        f'"{section}", and set every other section to an empty value ("" for text, [] for lists).',
         f"Current value of {section}: {current}",
         "Write a clearly different alternative that still follows all the rules.",
     ]

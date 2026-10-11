@@ -8,13 +8,10 @@ import { isTerminal, type JobSummary } from '@/components/job';
 import JobStatus from '@/components/JobStatus.vue';
 import ResultCard from '@/components/ResultCard.vue';
 
-const SECTIONS = ['cover_titles', 'title', 'description', 'tags', 'hashtags', 'chapters'] as const;
-const POLL_MS = 2000;
+import RegenerateControl from './RegenerateControl.vue';
+import { type RegenerateResponse, type Section, SECTIONS, type YouTubePrepResult } from './types';
 
-interface YouTubePrepResult {
-  notices: string[];
-  rendered: Record<(typeof SECTIONS)[number], string>;
-}
+const POLL_MS = 2000;
 
 interface Job extends JobSummary {
   job_id: string;
@@ -29,6 +26,7 @@ const job = ref<Job | null>(null);
 const expired = ref(false);
 const error = ref('');
 const cancelError = ref('');
+const revisions = ref<Record<string, number>>({});
 let timer: ReturnType<typeof setTimeout> | undefined;
 let unmounted = false;
 
@@ -65,6 +63,12 @@ async function poll(): Promise<void> {
     error.value = messageFor(err);
   }
   timer = setTimeout(() => void poll(), POLL_MS);
+}
+
+function onRegenerated(section: Section, response: RegenerateResponse): void {
+  if (!job.value) return;
+  job.value = { ...job.value, result: response.result };
+  revisions.value[section] = (revisions.value[section] ?? 0) + 1;
 }
 
 async function cancel(): Promise<void> {
@@ -104,7 +108,16 @@ onBeforeUnmount(() => {
           :section-key="section"
           :label="t(`job.sections.${section}`)"
           :text="result.rendered[section]"
-        />
+          :revision="revisions[section] ?? 0"
+        >
+          <template #actions>
+            <RegenerateControl
+              :job-id="jobId"
+              :section="section"
+              @regenerated="onRegenerated(section, $event)"
+            />
+          </template>
+        </ResultCard>
       </template>
     </template>
   </section>

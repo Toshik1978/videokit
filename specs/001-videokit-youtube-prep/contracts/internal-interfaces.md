@@ -29,6 +29,23 @@ class CoreContext(Protocol):
     settings: Settings
 ```
 
+## JobAccess (what a tool's HTTP routes may use)
+
+```python
+class JobAccess(Protocol):
+    ctx: CoreContext                             # same context the worker hands to `run`
+    def get(self, job_id: str) -> Job | None: ...      # read-only snapshot: state, tool_id, providers, usage
+    def handle(self, job_id: str) -> JobHandle: ...    # .dir, .record(...), .add_usage(...) on an existing job
+
+def job_access(request: Request) -> JobAccess: ...     # from `videokit.core.registry`
+```
+
+- For tool routes that act on an existing job outside the worker (e.g. YouTube Prep regenerate): look
+  up the job (404 if unknown or of another tool, state checks), read and write files in its directory,
+  record providers and add usage so the job's accumulated `usage` stays complete.
+- Routes never touch the job store directly. `JobHandle` methods raise `JobNotFound` (re-exported by
+  `videokit.core.registry`) if the job was purged meanwhile.
+
 ## Transcriber
 
 ```python

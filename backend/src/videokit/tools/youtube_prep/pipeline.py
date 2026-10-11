@@ -10,6 +10,7 @@ that varies per call, including the video duration, goes into the turns.
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,7 +20,15 @@ from pydantic import ValidationError
 
 from videokit.core.config import Settings
 from videokit.core.errors import AppError
-from videokit.core.llm import GenerationRequest, GenerationResponse, LabeledFrame, Turn, Usage, format_timestamp
+from videokit.core.llm import (
+    AllProvidersFailed,
+    GenerationRequest,
+    GenerationResponse,
+    LabeledFrame,
+    Turn,
+    Usage,
+    format_timestamp,
+)
 from videokit.core.media import MEDIA_JSON, MediaArtifacts
 from videokit.core.media import Segment as MediaSegment
 from videokit.core.pricing import estimate
@@ -58,6 +67,19 @@ def check_output(data: dict[str, Any], *, duration_s: float) -> tuple[dict[str, 
         return None, structure_problems(exc)
     normalized = rules.normalize(parsed, duration_s=duration_s)
     return normalized, [str(v) for v in rules.validate(normalized, duration_s=duration_s)]
+
+
+def check_section(section: str, data: dict[str, Any], *, duration_s: float) -> tuple[Any, list[str]]:
+    """Schema-check a full model output, then normalize and validate only `section`: `(value, problems)`.
+
+    Regeneration asks for the other sections empty; whatever they contain is ignored.
+    """
+    try:
+        parsed = ModelOutput.model_validate(data).model_dump()
+    except ValidationError as exc:
+        return None, structure_problems(exc)
+    value = rules.normalize_section(section, parsed[section], duration_s=duration_s)
+    return value, [str(v) for v in rules.validate_section(section, value, duration_s=duration_s)]
 
 
 # ---------------------------------------------------------------- request building
@@ -191,6 +213,57 @@ def build_result(normalized: dict[str, Any], media: MediaArtifacts) -> YouTubePr
     )
 
 
+def write_result(job_dir: Path, result: YouTubePrepResult) -> None:
+    """Write `result.json` atomically (temp file + replace), so readers never see a partial file."""
+    target = job_dir / RESULT_JSON
+    tmp = target.with_name(f"{RESULT_JSON}.tmp")
+    tmp.write_text(result.model_dump_json(indent=2), encoding="utf-8")
+    os.replace(tmp, target)
+
+
+def regenerate(
+    job: JobHandle, ctx: CoreContext, section: str, hint: str | None, providers: dict[str, str]
+) -> YouTubePrepResult:
+    """Replace one section of a done job's result (FR-031), with at most one repair call (blocking).
+
+    Reuses the stored `media.json`, the frames and the full `OUTPUT_SCHEMA`, so the request differs from the
+    original generation's only in its turns and providers can serve the prefix from cache (SC-004); a different
+    output schema would invalidate it. Usage is added to the job for every call; on failure `result.json` is left
+    untouched. Raises `FileNotFoundError` / `JobNotFound` if the job's files / row are gone (purged).
+    """
+    media = load_media(job.dir)
+    current = YouTubePrepResult.model_validate_json((job.dir / RESULT_JSON).read_text(encoding="utf-8"))
+    prefix = build_prefix(media, job.dir)
+    turns = [Turn("user", f"{prompt.regenerate_turn(section, hint, current.model_dump())}\n{turn_notes(media)}")]
+    try:
+        response = _call(job, ctx, prefix.request(OUTPUT_SCHEMA, turns), providers)
+        value, problems = check_section(section, response.data, duration_s=media.duration_s)
+        if problems:
+            turns += [
+                Turn("assistant", json.dumps(response.data, ensure_ascii=False)),
+                Turn("user", f"{prompt.repair_turn(problems)}\n{turn_notes(media)}"),
+            ]
+            response = _call(job, ctx, prefix.request(OUTPUT_SCHEMA, turns), providers)
+            value, problems = check_section(section, response.data, duration_s=media.duration_s)
+    except AllProvidersFailed:
+        raise AppError(
+            "generation_failed", "All generation providers failed; the previous version was kept.", 502
+        ) from None
+    if problems:
+        raise AppError(
+            "generation_failed",
+            f"The new {section} still broke the YouTube rules after one repair attempt; the previous version was kept.",
+            502,
+        )
+    data = current.model_dump()
+    data[section] = value
+    data["rendered"][section] = rules.render({section: value})[section]
+    data["regenerations"][section] = current.regenerations.get(section, 0) + 1
+    updated = YouTubePrepResult.model_validate(data)
+    write_result(job.dir, updated)
+    return updated
+
+
 def run(job: JobHandle, ctx: CoreContext) -> None:
     """The whole pipeline (blocking). The worker sets `done` once it returns and maps raised errors."""
     job.check_cancelled()
@@ -204,5 +277,4 @@ def run(job: JobHandle, ctx: CoreContext) -> None:
 
     job.check_cancelled()
     job.set_state("generating", language=media.language, no_speech=media.no_speech)
-    result = build_result(_generate(job, ctx, media, providers), media)
-    (job.dir / RESULT_JSON).write_text(result.model_dump_json(indent=2), encoding="utf-8")
+    write_result(job.dir, build_result(_generate(job, ctx, media, providers), media))

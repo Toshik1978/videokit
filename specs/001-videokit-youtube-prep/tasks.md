@@ -207,12 +207,12 @@ works for queued and running jobs.
 **Independent Test**: On a done job, regenerate `title` with a hint; only the title changes, usage
 increases, other sections are untouched; expired job returns 404.
 
-- [ ] T028 [US2] Implement section regeneration in `backend/src/videokit/tools/youtube_prep/routes.py`
+- [x] T028 [US2] Implement section regeneration in `backend/src/videokit/tools/youtube_prep/routes.py`
   - `POST /api/tools/youtube_prep/jobs/{job_id}/regenerate` per `contracts/http-api.md`; body `{section ∈ cover_titles|title|description|tags|hashtags|chapters, hint ≤ 500 chars}`.
   - Reuses stored `media.json`/frames and the same stable request prefix plus a regenerate turn; validates and repairs only that section (one repair); returns `{result, usage}`; increments `regenerations[section]`; accumulates usage.
   - Errors: `409 job_not_done`, `409 regeneration_in_progress` (per-job `asyncio.Lock`), `404 job_not_found`, `422 invalid_section`, `502 generation_failed` keeping the previous section.
   - Tests: `backend/tests/integration/test_regenerate.py` incl. the request prefix being byte-identical to the original generation and usage accumulation (SC-004).
-- [ ] T029 [US2] Add Regenerate to `frontend/src/components/ResultCard.vue` and `frontend/src/tools/youtube-prep/JobPage.vue`
+- [x] T029 [US2] Add Regenerate to `frontend/src/components/ResultCard.vue` and `frontend/src/tools/youtube-prep/JobPage.vue`
   - Button + optional hint field (≤ 500 chars), loading state; replaces only that card's text, discarding local edits (FR-031); readable errors incl. expired job.
   - Tests: `frontend/tests/unit/regenerate.spec.ts`.
 

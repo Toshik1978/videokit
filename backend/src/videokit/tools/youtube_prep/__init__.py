@@ -2,17 +2,15 @@
 
 import asyncio
 
-from fastapi import APIRouter
-
 from videokit.core.registry import CoreContext, JobHandle
-from videokit.tools.youtube_prep import pipeline
+from videokit.tools.youtube_prep import pipeline, routes
 
 
 class YouTubePrepTool:
-    id = "youtube_prep"
+    id = routes.TOOL_ID
     name = "YouTube Prep"
     description = "Title, description, tags and chapters for a video."
-    router = APIRouter()
+    router = routes.router
 
     async def run(self, job: JobHandle, ctx: CoreContext) -> None:
         await asyncio.to_thread(pipeline.run, job, ctx)

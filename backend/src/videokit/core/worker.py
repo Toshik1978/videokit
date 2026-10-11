@@ -81,6 +81,24 @@ class WorkerJobHandle:
             raise JobCancelled(self.id)
 
 
+class StoreJobAccess:
+    """`JobAccess` implementation for tool routes."""
+
+    def __init__(self, store: JobStore, ctx: Context) -> None:
+        self._store = store
+        self._ctx = ctx
+
+    @property
+    def ctx(self) -> Context:
+        return self._ctx
+
+    def get(self, job_id: str) -> Job | None:
+        return self._store.get(job_id)
+
+    def handle(self, job_id: str) -> WorkerJobHandle:
+        return WorkerJobHandle(self._store, job_id)
+
+
 class Worker:
     def __init__(self, store: JobStore, tools: Mapping[str, Tool], ctx: Context) -> None:
         self._store = store

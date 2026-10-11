@@ -50,6 +50,19 @@
       "chapters": "Chapters"
     }
   },
+  "regenerate": {
+    "button": "Regenerate",
+    "running": "Regenerating…",
+    "hintLabel": "Hint (optional)",
+    "hintPlaceholder": "e.g. make it shorter",
+    "hintCount": "{count} / {max}",
+    "errors": {
+      "job_not_done": "This job is not finished yet, so it cannot be regenerated.",
+      "regeneration_in_progress": "This job is already being regenerated. Please wait and try again.",
+      "invalid_section": "This section cannot be regenerated.",
+      "generation_failed": "Generating a new version failed. The previous text was kept."
+    }
+  },
   "upload": {
     "choose": "Choose a video file",
     "limit": "Maximum file size: {limit}.",

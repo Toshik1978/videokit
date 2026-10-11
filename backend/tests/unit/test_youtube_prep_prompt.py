@@ -10,11 +10,9 @@ from pydantic import ValidationError
 from videokit.tools.youtube_prep import prompt
 from videokit.tools.youtube_prep.schema import (
     OUTPUT_SCHEMA,
-    SECTIONS,
     ModelOutput,
     ModelOutputChapter,
     YouTubePrepResult,
-    section_schema,
 )
 
 EXAMPLE: dict[str, Any] = {
@@ -97,20 +95,6 @@ def test_model_round_trip() -> None:
     assert model.model_dump(mode="json") == EXAMPLE
 
 
-@pytest.mark.parametrize("section", SECTIONS)
-def test_section_schema(section: str) -> None:
-    schema = section_schema(section)
-    assert set(schema["properties"]) == {"language", section}
-    assert set(schema["required"]) == {"language", section}
-    assert schema["additionalProperties"] is False
-    assert schema["properties"][section] == OUTPUT_SCHEMA["properties"][section]
-
-
-def test_section_schema_unknown() -> None:
-    with pytest.raises(ValueError):
-        section_schema("rendered")
-
-
 def test_context_text_formats_times() -> None:
     text = prompt.build_context_text([Seg(0, "Hello"), Seg(65.9, " there "), Seg(3725, "late")])
     assert text.splitlines() == ["[0:00] Hello", "[1:05] there", "[1:02:05] late"]
@@ -141,7 +125,9 @@ def test_repair_turn_lists_violations() -> None:
 
 def test_regenerate_turn_with_hint() -> None:
     out = prompt.regenerate_turn("title", "make it punchier", {"title": "Old title"})
-    assert "title" in out
+    assert 'Regenerate only the "title" section' in out
+    # The request keeps the full generation schema (cache-friendly), so the other sections come back empty.
+    assert 'set every other section to an empty value ("" for text, [] for lists)' in out
     assert "make it punchier" in out
     assert "Old title" in out
 
