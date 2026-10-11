@@ -1,6 +1,6 @@
 {
-  "name": "videokit",
-  "short_name": "videokit",
+  "name": "VideoKit",
+  "short_name": "VideoKit",
   "description": "Self-hosted video tools.",
   "start_url": "/",
   "scope": "/",

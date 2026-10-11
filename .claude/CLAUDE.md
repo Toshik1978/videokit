@@ -1,4 +1,4 @@
-# videokit — guide for Claude
+# VideoKit — guide for Claude
 
 Open-source, self-hosted toolbox of video tools served as one Docker container. First tool:
 **YouTube Prep** — upload a video, get cover titles, title/description, tags/hashtags and chapter
@@ -12,7 +12,12 @@ constitution `.specify/memory/constitution.md`.
 
 - **Public repo — zero personal or environment data anywhere**: code, tests, fixtures, docs,
   specs, beads (`.beads/`), commit messages. No real hostnames, domains, site names, IPs,
-  usernames, emails, absolute paths from a developer machine, tunnel/proxy names or hardware details. Use
+  usernames other than the author's, emails, absolute paths from a developer machine, tunnel/proxy
+  names or hardware details. Exceptions: the author's name, Anton Krivenko, MAY appear where
+  authorship is stated (LICENSE, package metadata, image labels, documentation bylines), and the
+  repository's own public addresses (`github.com/toshik1978/videokit`,
+  `ghcr.io/toshik1978/videokit`) MAY appear in links and configuration. Nothing else about the
+  author (email, other accounts, hosts, hardware) may appear. Use
   placeholders (`example.com`, `<your-api-key>`, `/data`). Secrets only via env vars; `.env` is
   gitignored, `.env.example` holds placeholders. A gitignored `.denylist` (one string per line)
   is checked by `scripts/check_denylist.py` in pre-commit.

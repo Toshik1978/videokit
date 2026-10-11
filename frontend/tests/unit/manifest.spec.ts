@@ -31,8 +31,8 @@ function pngSize(path: string): { width: number; height: number } {
 
 describe('web app manifest', () => {
   it('has the required installability fields', () => {
-    expect(manifest.name).toBe('videokit');
-    expect(manifest.short_name).toBeTruthy();
+    expect(manifest.name).toBe('VideoKit');
+    expect(manifest.short_name).toBe('VideoKit');
     expect(manifest.display).toBe('standalone');
     expect(manifest.start_url).toBe('/');
     expect(manifest.theme_color).toMatch(/^#[0-9a-f]{6}$/i);
@@ -61,6 +61,16 @@ describe('index.html', () => {
   it('links the manifest and the touch icon', () => {
     expect(html).toMatch(/<link rel="manifest" href="\/manifest\.webmanifest"/);
     expect(html).toMatch(/<link rel="apple-touch-icon" href="\/icons\/[^"]+\.png"/);
+  });
+
+  it('uses the VideoKit display name for the page and home-screen titles', () => {
+    expect(html).toContain('<title>VideoKit</title>');
+    expect(html).toContain('name="apple-mobile-web-app-title" content="VideoKit"');
+  });
+
+  it('shows the VideoKit display name in the app header', () => {
+    const en = JSON.parse(read('src/i18n/en.json')) as { app: { title: string } };
+    expect(en.app.title).toBe('VideoKit');
   });
 
   it('opts in to standalone mode and sets the theme color', () => {

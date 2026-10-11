@@ -1,7 +1,9 @@
 [project]
 name = "videokit"
-version = "0.1.0"
+# The git tag is the version (docs/RELEASING.md); the build backend requires this field.
+version = "0.0.0"
 description = "Self-hosted web app hosting video tools."
+authors = [{ name = "Anton Krivenko" }]
 requires-python = ">=3.14"
 dependencies = [
     "fastapi",

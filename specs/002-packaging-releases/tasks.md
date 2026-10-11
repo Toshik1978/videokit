@@ -76,20 +76,20 @@ a GPU host in seconds.
 
 **Independent Test**: quickstart.md section 5 greps; UI title and manifest read "VideoKit".
 
-- [ ] T007 [P] [US4] Remove hardcoded versions in `backend/pyproject.toml`, `backend/src/videokit/__init__.py`, `backend/tests/unit/test_package.py`, `frontend/package.json`, `frontend/package-lock.json`
+- [x] T007 [P] [US4] Remove hardcoded versions in `backend/pyproject.toml`, `backend/src/videokit/__init__.py`, `backend/tests/unit/test_package.py`, `frontend/package.json`, `frontend/package-lock.json`
   - `backend/pyproject.toml`: `version = "0.0.0"` with the comment `# The git tag is the version (docs/RELEASING.md); the build backend requires this field.`
   - `videokit/__init__.py`: remove `__version__` and `__all__` entry; `test_package.py`: drop `test_version_is_exported`, keep the import test.
   - `frontend/package.json`: remove `"version"` (it stays `"private": true`); regenerate `package-lock.json` with `npm install` so its root `version` fields go too.
   - Tests: `backend/tests/unit/test_versioning.py` — `videokit` has no `__version__`; pyproject version is `"0.0.0"` and the comment line precedes it; `frontend/package.json` has no `version` key.
-- [ ] T008 [US4] Name the author in `LICENSE`, `backend/pyproject.toml`, `frontend/package.json`
+- [x] T008 [US4] Name the author in `LICENSE`, `backend/pyproject.toml`, `frontend/package.json`
   - `LICENSE`: `Copyright (c) 2026 Anton Krivenko`.
   - `pyproject.toml`: `authors = [{ name = "Anton Krivenko" }]` (no email). `package.json`: `"author": "Anton Krivenko"`.
   - Tests: `backend/tests/unit/test_authorship.py` — LICENSE line, pyproject `authors`, package.json `author`, and the Dockerfile `org.opencontainers.image.authors` label all say exactly `Anton Krivenko`; none contains `@`.
-- [ ] T009 [P] [US4] Use the display name VideoKit in `frontend/src/i18n/en.json`, `frontend/index.html`, `frontend/public/manifest.webmanifest`
+- [x] T009 [P] [US4] Use the display name VideoKit in `frontend/src/i18n/en.json`, `frontend/index.html`, `frontend/public/manifest.webmanifest`
   - `en.json` `app.title`, `index.html` `<title>` and `<meta name="apple-mobile-web-app-title">`, manifest `name` and `short_name`: `VideoKit`.
   - Keep lowercase identifiers (storage key `videokit.uploads`, package names).
   - Tests: update `frontend/tests/unit/manifest.spec.ts` to expect `VideoKit` for `name` and `short_name`; add an assertion (unit or e2e `frontend/tests/e2e/flow.spec.ts`) that the page title is `VideoKit`.
-- [ ] T010 [US4] Amend the constitution to v1.2.0 and mirror it in `.specify/memory/constitution.md` and `.claude/CLAUDE.md`
+- [x] T010 [US4] Amend the constitution to v1.2.0 and mirror it in `.specify/memory/constitution.md` and `.claude/CLAUDE.md`
   - Principle I: keep every prohibition, change "usernames" to "usernames other than the author's", and add: "The author's name, Anton Krivenko, MAY appear where authorship is stated: LICENSE, package metadata, image labels and documentation bylines. The repository's own public addresses (`github.com/toshik1978/videokit`, `ghcr.io/toshik1978/videokit`) MAY appear in links and configuration. Nothing else about the author (email, other accounts, hosts, hardware) may appear."
   - Technology & Operational Constraints, Packaging line: "one multi-stage Dockerfile building a single image for CPU and GPU hosts on a slim Python base that carries only the GPU libraries the transcription engine loads; an example `compose.yaml` that runs the published image with GPU access enabled by default."
   - Title `# VideoKit Constitution` and prose "VideoKit"; `**Version**: 1.2.0`, `**Last Amended**: 2026-10-11`; a Sync Impact Report HTML comment at the top (1.1.0 → 1.2.0, MINOR, sections changed, templates checked).

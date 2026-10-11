@@ -1,15 +1,34 @@
-# videokit Constitution
+<!--
+Sync Impact Report
+Version change: 1.1.0 -> 1.2.0 (MINOR: materially expanded guidance)
+Modified principles: I. Open-Source Hygiene (author-name and repository-address exceptions;
+  "usernames" -> "usernames other than the author's")
+Modified sections: Technology & Operational Constraints (Packaging: single slim image for CPU and
+  GPU hosts, example compose.yaml with GPU access enabled by default); title and prose now use the
+  display name VideoKit
+Added sections: none
+Removed sections: none
+Templates checked: .specify/templates/plan-template.md, spec-template.md, tasks-template.md,
+  checklist-template.md, constitution-template.md (no changes needed)
+Follow-up TODOs: none
+-->
+
+# VideoKit Constitution
 
 ## Core Principles
 
 ### I. Open-Source Hygiene (NON-NEGOTIABLE)
 
-videokit is developed in a public repository. Every artifact — source code, docs, specs, plans,
+VideoKit is developed in a public repository. Every artifact — source code, docs, specs, plans,
 task trackers (including beads), commit messages, examples, fixtures and test data — MUST be free
 of personal or environment-specific data.
 
-- MUST NOT contain real hostnames, domains, site names, IP addresses, usernames, email addresses,
+- MUST NOT contain real hostnames, domains, site names, IP addresses, usernames other than the author's, email addresses,
   API keys, tokens, file paths from a developer machine, or hardware/host specifics.
+- The author's name, Anton Krivenko, MAY appear where authorship is stated: LICENSE, package
+  metadata, image labels and documentation bylines. The repository's own public addresses
+  (`github.com/toshik1978/videokit`, `ghcr.io/toshik1978/videokit`) MAY appear in links and
+  configuration. Nothing else about the author (email, other accounts, hosts, hardware) may appear.
 - Examples MUST use neutral placeholders (`example.com`, `<your-api-key>`, `/data`).
 - Secrets MUST be supplied only through environment variables. `.env` MUST be gitignored;
   `.env.example` MUST contain placeholders only.
@@ -33,7 +52,7 @@ Rationale: maintenance cost, not feature count, is the limiting factor of a hobb
 
 ### III. Multi-Tool Modularity
 
-videokit is a toolbox; each tool is a self-contained module on top of a shared core.
+VideoKit is a toolbox; each tool is a self-contained module on top of a shared core.
 
 - `core` owns cross-cutting capabilities: uploads, jobs and queueing, media processing (ffmpeg),
   transcription, LLM access, configuration.
@@ -82,7 +101,7 @@ Rationale: users upload personal footage; the app keeps it only as long as stric
 
 ### VII. Deployment-Agnostic Security Boundary
 
-- videokit ships without authentication by design. Protecting the endpoint (reverse proxy, tunnel,
+- VideoKit ships without authentication by design. Protecting the endpoint (reverse proxy, tunnel,
   auth gateway) is the operator's responsibility and MUST be stated prominently in the README.
 - The app MUST work behind proxies and tunnels that limit request body size: large uploads use
   resumable, chunked transfer.
@@ -97,7 +116,9 @@ Rationale: one honest boundary beats a half-built auth system.
 - Media: ffmpeg/ffprobe invoked as subprocesses.
 - Transcription: local `faster-whisper` (CUDA when available, else CPU) and OpenAI transcription.
 - LLM: Anthropic (default) and OpenAI, via their official SDKs.
-- Packaging: one multi-stage Dockerfile; an example `compose.yaml` with optional GPU reservation.
+- Packaging: one multi-stage Dockerfile building a single image for CPU and GPU hosts on a slim
+  Python base that carries only the GPU libraries the transcription engine loads; an example
+  `compose.yaml` that runs the published image with GPU access enabled by default.
 - Configuration: environment variables only, documented in `.env.example` and the README.
 
 ## Development Workflow
@@ -126,4 +147,4 @@ that states the rationale and updates the version:
 Every plan MUST include a Constitution Check; any deviation MUST be recorded with justification in
 the plan's Complexity Tracking. Reviewers verify compliance on every pull request.
 
-**Version**: 1.1.0 | **Ratified**: 2026-10-11 | **Last Amended**: 2026-10-11
+**Version**: 1.2.0 | **Ratified**: 2026-10-11 | **Last Amended**: 2026-10-11
