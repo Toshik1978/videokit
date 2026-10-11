@@ -39,6 +39,10 @@ _BULLETS = frozenset("•‣◦∙●")
 _REMOVED_CATEGORIES = frozenset({"So", "Sk", "Cf", "Me"})
 _JOINERS = frozenset("\u200c\u200d")  # kept inside words (Persian, Indic) unless they glue emoji
 _VARIATION_SELECTORS = range(0xFE00, 0xFE10)
+# Decorative ASCII in chapter titles; letters and digits of any script are never matched.
+_DECORATIVE_RUN = re.compile(r"[|~*=<>^_`\[\]{}\\]+|#+")
+_DECORATIVE_PUNCT = re.compile(r"(?<!\S)[:;/]+(?!\S)|[:;/]{2,}")
+_EDGE_PUNCT = " :;/"
 
 
 @dataclass(frozen=True)
@@ -100,6 +104,19 @@ def _normalize_hashtags(value: list[str], duration_s: float) -> list[str]:
     return _dedupe(tags)[:HASHTAGS_MAX]
 
 
+def _decorative_replacement(match: re.Match[str]) -> str:
+    """Space for a decorative run, except `C#` style suffixes and `3 > 2` style comparisons."""
+    text, start, end = match.string, match.start(), match.end()
+    run = match.group()
+    if run == "#" and start > 0 and text[start - 1].isalnum() and (end == len(text) or not text[end].isalnum()):
+        return run
+    if run in ("<", ">", "=") and text[start - 1 : start] == " " and text[end : end + 1] == " ":
+        before, after = text[:start].rstrip(), text[end:].lstrip()
+        if before[-1:].isdigit() and after[:1].isdigit():
+            return run
+    return " "
+
+
 def clean_chapter_title(title: str) -> str:
     """Remove dashes, emojis, decorative symbols and double quotes; collapse spaces."""
     out: list[str] = []
@@ -120,7 +137,9 @@ def clean_chapter_title(title: str) -> str:
             out.append(" ")
         else:
             out.append(ch)
-    return _collapse("".join(out))
+    text = _DECORATIVE_RUN.sub(_decorative_replacement, "".join(out))
+    text = _DECORATIVE_PUNCT.sub(" ", text)
+    return _collapse(text).strip(_EDGE_PUNCT)
 
 
 def _normalize_chapters(value: list[dict[str, Any]], duration_s: float) -> list[dict[str, Any]]:

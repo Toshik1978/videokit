@@ -404,3 +404,57 @@ def test_render_skips_missing_sections() -> None:
 def test_normalize_chapter_title_keeps_script_specific_marks(title: str) -> None:
     out = normalize_section("chapters", chapters((0, title)), duration_s=DURATION)
     assert out[0]["title"] == title
+
+
+@pytest.mark.parametrize(
+    ("title", "expected"),
+    [
+        ("~ Intro ~", "Intro"),
+        ("Pool | Bar", "Pool Bar"),
+        ("*** Breakfast ***", "Breakfast"),
+        ("==> Check out <==", "Check out"),
+        ("# Rooftop", "Rooftop"),
+        ("Lobby :: Tour", "Lobby Tour"),
+        ("[Bonus] Spa", "Bonus Spa"),
+        ("Room > View", "Room View"),
+        ("{Gym} ^ Sauna", "Gym Sauna"),
+        ("`Code` snake_case", "Code snake case"),
+        ("\\ Backslash /", "Backslash"),
+        (": Leading and trailing ;", "Leading and trailing"),
+        ("Pool / Bar", "Pool Bar"),
+        ("|||", ""),
+    ],
+)
+def test_normalize_chapter_title_strips_decorative_ascii(title: str, expected: str) -> None:
+    out = normalize_section("chapters", chapters((0, title)), duration_s=DURATION)
+    assert out[0]["title"] == expected
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "C++ tips",
+        "C# tips",
+        "Q&A",
+        "50% off",
+        "Room 2.0",
+        "Don't miss",
+        "Café",
+        "Привет мир",
+        "東京タワー",
+        "Hôtel's pool",
+        "Step 1: arrival",
+        "AC/DC live",
+        "3 > 2 and 1 = 1",
+        "Price: $5, really?",
+        "Hello (world)!",
+    ],
+)
+def test_normalize_chapter_title_keeps_meaningful_characters(title: str) -> None:
+    out = normalize_section("chapters", chapters((0, title)), duration_s=DURATION)
+    assert out[0]["title"] == title
+
+
+def test_normalize_chapter_title_wifi_dash_becomes_space() -> None:
+    out = normalize_section("chapters", chapters((0, "Wi-Fi")), duration_s=DURATION)
+    assert out[0]["title"] == "Wi Fi"
