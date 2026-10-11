@@ -43,8 +43,8 @@ clips = {
     "av1-opus.webm": ["-c:v", av1, "-c:a", "libopus"],
     "h264-mp3.mkv": ["-c:v", "libx264", "-c:a", "libmp3lame"],
 }
-source = ["-f", "lavfi", "-i", "testsrc=duration=3:size=320x240:rate=15",
-          "-f", "lavfi", "-i", "sine=frequency=440:duration=3"]
+source = ["-f", "lavfi", "-i", "testsrc=duration=2:size=320x240:rate=15",
+          "-f", "lavfi", "-i", "sine=frequency=440:duration=2"]
 settings = Settings(_env_file=None)
 with tempfile.TemporaryDirectory() as tmp:
     for name, codecs in clips.items():

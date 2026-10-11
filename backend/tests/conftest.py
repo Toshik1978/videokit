@@ -28,7 +28,8 @@ def make_video(tmp_path: Path) -> MakeVideo:
     """Return a factory ``make_video(name="clip.mp4", *, colors=("red", "blue"), segment_s=3.0, audio=False)``.
 
     The video is ``len(colors)`` solid-color segments of ``segment_s`` seconds each, so every segment
-    boundary is a known scene change. ``audio=True`` adds a mono sine tone for the whole duration.
+    boundary is a known scene change. ``audio=True`` adds a mono sine tone for the whole duration, or
+    for ``audio_s`` seconds when given (e.g. audio that outlasts the video stream).
     """
 
     def factory(
@@ -37,13 +38,14 @@ def make_video(tmp_path: Path) -> MakeVideo:
         colors: Sequence[str] = ("red", "blue"),
         segment_s: float = 3.0,
         audio: bool = False,
+        audio_s: float | None = None,
     ) -> Path:
         out = tmp_path / name
         cmd = ["ffmpeg", "-v", "error", "-y"]
         for color in colors:
             cmd += ["-f", "lavfi", "-i", f"color=c={color}:s=160x120:r=10:d={segment_s}"]
         if audio:
-            cmd += ["-f", "lavfi", "-i", f"sine=frequency=440:duration={segment_s * len(colors)}"]
+            cmd += ["-f", "lavfi", "-i", f"sine=frequency=440:duration={audio_s or segment_s * len(colors)}"]
         inputs = "".join(f"[{i}:v]" for i in range(len(colors)))
         cmd += ["-filter_complex", f"{inputs}concat=n={len(colors)}:v=1:a=0[v]", "-map", "[v]"]
         if audio:
