@@ -4,6 +4,12 @@
 Runs inside the image (`task docker:gpu-check` bind-mounts it), so no check code ships in the
 product. Prints one line: success on stdout, the first failure on stderr (exit 1). Only exception
 types are printed, never messages or tracebacks.
+
+Failure classification for `WhisperModel(...)`: an error is a GPU-library failure when it is an
+ImportError, OSError or RuntimeError whose message mentions CUDA, cuBLAS or cuDNN (ctranslate2
+reports a missing or mismatched `libcublas.so.12` / `libcudnn` that way). The message is only
+inspected to decide, never printed. Any other error, such as a failed first-run model download from
+Hugging Face, is reported as "model could not be loaded".
 """
 
 from __future__ import annotations
@@ -38,6 +44,15 @@ def make_audio(path: Path) -> None:
     )
 
 
+_GPU_LIBRARY_ERRORS = (ImportError, OSError, RuntimeError)
+_GPU_LIBRARY_HINTS = ("cuda", "cublas", "cudnn")
+
+
+def _is_gpu_library_error(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return isinstance(exc, _GPU_LIBRARY_ERRORS) and any(hint in text for hint in _GPU_LIBRARY_HINTS)
+
+
 def _fail(message: str) -> int:
     print(message, file=sys.stderr)
     return 1
@@ -64,7 +79,8 @@ def main() -> int:
         try:
             model = whisper_model("tiny", device="cuda", compute_type="float16")
         except Exception as exc:
-            return _fail(f"GPU libraries failed to load: {type(exc).__name__}")
+            reason = "GPU libraries failed to load" if _is_gpu_library_error(exc) else "model could not be loaded"
+            return _fail(f"{reason}: {type(exc).__name__}")
         load_seconds = time.monotonic() - started
 
         device = model.model.device

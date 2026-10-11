@@ -146,11 +146,38 @@ def test_publish_checks_the_image_before_pushing_and_releases_after() -> None:
     assert build < smoke < size < push < attest < release
 
 
+def _dockerfile_description() -> str:
+    dockerfile = (WORKFLOWS.parents[1] / "Dockerfile").read_text(encoding="utf-8")
+    match = re.search(r'org\.opencontainers\.image\.description="([^"]+)"', dockerfile)
+    assert match is not None
+    return match.group(1)
+
+
+def test_load_and_push_builds_share_their_inputs() -> None:
+    steps = _steps("publish")
+    build = steps[_index(steps, lambda s: _uses("docker/build-push-action")(s) and "id" not in s)]["with"]
+    push = steps[_index(steps, lambda s: s.get("id") == "push")]["with"]
+    for key in ("context", "platforms", "labels", "cache-from", "cache-to"):
+        assert build[key] == push[key], key
+
+
+def test_push_has_no_unsigned_buildx_provenance() -> None:
+    # The signed actions/attest attestation is the only provenance; buildx's default would add an
+    # unsigned one and an unknown/unknown entry to the pushed index.
+    steps = _steps("publish")
+    push = steps[_index(steps, lambda s: s.get("id") == "push")]["with"]
+    assert push["provenance"] is False
+
+
 def test_publish_build_and_push_settings() -> None:
     steps = _steps("publish")
     meta = steps[_index(steps, _uses("docker/metadata-action"))]
     assert meta["with"]["tags"].split() == ["type=semver,pattern={{version}}", "type=raw,value=latest"]
-    assert "org.opencontainers.image.title=VideoKit" in meta["with"]["labels"]
+    labels = meta["with"]["labels"].split("\n")
+    assert "org.opencontainers.image.title=VideoKit" in labels
+    assert f"org.opencontainers.image.description={_dockerfile_description()}" in labels
+    assert "org.opencontainers.image.licenses=MIT" in labels
+    assert "org.opencontainers.image.authors=Anton Krivenko" in labels
 
     build = steps[_index(steps, lambda s: _uses("docker/build-push-action")(s) and "id" not in s)]
     assert build["with"]["platforms"] == "linux/amd64"
@@ -181,6 +208,8 @@ def test_release_notes_get_a_docker_pull_block() -> None:
     assert "### Docker" in runs
     assert "```bash" in runs
     assert "docker pull" in runs
+    # The tag is vX.Y.Z but the image tag is X.Y.Z.
+    assert 'docker pull ${IMAGE}:${GITHUB_REF_NAME#v}"' in runs
 
 
 def test_actions_are_pinned_to_major_tags() -> None:

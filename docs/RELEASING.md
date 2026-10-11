@@ -55,36 +55,32 @@ Write a short paragraph above the generated groups: what the release means for s
 VideoKit, not a restatement of the commit list. Mention anything an existing user must do, such as
 an environment variable that changed.
 
-## Step 2: preview the release body
+## Step 2: verify, commit and tag
 
-```bash
-.github/scripts/extract-changelog.sh vX.Y.Z
-```
-
-This prints exactly the text the release workflow will publish as the GitHub release body: the
-section from `## vX.Y.Z` to the next `## ` heading. It exits non-zero when the section is missing or
-empty, which is the guard against publishing a release with empty notes.
-
-## Step 3: verify and commit the changelog
+Five commands, in order. Replace `vX.Y.Z` with the version `task changelog` printed.
 
 ```bash
 task release:verify TAG=vX.Y.Z
-task lint && task test
-git add CHANGELOG.md
-git commit -m "chore(release): vX.Y.Z"
-git push origin main
-```
-
-`task release:verify` runs the same two guards the workflow runs: the tag is the newest changelog
-version, and its section extracts with content. The `chore(release)` subject keeps this commit out
-of the next release's notes.
-
-## Step 4: tag and push
-
-```bash
+git commit -m "chore(release): vX.Y.Z" CHANGELOG.md
+git push
 git tag -a vX.Y.Z -m vX.Y.Z
 git push origin vX.Y.Z
 ```
+
+`task release:verify` runs the same two guards the workflow runs: the tag is the newest changelog
+version, and its section extracts with content. The `chore(release)` subject keeps the commit out
+of the next release's notes. The pre-push hook runs `task lint` and `task test` on the first push,
+so the gate needs no separate run.
+
+Optional checks before the first command:
+
+```bash
+.github/scripts/extract-changelog.sh vX.Y.Z   # preview the exact release body
+task lint && task test                        # the gate, which the pre-push hook runs anyway
+```
+
+The preview prints the section from `## vX.Y.Z` to the next `## ` heading. It exits non-zero when
+the section is missing or empty, which is the guard against publishing a release with empty notes.
 
 The tag must be on `main`. Pushing a tag that matches `vX.Y.Z` starts the **Publish release**
 workflow (`.github/workflows/release.yml`). It never commits, tags or pushes to the repository. Its

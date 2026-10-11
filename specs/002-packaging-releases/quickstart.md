@@ -38,7 +38,9 @@ task changelog                         # no tags yet → "## v0.1.0 — <date>" 
 .github/scripts/extract-changelog.sh v0.1.0     # prints the section
 .github/scripts/check-release-version.sh v0.1.0 # → release version: v0.1.0
 .github/scripts/check-release-version.sh v0.2.0 # → exit 1, names both versions
-task changelog                         # right after: no new commits → refuses, file unchanged
+git add CHANGELOG.md && git commit -m "chore(release): v0.1.0"
+git tag -a v0.1.0 -m v0.1.0
+task changelog                         # nothing releasable since the tag → "nothing to release since v0.1.0", exit 1, file unchanged
 ```
 
 ## 4. First real release (US2 scenario 4, US3)

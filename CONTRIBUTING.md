@@ -13,6 +13,11 @@ the conventions the code follows. The full rule set for agents working on the co
 - [pre-commit](https://pre-commit.com) runs the hooks in `.pre-commit-config.yaml`.
 - [Docker](https://www.docker.com) builds and runs the image (`task docker:build`,
   `task docker:run`).
+- [ffmpeg](https://ffmpeg.org): the backend tests shell out to it to generate their video fixtures
+  (`backend/tests/conftest.py`).
+- beads (`br`), version 1.9.0 or newer: the
+  `beads-setup` pre-push hook (`tools/beads/check-setup.sh`) refuses every push without it. It is
+  not part of `.mise.toml`, so install it yourself.
 - Optional: the NVIDIA container toolkit, for running the image with GPU access
   (`task docker:run GPU=true`, `task docker:gpu-check`).
 
@@ -21,6 +26,7 @@ the conventions the code follows. The full rule set for agents working on the co
 ```bash
 mise install && task setup   # pinned toolchain, then backend and frontend dependencies
 pre-commit install           # commit-msg, pre-commit, pre-push and beads hooks
+git config merge.beads.driver "br merge-driver %O %A %B"   # the pre-push hook checks it
 task lint                    # static checks
 task test                    # unit and integration tests with coverage
 task e2e                     # browser tests (needs Playwright browsers installed)

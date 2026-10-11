@@ -17,7 +17,7 @@ dependencies = [
     "av<19",
     # GPU matrix math for ctranslate2 (CUDA 12); the only GPU library it loads — see
     # specs/002-packaging-releases/research.md R2.
-    "nvidia-cublas-cu12",
+    "nvidia-cublas-cu12; sys_platform == 'linux'",
 ]
 
 [dependency-groups]

@@ -128,7 +128,8 @@ OPENAI_MODEL=<your-openai-model-id>
 
 One image works on hosts with and without a GPU.
 
-- **CPU only (default):** local transcription runs on the CPU. It is slower, but jobs complete.
+- **CPU:** local transcription runs on the CPU when no GPU is available (`WHISPER_DEVICE=auto`
+  falls back to it) or when `WHISPER_DEVICE=cpu`. It is slower, but jobs complete.
 - **GPU:** local transcription runs on an NVIDIA GPU. The image already includes the GPU library
   (cuBLAS) that local transcription needs; the host only needs the NVIDIA driver and the NVIDIA
   Container Toolkit. `compose.yaml` requests the GPU through its `deploy.resources.reservations.devices`
@@ -184,10 +185,10 @@ and data handling.
 
 ## Development
 
-Prerequisites: [mise](https://mise.jdx.dev/) and `ffmpeg`.
+Prerequisites: [mise](https://mise.jdx.dev/), `ffmpeg` and beads (`br`, 1.9.0 or newer; the pre-push hook needs it).
 
 ```bash
-mise install    # python, uv, node, task, gitleaks, hadolint, pre-commit
+mise install    # python, uv, node, task, gitleaks, hadolint, actionlint, pre-commit, git-cliff
 task setup      # backend (uv) and frontend (npm) dependencies
 pre-commit install
 git config merge.beads.driver "br merge-driver %O %A %B"
@@ -196,7 +197,7 @@ git config merge.beads.driver "br merge-driver %O %A %B"
 Day to day:
 
 ```bash
-task lint      # ruff, ruff format, mypy, vue-tsc, ESLint, Prettier
+task lint      # ruff, ruff format, mypy, vue-tsc, ESLint, Prettier, hadolint, actionlint
 task test      # backend and frontend tests with coverage (80 % line coverage floor)
 task e2e       # Playwright end-to-end tests (desktop and phone emulation)
 task format    # auto-format both stacks
@@ -212,8 +213,10 @@ task format    # auto-format both stacks
   `cd backend && uv run pytest -m live`.
 - Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/)
   (`feat:`, `fix:`, `docs:`, `chore:` and so on).
-- Design documents live in [`specs/001-videokit-youtube-prep/`](specs/001-videokit-youtube-prep/):
-  `spec.md`, `plan.md`, `research.md`, `data-model.md`, `quickstart.md` and the `contracts/`.
+- Design documents live in [`specs/001-videokit-youtube-prep/`](specs/001-videokit-youtube-prep/)
+  (the product) and [`specs/002-packaging-releases/`](specs/002-packaging-releases/) (the slim image
+  and the release flow): `spec.md`, `plan.md`, `research.md`, `data-model.md`, `quickstart.md` and
+  the `contracts/`.
   The project principles are in
   [`.specify/memory/constitution.md`](.specify/memory/constitution.md).
 - Never commit personal data, real hostnames, or secrets. Use placeholders such as `example.com` and

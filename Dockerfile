@@ -35,19 +35,23 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=ghcr.io/astral-sh/uv:0.13 /uv /usr/local/bin/uv
-
 WORKDIR /app
 
+# uv is bind-mounted on the sync steps only, so it is not shipped in the image. The engine never
+# loads nvrtc (research R2), so it is left out.
 # Dependencies first so this layer is cached until the lockfile changes.
 COPY backend/pyproject.toml backend/uv.lock ./
-RUN --mount=type=cache,target=/root/.cache/uv uv sync --locked --no-dev --no-install-project
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=from=ghcr.io/astral-sh/uv:0.13,source=/uv,target=/usr/local/bin/uv \
+    uv sync --locked --no-dev --no-install-package nvidia-cuda-nvrtc-cu12 --no-install-project
 
 # Make the pip-installed CUDA libraries (cuBLAS) visible to the dynamic loader.
 RUN find /app/.venv -path "*/nvidia/*/lib" -type d > /etc/ld.so.conf.d/nvidia.conf && ldconfig
 
 COPY backend/src ./src
-RUN --mount=type=cache,target=/root/.cache/uv uv sync --locked --no-dev
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=from=ghcr.io/astral-sh/uv:0.13,source=/uv,target=/usr/local/bin/uv \
+    uv sync --locked --no-dev --no-install-package nvidia-cuda-nvrtc-cu12
 
 COPY --from=frontend /build/dist ./src/videokit/static
 

@@ -113,7 +113,15 @@ def create_app(
             await asyncio.gather(purge_task, return_exceptions=True)
             await worker.stop()
 
-    app = FastAPI(title="videokit", lifespan=lifespan, openapi_url="/api/openapi.json", docs_url=None, redoc_url=None)
+    # The git tag is the version (docs/RELEASING.md); "0.0.0" replaces FastAPI's fake default 0.1.0.
+    app = FastAPI(
+        title="VideoKit",
+        version="0.0.0",
+        lifespan=lifespan,
+        openapi_url="/api/openapi.json",
+        docs_url=None,
+        redoc_url=None,
+    )
     app.state.settings = settings
     app.state.providers = providers
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import re
+import subprocess
 import sys
 import types
 from collections.abc import Callable, Iterator
@@ -34,12 +35,13 @@ class _Inner:
 
 class _Model:
     device = "cuda"
-    fail_load = False
+    fail_load: BaseException | None = None
     fail_transcribe = False
 
     def __init__(self, name: str, device: str, compute_type: str, **_: Any) -> None:
-        if type(self).fail_load:
-            raise OSError(SECRET)
+        error = type(self).fail_load
+        if error is not None:
+            raise error
         self.calls = (name, device, compute_type)
         self.model = _Inner(type(self).device)
 
@@ -55,7 +57,8 @@ def run(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> 
         *,
         gpus: int = 1,
         device: str = "cuda",
-        fail_load: bool = False,
+        fail_load: BaseException | None = None,
+        fail_audio: bool = False,
         fail_transcribe: bool = False,
     ) -> tuple[int, str, str]:
         ct2 = types.SimpleNamespace(get_cuda_device_count=lambda: gpus)
@@ -68,7 +71,13 @@ def run(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> 
         monkeypatch.setitem(sys.modules, "ctranslate2", ct2)
         monkeypatch.setitem(sys.modules, "faster_whisper", fw)
         module = _load_script()
-        monkeypatch.setattr(module, "make_audio", lambda path: path.write_bytes(b"x"))
+
+        def make_audio(path: Path) -> None:
+            if fail_audio:
+                raise subprocess.CalledProcessError(1, ["ffmpeg", SECRET])
+            path.write_bytes(b"x")
+
+        monkeypatch.setattr(module, "make_audio", make_audio)
         code = int(module.main())
         out = capsys.readouterr()
         assert "Traceback" not in out.out + out.err
@@ -82,8 +91,22 @@ def test_no_gpu(run: Run) -> None:
     assert run(gpus=0) == (1, "", "no GPU visible to the container\n")
 
 
-def test_model_load_error(run: Run) -> None:
-    assert run(fail_load=True) == (1, "", "GPU libraries failed to load: OSError\n")
+def test_gpu_library_error_on_model_load(run: Run) -> None:
+    error = OSError(f"libcublas.so.12: cannot open shared object file {SECRET}")
+    assert run(fail_load=error) == (1, "", "GPU libraries failed to load: OSError\n")
+
+
+def test_model_download_error(run: Run) -> None:
+    error = OSError(f"Cannot reach the model hub {SECRET}")
+    assert run(fail_load=error) == (1, "", "model could not be loaded: OSError\n")
+
+
+def test_other_model_load_error_is_not_blamed_on_the_gpu(run: Run) -> None:
+    assert run(fail_load=ValueError(SECRET)) == (1, "", "model could not be loaded: ValueError\n")
+
+
+def test_audio_generation_error(run: Run) -> None:
+    assert run(fail_audio=True) == (1, "", "could not generate test audio: CalledProcessError\n")
 
 
 def test_model_on_cpu(run: Run) -> None:

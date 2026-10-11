@@ -34,6 +34,21 @@ def test_both_uv_sync_steps_use_cache_mount() -> None:
         assert line.startswith("RUN --mount=type=cache,target=/root/.cache/uv ")
 
 
+def test_uv_is_bind_mounted_not_copied_into_the_image() -> None:
+    assert not [line for line in _logical_lines() if line.startswith("COPY") and "astral-sh/uv" in line]
+    syncs = [line for line in _logical_lines() if "uv sync" in line]
+    assert len(syncs) == 2
+    for line in syncs:
+        assert "--mount=from=ghcr.io/astral-sh/uv:0.13,source=/uv,target=/usr/local/bin/uv" in line
+
+
+def test_nvrtc_is_not_installed() -> None:
+    syncs = [line for line in _logical_lines() if "uv sync" in line]
+    assert len(syncs) == 2
+    for line in syncs:
+        assert "--no-install-package nvidia-cuda-nvrtc-cu12" in line
+
+
 def test_uv_uses_system_python() -> None:
     assert "UV_PYTHON_DOWNLOADS=never" in DOCKERFILE
     assert "UV_PYTHON=/usr/local/bin/python3" in DOCKERFILE
@@ -61,5 +76,9 @@ def test_oci_labels() -> None:
 
 
 def test_cublas_from_pip_without_cudnn() -> None:
-    assert '"nvidia-cublas-cu12"' in PYPROJECT
+    assert '"nvidia-cublas-cu12;' in PYPROJECT
     assert "nvidia-cudnn" not in PYPROJECT
+
+
+def test_cublas_is_limited_to_linux() -> None:
+    assert "\"nvidia-cublas-cu12; sys_platform == 'linux'\"" in PYPROJECT

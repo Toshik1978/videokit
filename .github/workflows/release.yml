@@ -100,6 +100,9 @@ jobs:
             type=raw,value=latest
           labels: |
             org.opencontainers.image.title=VideoKit
+            org.opencontainers.image.description=Self-hosted video tools in one container, starting with YouTube Prep.
+            org.opencontainers.image.licenses=MIT
+            org.opencontainers.image.authors=Anton Krivenko
 
       # Build into the local Docker daemon and check that exact image before anything is pushed.
       - name: Build the image
@@ -119,7 +122,9 @@ jobs:
       - name: Image size guard
         run: scripts/image_size_guard.sh videokit:release
 
-      # Same inputs and cache as the checked build, so the layers are identical.
+      # Same inputs and cache as the checked build, so the layers are identical. No buildx
+      # provenance: the signed actions/attest step below is the only one, and the default would add
+      # an unsigned one plus an unknown/unknown entry to the pushed image index.
       - name: Push the image
         id: push
         uses: docker/build-push-action@v7
@@ -127,6 +132,7 @@ jobs:
           context: .
           platforms: linux/amd64
           push: true
+          provenance: false
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha

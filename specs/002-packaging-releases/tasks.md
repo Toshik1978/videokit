@@ -204,3 +204,41 @@ Then:        T004 (GPU check; shares Taskfile.yml with T002)
 2. Phase 2 makes identity and versioning consistent before anything is published.
 3. Phase 3 makes publishing possible; Phase 4 points users and compose at the published image.
 4. The first real release (quickstart section 4) follows `docs/RELEASING.md` after the merge.
+
+---
+
+## Phase 6: Convergence
+
+- [x] T020 List every prerequisite a fresh fork needs to reach a green gate and a working pre-push hook in `CONTRIBUTING.md` per FR-020, US4/AC2, SC-006 (partial)
+  - Prerequisites: add ffmpeg (backend tests shell out to it; `backend/tests/conftest.py`) and beads `br` ≥ 1.9.0 (the `beads-setup` pre-push hook, `tools/beads/check-setup.sh`, refuses pushes without it).
+  - Getting started: add `git config merge.beads.driver "br merge-driver %O %A %B"` after `pre-commit install`.
+  - Verify: every command cited exists; the versions match `tools/beads/check-setup.sh`.
+- [x] T021 Restrict `nvidia-cublas-cu12` to Linux in `backend/pyproject.toml` and `backend/uv.lock` per SC-006 (partial)
+  - Marker `sys_platform == 'linux'` (the package ships Linux and Windows wheels only, so `uv sync` fails on macOS); relock; keep the comment.
+  - Tests: extend `backend/tests/unit/test_dockerfile.py` (or the pyproject test) to assert the marker; the image still gets the package (amd64 Linux).
+- [x] T022 Keep the transitive `nvidia-cuda-nvrtc-cu12` out of the image in `Dockerfile` per FR-002 (partial)
+  - Both `uv sync` steps pass `--no-install-package nvidia-cuda-nvrtc-cu12` (the engine never loads it, research R2).
+  - Tests: `backend/tests/unit/test_dockerfile.py` asserts the flag on both sync lines.
+  - Verify: `task docker:build`, `scripts/docker_smoke.sh videokit:local`, `task docker:size`, and `task docker:gpu-check` on a GPU host.
+- [x] T023 Stop shipping the uv binary in the runtime image in `Dockerfile` per FR-003 (partial)
+  - Replace `COPY --from=ghcr.io/astral-sh/uv:0.13 /uv /usr/local/bin/uv` with a bind mount on each `uv sync` step (`--mount=from=ghcr.io/astral-sh/uv:0.13,source=/uv,target=/usr/local/bin/uv`), keeping the cache mount.
+  - Tests: `backend/tests/unit/test_dockerfile.py` asserts no `COPY` of uv and the bind mount on both sync lines.
+  - Verify: as T022; `docker run --rm --entrypoint python videokit:local -c "import shutil; print(shutil.which('uv'))"` prints `None`.
+- [x] T024 Set the image description, licence and author labels explicitly in `.github/workflows/release.yml` per FR-013 (partial)
+  - The metadata-action `labels:` input adds `org.opencontainers.image.description` (same sentence as the Dockerfile), `org.opencontainers.image.licenses=MIT` and `org.opencontainers.image.authors=Anton Krivenko` next to the title, so repository settings never override the Dockerfile values.
+  - Tests: `backend/tests/unit/test_release_workflow.py` asserts the four labels; actionlint passes.
+- [x] T025 Bring the release steps in `docs/RELEASING.md` to at most six required commands after the summary per SC-003 (partial)
+  - Required path: `task release:verify TAG=…`, `git commit -m "chore(release): vX.Y.Z" CHANGELOG.md`, `git push`, `git tag -a …`, `git push origin vX.Y.Z`; the notes preview and `task lint && task test` are marked optional (the pre-push hook runs the gate).
+  - Verify: count the required commands; every command exists.
+- [x] T026 Fix quickstart section 3's last step in `specs/002-packaging-releases/quickstart.md` per quickstart §3 (contradicts)
+  - Before the refusing `task changelog` run: commit `chore(release): v0.1.0` and tag `v0.1.0` in the scratch clone; expected `nothing to release since v0.1.0`, exit 1, file unchanged.
+- [x] T027 Align `specs/002-packaging-releases/contracts/commands.md` with the implemented script outputs per contracts/commands.md (contradicts)
+  - `scripts/gpu_check.py` row: add `could not generate test audio: <exception type>` (and the line T029 adds); `check-release-version.sh` row: success prints `release version: <tag> (tag <tag>)`; `task docker:run` row: `GPU=true` works as a task variable or an environment variable.
+- [x] T028 Correct the stale lines in `README.md` per FR-017 (contradicts)
+  - The provider table no longer calls CPU-only the default (compose enables the GPU); the mise comment lists git-cliff and actionlint; the `task lint` comment lists hadolint and actionlint; the specs pointer names `specs/002-packaging-releases/` too.
+- [x] T029 Give model download/load failures their own reason in `scripts/gpu_check.py` per FR-009 (partial)
+  - Errors raised by `WhisperModel` that are not GPU-library failures (e.g. a failed first-run download from Hugging Face) print `model could not be loaded: <exception type>`, exit 1; GPU library failures keep `GPU libraries failed to load: <exception type>` (decide by exception type and document the rule in the script).
+  - Tests: `backend/tests/unit/test_gpu_check.py` covers both lines and the audio-generation failure line.
+- [x] T030 Remove the default OpenAPI version and use the display name in `backend/src/videokit/main.py` per FR-016, FR-023 (unrequested)
+  - `FastAPI(title="VideoKit", version="0.0.0")` or equivalent neutral value with a comment that the git tag is the version (FastAPI defaults to `0.1.0`, a fake release number).
+  - Tests: a unit test reads `/api/openapi.json` (or `app.openapi()`) and asserts the title and that the version is not `0.1.0`.
