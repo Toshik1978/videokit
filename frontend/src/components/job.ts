@@ -3,6 +3,7 @@ export interface JobSummary {
   upload: { offset: number; length: number } | null;
   queue_position: number | null;
   failure_reason: string | null;
+  failure_code?: string | null;
 }
 
 export interface Usage {

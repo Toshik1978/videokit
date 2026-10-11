@@ -1,4 +1,6 @@
+import asyncio
 import textwrap
+import time
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -120,6 +122,7 @@ def test_job_shape_and_queue_position(client: TestClient) -> None:
         "upload",
         "queue_position",
         "failure_reason",
+        "failure_code",
         "expires_at",
         "duration_s",
         "language",
@@ -133,6 +136,7 @@ def test_job_shape_and_queue_position(client: TestClient) -> None:
     assert body["queue_position"] == 2
     assert body["expires_at"].endswith("Z")
     assert body["result"] is None
+    assert body["failure_code"] is None
     assert body["usage"]["cost_usd"] == 0.0
     assert client.get("/api/health").json()["queue_length"] == 2
 
@@ -149,6 +153,7 @@ def test_restart_recovery(settings: Settings, tools_pkg: str) -> None:
         body = c.get(f"/api/jobs/{job.id}").json()
     assert body["state"] == "failed"
     assert body["failure_reason"] == "Server restarted, please upload again"
+    assert body["failure_code"] == "server_restarted"
 
 
 def test_spa_serving(client: TestClient) -> None:
@@ -199,6 +204,56 @@ def test_done_job_returns_result_json(client: TestClient) -> None:
     jdir.mkdir(parents=True)
     (jdir / "result.json").write_text('{"title": "Hello"}')
     assert client.get(f"/api/jobs/{job.id}").json()["result"] == {"title": "Hello"}
+
+
+def _expired_store(settings: Settings) -> JobStore:
+    """A store on the same data whose clock is one TTL and an hour in the past: its new jobs are already expired."""
+    past = time.time() - (settings.job_ttl_hours + 1) * 3600
+    return JobStore(settings.data_dir, settings.job_ttl_hours, settings.max_upload_bytes, clock=lambda: past)
+
+
+@pytest.fixture
+def unpurged_client(
+    settings: Settings, tools_pkg: str, static_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[TestClient]:
+    """An app whose purge loop never runs, so expired rows stay in the database."""
+
+    async def no_purge(store: JobStore) -> None:
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr("videokit.main.run_purge_loop", no_purge)
+    with TestClient(create_app(settings, tools_package=tools_pkg, static_dir=static_dir)) as c:
+        yield c
+
+
+def test_expired_job_is_not_found_before_the_purge_runs(unpurged_client: TestClient, settings: Settings) -> None:
+    """US2-AS4 / FR-015: a job past `expires_at` is gone for the API even while its row still exists."""
+    old = _expired_store(settings)
+    job = old.create("demo_tool", 5)
+    old.set_upload_offset(job.id, 5)
+    for state in (JobState.QUEUED, JobState.EXTRACTING, JobState.TRANSCRIBING, JobState.GENERATING, JobState.DONE):
+        old.set_state(job.id, state)
+
+    r = unpurged_client.get(f"/api/jobs/{job.id}")
+
+    assert r.status_code == 404
+    assert r.json()["error"]["code"] == "job_not_found"
+    assert old.get(job.id) is not None  # not purged
+
+
+def test_expired_running_job_stays_visible_like_the_purge_skips_it(
+    unpurged_client: TestClient, settings: Settings
+) -> None:
+    old = _expired_store(settings)
+    job = old.create("demo_tool", 5)
+    old.set_upload_offset(job.id, 5)
+    old.set_state(job.id, JobState.QUEUED)
+    old.set_state(job.id, JobState.EXTRACTING)  # past `queued`: the worker will not pick it up
+
+    r = unpurged_client.get(f"/api/jobs/{job.id}")
+
+    assert r.status_code == 200
+    assert r.json()["state"] == "extracting"
 
 
 def test_entry_point_bad_values_exit_cleanly(

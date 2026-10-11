@@ -4,6 +4,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 
 import { ApiError, getJson, postJson } from '@/api/client';
+import { useMessages } from '@/i18n/messages';
 
 const props = defineProps<{ toolId: string }>();
 const emit = defineEmits<{ uploaded: [jobId: string] }>();
@@ -17,6 +18,7 @@ const RETRY_DELAYS = [0, 1000, 3000, 5000, 10000];
 const UNITS = ['B', 'KB', 'MB', 'GB', 'TB'];
 
 const { t } = useI18n();
+const { errorCodeMessage, errorMessage, hasErrorCode } = useMessages();
 
 const config = ref<AppConfig | null>(null);
 const busy = ref(false);
@@ -40,11 +42,26 @@ function limitMessage(): string {
 }
 
 function messageFor(err: unknown): string {
-  if (err instanceof ApiError) {
-    if (err.code === 'file_too_large') return limitMessage();
-    if (err.code !== 'http_error') return err.message;
+  return err instanceof ApiError && err.code === 'file_too_large'
+    ? limitMessage()
+    : errorMessage(err);
+}
+
+/** The API error code in a failed tus response body, if any (tus `DetailedError`). */
+function tusErrorCode(err: unknown): string | null {
+  const response = (err as { originalResponse?: { getBody?: () => unknown } | null } | null)
+    ?.originalResponse;
+  try {
+    const body = JSON.parse(String(response?.getBody?.())) as { error?: { code?: unknown } };
+    return typeof body.error?.code === 'string' ? body.error.code : null;
+  } catch {
+    return null;
   }
-  return t('errors.generic');
+}
+
+function uploadErrorMessage(err: unknown): string {
+  const code = tusErrorCode(err);
+  return code && hasErrorCode(code) ? errorCodeMessage(code) : t('upload.failed');
 }
 
 onMounted(async () => {
@@ -111,10 +128,10 @@ function startTus(file: File, entry: StoredUpload, fingerprint: string, chunkSiz
       current = null;
       emit('uploaded', entry.job_id);
     },
-    onError: () => {
+    onError: (err) => {
       busy.value = false;
       current = null;
-      error.value = t('upload.failed');
+      error.value = uploadErrorMessage(err);
     },
   });
   current = { upload, fingerprint, jobId: entry.job_id };

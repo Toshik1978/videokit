@@ -363,3 +363,23 @@ Then:        T025 pipeline → T026 upload UI → T027 job UI
 
 US1 (MVP) → US2 regenerate → US3 large uploads → US6 mobile → US4 OpenAI + fallback → US5 home →
 Polish (Docker, README, live tests). Each phase is one commit and leaves the app working.
+
+## Phase 10: Convergence
+
+- [x] T043 CRITICAL: Stop logging tracebacks for unhandled request errors in `backend/src/videokit/core/errors.py` and `backend/src/videokit/main.py` per Constitution VI / FR-016 (contradicts)
+  - The catch-all handler logs only method, path and `type(exc).__name__` (no `exc_info`, no exception message); the 500 `internal_error` envelope is unchanged.
+  - Unhandled exceptions must not reach uvicorn's "Exception in ASGI application" traceback logging (e.g. convert them to the 500 envelope in an outermost pure-ASGI middleware instead of relying on Starlette's re-raising `ServerErrorMiddleware`).
+  - Tests: invert `backend/tests/unit/test_errors.py::test_unhandled_exception_logged_server_side` to assert no `exc_info`, no "Traceback" and no exception message in any captured record (all loggers incl. `uvicorn.error`); add an unhandled-route-error case to `backend/tests/integration/test_log_hygiene.py`.
+- [x] T044 Render all user-facing messages from the i18n catalog in `frontend/src/` and expose a job failure code in `backend/src/videokit/core/` per FR-036 (partial)
+  - Frontend: map every API error `code` the UI can receive (`file_too_large`, `unknown_tool`, `invalid_request`, `not_cancellable`, `job_not_found`, upload codes incl. `upload_in_progress`, regenerate codes) to `frontend/src/i18n/en.json` keys with `errors.generic` as fallback; stop displaying `err.message` verbatim in `UploadPanel.vue` and `JobPage.vue`.
+  - Backend + contract: add an additive `failure_code` (e.g. `not_a_video`, `server_restarted`, `transcription_failed`, `generation_failed`, `generation_invalid`, `extraction_failed`, `internal_error`) to the job row and `GET /api/jobs/{id}` (update `contracts/http-api.md` and `data-model.md`); `JobStatus.vue` renders the failure from the catalog, keeping `failure_reason` only as detail.
+  - Home cards take name/description from catalog keys declared by each frontend tool module (e.g. `tools.youtube_prep.name`/`.description`), falling back to the API values. Tests: `frontend/tests/unit/job.spec.ts`, `upload.spec.ts`, `home.spec.ts`, backend `test_worker.py` / `test_api_platform.py`.
+- [x] T045 Treat jobs past `expires_at` as expired in `backend/src/videokit/core/api.py` and the job access used by `backend/src/videokit/tools/youtube_prep/routes.py` per US2-AS4 / FR-015 (partial)
+  - `GET /api/jobs/{id}` and `POST /api/tools/youtube_prep/jobs/{id}/regenerate` return `404 job_not_found` when `expires_at < now`, even before the purge loop deletes the job; no provider call is made.
+  - Tests: `backend/tests/integration/test_api_platform.py` and `backend/tests/integration/test_regenerate.py` with an injectable clock or an expired row; assert 404 and unchanged usage.
+- [x] T046 Show the too-short-for-chapters message inside the Chapters card in `frontend/src/tools/youtube-prep/JobPage.vue` and `frontend/src/components/ResultCard.vue` per spec Edge Cases (too-short video) (partial)
+  - When `result.notices` contains `too_short_for_chapters`, the Chapters card shows `job.notices.too_short_for_chapters` instead of an empty textarea; Copy and Regenerate are hidden or disabled for that card.
+  - Tests: `frontend/tests/unit/job.spec.ts` asserts the message is inside `[data-test=card-chapters]` and no empty chapters textarea is copyable.
+- [x] T047 Restrict the fast pre-commit hooks to the pre-commit stage in `.pre-commit-config.yaml` per T006 (partial)
+  - Add `stages: [pre-commit]` to `ruff-check`, `ruff-format`, `gitleaks` and `check-denylist` (or top-level `default_stages: [pre-commit]`), keeping the explicit stages of the pre-push and post-* hooks.
+  - Verify with `pre-commit run --hook-stage commit-msg --commit-msg-filename <file>` and `pre-commit run --hook-stage pre-push --all-files`: neither lists the four fast hooks. Never install hooks.

@@ -154,14 +154,50 @@ describe('upload page', () => {
     expect(wrapper.get('[role="alert"]').text()).toBe(en.errors.generic);
   });
 
-  it('shows the API message for other coded errors', async () => {
+  it.each(['unknown_tool', 'invalid_request', 'internal_error'] as const)(
+    'shows the catalog message for the %s error code, not the API message',
+    async (code) => {
+      stubFetch({
+        '/api/config': () => json(200, CONFIG),
+        '/api/jobs': () => json(400, { error: { code, message: 'Raw server text.' } }),
+      });
+      const { wrapper } = await setup();
+      await choose(wrapper, 500);
+      expect(wrapper.get('[role="alert"]').text()).toBe(en.errors.codes[code]);
+    },
+  );
+
+  it('shows the generic message for an unknown error code', async () => {
     stubFetch({
       '/api/config': () => json(200, CONFIG),
-      '/api/jobs': () => json(404, { error: { code: 'unknown_tool', message: 'No such tool.' } }),
+      '/api/jobs': () => json(400, { error: { code: 'brand_new_code', message: 'Raw text.' } }),
     });
     const { wrapper } = await setup();
     await choose(wrapper, 500);
-    expect(wrapper.get('[role="alert"]').text()).toBe('No such tool.');
+    expect(wrapper.get('[role="alert"]').text()).toBe(en.errors.generic);
+  });
+
+  it('has a catalog message for every API error code the UI can receive', () => {
+    const codes = [
+      'file_too_large',
+      'unknown_tool',
+      'invalid_request',
+      'not_cancellable',
+      'job_not_found',
+      'internal_error',
+      'unsupported_tus_version',
+      'upload_not_found',
+      'chunk_too_large',
+      'upload_in_progress',
+      'offset_mismatch',
+      'unsupported_media_type',
+      'job_not_done',
+      'regeneration_in_progress',
+      'invalid_section',
+      'generation_failed',
+    ];
+    const catalog: Record<string, string> = en.errors.codes;
+    for (const code of codes) expect(catalog[code], code).toBeTruthy();
   });
 
   it('clears the file input so the same file can be re-selected after a failure', async () => {
@@ -194,6 +230,40 @@ describe('upload page', () => {
     await flushPromises();
     expect(wrapper.get('[role="alert"]').text()).toBe(en.upload.failed);
     expect(wrapper.get('input[type="file"]').attributes('disabled')).toBeUndefined();
+  });
+
+  it('shows the catalog message for a coded tus upload error', async () => {
+    stubFetch({
+      '/api/config': () => json(200, CONFIG),
+      '/api/jobs': () => json(201, { job_id: 'j1', upload_url: '/api/uploads/j1' }),
+    });
+    const { wrapper } = await setup();
+    await choose(wrapper, 500);
+    const error = Object.assign(new Error('tus: unexpected response'), {
+      originalResponse: {
+        getStatus: () => 409,
+        getBody: () =>
+          JSON.stringify({ error: { code: 'upload_in_progress', message: 'Raw text.' } }),
+      },
+    });
+    tus.instances[0].options.onError(error);
+    await flushPromises();
+    expect(wrapper.get('[role="alert"]').text()).toBe(en.errors.codes.upload_in_progress);
+  });
+
+  it('shows the upload-failed message for a tus error without a known code', async () => {
+    stubFetch({
+      '/api/config': () => json(200, CONFIG),
+      '/api/jobs': () => json(201, { job_id: 'j1', upload_url: '/api/uploads/j1' }),
+    });
+    const { wrapper } = await setup();
+    await choose(wrapper, 500);
+    const error = Object.assign(new Error('tus'), {
+      originalResponse: { getStatus: () => 500, getBody: () => 'not json' },
+    });
+    tus.instances[0].options.onError(error);
+    await flushPromises();
+    expect(wrapper.get('[role="alert"]').text()).toBe(en.upload.failed);
   });
 
   it('shows the generic error when config cannot be loaded', async () => {

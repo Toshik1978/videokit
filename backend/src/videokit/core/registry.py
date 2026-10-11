@@ -77,7 +77,7 @@ class JobAccess(Protocol):
     def ctx(self) -> CoreContext: ...
 
     def get(self, job_id: str) -> Job | None:
-        """A read-only snapshot of the job (state, tool id, providers, accumulated usage), or None if unknown."""
+        """A read-only snapshot of the job (state, tool id, providers, usage), or None if unknown or expired."""
         ...
 
     def handle(self, job_id: str) -> JobHandle:

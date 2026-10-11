@@ -121,8 +121,8 @@ def create_app(
         await app.state.worker.on_upload_complete(job_id)
 
     app.state.on_upload_complete = on_upload_complete
-    install_error_handlers(app)
     app.add_middleware(uploads.TusResumableMiddleware)
+    install_error_handlers(app)  # after all other middleware: its catch-all must wrap them
 
     # Tools are mounted at creation (not in the lifespan) so their routes precede the SPA catch-all.
     app.state.tools = discover_tools(tools_package)

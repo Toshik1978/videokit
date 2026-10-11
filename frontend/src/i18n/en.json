@@ -13,7 +13,31 @@
     "back": "Back to home"
   },
   "errors": {
-    "generic": "Something went wrong. Please try again."
+    "generic": "Something went wrong. Please try again.",
+    "codes": {
+      "file_too_large": "This file is too large.",
+      "unknown_tool": "This tool is not available.",
+      "invalid_request": "The request was invalid. Please try again.",
+      "not_cancellable": "This job has already finished and cannot be cancelled.",
+      "job_not_found": "This job was not found. It may have expired.",
+      "internal_error": "Something went wrong on the server. Please try again.",
+      "unsupported_tus_version": "The upload was rejected. Please reload the page and try again.",
+      "upload_not_found": "This upload was not found. It may have expired. Please choose the file again.",
+      "chunk_too_large": "The upload was rejected. Please choose the file again to retry.",
+      "upload_in_progress": "This file is already being uploaded in another tab or window.",
+      "offset_mismatch": "The upload got out of step with the server. Please choose the file again to resume.",
+      "unsupported_media_type": "The upload was rejected. Please choose the file again to retry.",
+      "job_not_done": "This job is not finished yet, so it cannot be regenerated.",
+      "regeneration_in_progress": "This job is already being regenerated. Please wait and try again.",
+      "invalid_section": "This section cannot be regenerated.",
+      "generation_failed": "Generating a new version failed. The previous text was kept."
+    }
+  },
+  "tools": {
+    "youtube_prep": {
+      "name": "YouTube Prep",
+      "description": "Title, description, tags and chapters for a video."
+    }
   },
   "youtubePrep": {
     "heading": "YouTube Prep",
@@ -33,7 +57,16 @@
     },
     "uploadPercent": "Uploaded: {percent}%",
     "queuePosition": "Position in queue: {position}",
-    "failureReason": "Reason: {reason}",
+    "failureDetail": "Details: {detail}",
+    "failures": {
+      "not_a_video": "The uploaded file is not a playable video.",
+      "server_restarted": "The server restarted while this job was waiting or running. Please upload the video again.",
+      "extraction_failed": "Audio and frames could not be extracted from the video.",
+      "transcription_failed": "Transcription failed: no transcription provider could process the audio. Please try again later.",
+      "generation_failed": "Generating the metadata failed: no AI provider could answer. Please try again later.",
+      "generation_invalid": "The generated metadata still broke the YouTube rules after a repair attempt. Please try again.",
+      "internal_error": "Something went wrong while processing the video. Please try again."
+    },
     "cancel": "Cancel job",
     "copy": "Copy",
     "copied": "Copied to clipboard.",
@@ -56,13 +89,7 @@
     "running": "Regenerating…",
     "hintLabel": "Hint (optional)",
     "hintPlaceholder": "e.g. make it shorter",
-    "hintCount": "{count} / {max}",
-    "errors": {
-      "job_not_done": "This job is not finished yet, so it cannot be regenerated.",
-      "regeneration_in_progress": "This job is already being regenerated. Please wait and try again.",
-      "invalid_section": "This section cannot be regenerated.",
-      "generation_failed": "Generating a new version failed. The previous text was kept."
-    }
+    "hintCount": "{count} / {max}"
   },
   "usage": {
     "heading": "Usage",

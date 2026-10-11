@@ -52,8 +52,32 @@ def test_wal_mode_and_schema(tmp_path: Path) -> None:
     assert {
         "id", "tool_id", "state", "failure_reason", "cancel_requested", "upload_length", "upload_offset",
         "created_at", "queued_at", "updated_at", "expires_at", "duration_s", "language", "no_speech",
-        "providers", "usage",
+        "providers", "usage", "failure_code",
     } <= cols  # fmt: skip
+
+
+def test_connect_adds_failure_code_to_an_existing_database(tmp_path: Path) -> None:
+    path = tmp_path / "videokit.db"
+    old = sqlite3.connect(path)
+    old.execute(
+        "CREATE TABLE jobs (id TEXT PRIMARY KEY, tool_id TEXT NOT NULL, state TEXT NOT NULL, failure_reason TEXT,"
+        " cancel_requested INTEGER NOT NULL DEFAULT 0, upload_length INTEGER NOT NULL,"
+        " upload_offset INTEGER NOT NULL DEFAULT 0, created_at REAL NOT NULL, queued_at REAL,"
+        " updated_at REAL NOT NULL, expires_at REAL NOT NULL, duration_s REAL, language TEXT,"
+        " no_speech INTEGER NOT NULL DEFAULT 0, providers TEXT NOT NULL DEFAULT '{}', usage TEXT NOT NULL)"
+    )
+    old.execute(
+        "INSERT INTO jobs (id, tool_id, state, failure_reason, upload_length, created_at, updated_at, expires_at,"
+        " usage) VALUES ('old', 't', 'failed', 'Internal error', 10, 1, 1, 2, '{}')"
+    )
+    old.commit()
+    old.close()
+
+    store = JobStore(tmp_path, ttl_hours=24, max_upload_bytes=1000)
+    got = store.get("old")
+    assert got is not None
+    assert (got.failure_reason, got.failure_code) == ("Internal error", None)
+    db.connect(path).close()  # migrating twice is a no-op
 
 
 def test_create_defaults(store: JobStore) -> None:
@@ -64,6 +88,7 @@ def test_create_defaults(store: JobStore) -> None:
     assert job.upload_length == 500
     assert job.upload_offset == 0
     assert job.failure_reason is None
+    assert job.failure_code is None
     assert job.cancel_requested is False
     assert job.queued_at is None
     assert job.expires_at == job.created_at + 24 * 3600
@@ -125,8 +150,8 @@ def test_queueing_requires_complete_upload(store: JobStore) -> None:
 def test_completed_upload_can_fail_probing(store: JobStore) -> None:
     job = store.create("t", 10)
     store.set_upload_offset(job.id, 10)
-    failed = store.set_state(job.id, JobState.FAILED, failure_reason="not_a_video")
-    assert (failed.state, failed.failure_reason) == (JobState.FAILED, "not_a_video")
+    failed = store.set_state(job.id, JobState.FAILED, failure_reason="Not a video", failure_code="not_a_video")
+    assert (failed.state, failed.failure_reason, failed.failure_code) == (JobState.FAILED, "Not a video", "not_a_video")
 
 
 def test_upload_offset_requires_uploading_state(store: JobStore) -> None:
@@ -199,8 +224,18 @@ def test_failed_requires_reason_and_only_failed_has_one(store: JobStore) -> None
         store.set_state(job.id, JobState.FAILED)
     with pytest.raises(ValueError):
         store.set_state(job.id, JobState.EXTRACTING, failure_reason="oops")
-    failed = store.set_state(job.id, JobState.FAILED, failure_reason="Transcription failed")
-    assert failed.failure_reason == "Transcription failed"
+    with pytest.raises(ValueError):
+        store.set_state(job.id, JobState.EXTRACTING, failure_code="internal_error")
+    assert store.get(job.id).failure_code is None  # type: ignore[union-attr]
+    failed = store.set_state(
+        job.id, JobState.FAILED, failure_reason="Transcription failed", failure_code="transcription_failed"
+    )
+    assert (failed.failure_reason, failed.failure_code) == ("Transcription failed", "transcription_failed")
+
+
+def test_failure_without_a_code_is_an_internal_error(store: JobStore) -> None:
+    job = queue(store)
+    assert store.set_state(job.id, JobState.FAILED, "boom").failure_code == "internal_error"
 
 
 def test_cancel_from_uploading_and_queued(store: JobStore) -> None:
@@ -368,6 +403,7 @@ def test_recover_after_restart(store: JobStore) -> None:
         assert got is not None
         assert got.state is JobState.FAILED
         assert got.failure_reason == RESTART_MESSAGE
+        assert got.failure_code == "server_restarted"
     for job, state in ((uploading, JobState.UPLOADING), (done, JobState.DONE)):
         got = store.get(job.id)
         assert got is not None

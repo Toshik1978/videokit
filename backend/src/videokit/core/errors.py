@@ -10,6 +10,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 logger = logging.getLogger("videokit")
 
@@ -48,7 +49,41 @@ def configure_logging(level: str) -> None:
     logger.setLevel(numeric)
 
 
+class UnhandledErrorMiddleware:
+    """Pure-ASGI layer that answers any unhandled exception with the 500 ``internal_error`` envelope.
+
+    Starlette's ``ServerErrorMiddleware`` re-raises after responding, and uvicorn then logs the full traceback
+    ("Exception in ASGI application"). Catching here means no exception reaches the server. Only the method, path
+    and exception type are logged: tracebacks and exception messages may carry secrets or user data (Constitution
+    VI, FR-016). If the response has already started, it is left incomplete (the server closes the connection).
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        started = False
+
+        async def tracking_send(message: Message) -> None:
+            nonlocal started
+            if message["type"] == "http.response.start":
+                started = True
+            await send(message)
+
+        try:
+            await self.app(scope, receive, tracking_send)
+        except Exception as exc:
+            logger.error("Unhandled error on %s %s (%s)", scope["method"], scope["path"], type(exc).__name__)
+            if not started:
+                await error_response("internal_error", "Something went wrong on the server.", 500)(scope, receive, send)
+
+
 def install_error_handlers(app: FastAPI) -> None:
+    """Register the error envelopes. Call it after adding other middleware so the catch-all wraps them all."""
+
     @app.exception_handler(AppError)
     async def _app_error(_: Request, exc: AppError) -> JSONResponse:
         return error_response(exc.code, exc.message, exc.status)
@@ -66,7 +101,4 @@ def install_error_handlers(app: FastAPI) -> None:
         message = "The requested resource was not found." if exc.status_code == 404 else "The request failed."
         return error_response(code, message, exc.status_code)
 
-    @app.exception_handler(Exception)
-    async def _unhandled(request: Request, exc: Exception) -> JSONResponse:
-        logger.error("Unhandled error on %s %s", request.method, request.url.path, exc_info=exc)
-        return error_response("internal_error", "Something went wrong on the server.", 500)
+    app.add_middleware(UnhandledErrorMiddleware)  # added last, so outermost of the app's own middleware

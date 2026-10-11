@@ -12,17 +12,26 @@ interface BackendTool {
   description: string;
 }
 
-const { t } = useI18n();
+const { t, te } = useI18n();
 const modules = inject(toolsKey, discoveredTools);
 
 const state = ref<'loading' | 'ready' | 'error'>('loading');
 const backendTools = ref<BackendTool[]>([]);
 
+function label(key: string | undefined, fallback: string): string {
+  return key && te(key) ? t(key) : fallback;
+}
+
 // One card per backend tool that has a frontend module (the module's `id` equals the tool id).
+// Name and description come from the catalog keys the module declares, else from the API.
 const cards = computed(() =>
   backendTools.value.flatMap((tool) => {
-    const path = modules.find((m) => m.id === tool.id)?.routes[0]?.path;
-    return path === undefined ? [] : [{ ...tool, path }];
+    const module = modules.find((m) => m.id === tool.id);
+    const path = module?.routes[0]?.path;
+    if (!module || path === undefined) return [];
+    const name = label(module.labels?.name, tool.name);
+    const description = label(module.labels?.description, tool.description);
+    return [{ id: tool.id, name, description, path }];
   }),
 );
 

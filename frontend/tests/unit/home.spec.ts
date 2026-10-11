@@ -9,12 +9,17 @@ import { createAppRouter } from '@/router';
 import { type ToolModule, toolsKey } from '@/tools';
 
 const Stub = { template: '<p>tool</p>' };
-const makeTool = (id: string, path: string): ToolModule => ({
+const makeTool = (id: string, path: string, labels?: ToolModule['labels']): ToolModule => ({
   id,
   routes: [{ path, name: id, component: Stub }],
+  labels,
 });
 
 const yt = makeTool('youtube_prep', '/tools/youtube-prep');
+const ytWithLabels = makeTool('youtube_prep', '/tools/youtube-prep', {
+  name: 'tools.youtube_prep.name',
+  description: 'tools.youtube_prep.description',
+});
 const backendTool = (id: string, name: string, description: string) => ({ id, name, description });
 
 function respond(status: number, body: unknown): void {
@@ -65,6 +70,38 @@ describe('HomePage', () => {
     expect(cards[0].attributes('href')).toBe('/tools/youtube-prep');
     expect(wrapper.text()).not.toContain('Backend Only');
     expect(fetch).toHaveBeenCalledWith('/api/tools', expect.anything());
+  });
+
+  it('takes name and description from the catalog keys the tool module declares', async () => {
+    respond(200, [backendTool('youtube_prep', 'API name', 'API description.')]);
+    const wrapper = await mountHome([ytWithLabels]);
+    await flushPromises();
+    const card = wrapper.get('[data-test="tool-card"]');
+    expect(card.text()).toContain(en.tools.youtube_prep.name);
+    expect(card.text()).toContain(en.tools.youtube_prep.description);
+    expect(card.text()).not.toContain('API name');
+    expect(card.text()).not.toContain('API description.');
+  });
+
+  it('falls back to the API values when a declared catalog key is missing', async () => {
+    respond(200, [backendTool('youtube_prep', 'API name', 'API description.')]);
+    const missing = makeTool('youtube_prep', '/tools/youtube-prep', {
+      name: 'tools.nope.name',
+      description: 'tools.nope.description',
+    });
+    const wrapper = await mountHome([missing]);
+    await flushPromises();
+    const card = wrapper.get('[data-test="tool-card"]');
+    expect(card.text()).toContain('API name');
+    expect(card.text()).toContain('API description.');
+  });
+
+  it('declares catalog keys in the YouTube Prep module', async () => {
+    const module = await import('@/tools/youtube-prep/index');
+    expect(module.labels).toEqual({
+      name: 'tools.youtube_prep.name',
+      description: 'tools.youtube_prep.description',
+    });
   });
 
   it('shows a test-only tool without any shared-code change', async () => {

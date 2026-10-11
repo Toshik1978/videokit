@@ -5,6 +5,7 @@ Jobs are seeded by running the real pipeline with a fake media service, fake tra
 requests can be compared byte for byte.
 """
 
+import asyncio
 import contextlib
 import copy
 import dataclasses
@@ -482,6 +483,34 @@ def test_expired_and_purged_job_is_not_found(tmp_path: Path, settings: Settings,
     assert response.status_code == 404
     assert _error(response) == "job_not_found"
     assert len(llm.requests) == 1
+
+
+def test_expired_job_is_not_found_before_the_purge_runs(
+    tmp_path: Path, settings: Settings, store: JobStore, llm: FakeLLM, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """US2-AS4: past `expires_at` the job counts as expired even though its row and files still exist."""
+
+    async def no_purge(store: JobStore) -> None:
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr("videokit.main.run_purge_loop", no_purge)
+    past = time.time() - (settings.job_ttl_hours + 1) * 3600
+    old = JobStore(settings.data_dir, settings.job_ttl_hours, settings.max_upload_bytes, clock=lambda: past)
+    job_id = _seed(old, settings, llm)
+    before = store.get(job_id)
+    assert before is not None
+    result = _read_result(store, job_id)
+
+    with _client(tmp_path, settings, llm) as client:
+        response = client.post(_url(job_id), json={"section": "title", "hint": "shorter"})
+
+    assert response.status_code == 404
+    assert _error(response) == "job_not_found"
+    assert len(llm.requests) == 1  # only the original generation: no provider call
+    after = store.get(job_id)  # the row is still there (not purged) with its usage unchanged
+    assert after is not None
+    assert after.usage == before.usage
+    assert _read_result(store, job_id) == result
 
 
 def test_job_of_another_tool_is_not_found(tmp_path: Path, settings: Settings, store: JobStore, llm: FakeLLM) -> None:

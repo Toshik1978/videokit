@@ -13,7 +13,7 @@ from typing import Any
 
 from videokit.core.config import Settings
 from videokit.core.errors import AppError, logger
-from videokit.core.jobs import InvalidTransition, Job, JobNotFound, JobState, JobStore
+from videokit.core.jobs import INTERNAL_ERROR_CODE, InvalidTransition, Job, JobNotFound, JobState, JobStore
 from videokit.core.llm.base import Usage
 from videokit.core.llm.chain import LLMChain
 from videokit.core.media import SOURCE_NAME, MediaService, probe
@@ -93,7 +93,9 @@ class StoreJobAccess:
         return self._ctx
 
     def get(self, job_id: str) -> Job | None:
-        return self._store.get(job_id)
+        """The job, or None if it does not exist or has expired (FR-015)."""
+        job = self._store.get(job_id)
+        return None if job is None or self._store.is_expired(job) else job
 
     def handle(self, job_id: str) -> WorkerJobHandle:
         return WorkerJobHandle(self._store, job_id)
@@ -149,7 +151,7 @@ class Worker:
         try:
             info = await asyncio.to_thread(probe, source)
         except AppError as exc:
-            await asyncio.to_thread(self._fail, job_id, exc.message)
+            await asyncio.to_thread(self._fail, job_id, exc.message, exc.code)
             return
         try:
             await asyncio.to_thread(self._store.update_info, job_id, duration_s=info.duration_s)
@@ -191,13 +193,14 @@ class Worker:
         except JobCancelled:
             await asyncio.to_thread(self._mark_cancelled, job.id)
         except AllProvidersFailed as exc:
-            await asyncio.to_thread(self._fail, job.id, f"{exc.stage.capitalize()} failed: all providers failed")
+            reason = f"{exc.stage.capitalize()} failed: all providers failed"
+            await asyncio.to_thread(self._fail, job.id, reason, f"{exc.stage}_failed")
         except AppError as exc:
-            await asyncio.to_thread(self._fail_in_stage, job.id, exc.message)
+            await asyncio.to_thread(self._fail_in_stage, job.id, exc.message, exc.code)
         except Exception as exc:
             # Type only: messages and tracebacks may carry transcript text or request details (FR-016).
             logger.error("Job %s failed with an internal error (%s)", job.id, type(exc).__name__)
-            await asyncio.to_thread(self._fail, job.id, INTERNAL_ERROR)
+            await asyncio.to_thread(self._fail, job.id, INTERNAL_ERROR, INTERNAL_ERROR_CODE)
 
     # --- blocking helpers (run in threads) -------------------------------------------------------------------------
 
@@ -214,15 +217,15 @@ class Worker:
             return
         self._remove_dir(job_id)
 
-    def _fail_in_stage(self, job_id: str, message: str) -> None:
+    def _fail_in_stage(self, job_id: str, message: str, code: str) -> None:
         job = self._store.get(job_id)
         label = None if job is None else _STAGE_LABELS.get(job.state)
-        self._fail(job_id, f"{label} failed: {message}" if label else message)
+        self._fail(job_id, f"{label} failed: {message}" if label else message, code)
 
-    def _fail(self, job_id: str, reason: str) -> None:
-        """Mark the job failed and delete its source video (FR-014)."""
+    def _fail(self, job_id: str, reason: str, code: str) -> None:
+        """Mark the job failed with a user-safe reason and catalog code; delete its source video (FR-014)."""
         try:
-            self._store.set_state(job_id, JobState.FAILED, reason)
+            self._store.set_state(job_id, JobState.FAILED, reason, code)
         except (InvalidTransition, JobNotFound):  # already terminal (e.g. cancelled meanwhile) or purged
             return
         (self._store.job_dir(job_id) / SOURCE_NAME).unlink(missing_ok=True)

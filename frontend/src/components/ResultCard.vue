@@ -9,6 +9,8 @@ const props = defineProps<{
   label: string;
   text: string;
   revision?: number;
+  /** When set, the card shows this message instead of an editable, copyable text. */
+  notice?: string;
 }>();
 
 const { t } = useI18n();
@@ -37,16 +39,24 @@ function onFallback(): void {
 
 <template>
   <article class="result-card" :data-test="`card-${sectionKey}`">
-    <header class="card-header">
-      <label :for="inputId">{{ label }}</label>
-      <div class="card-actions">
-        <CopyButton :text="value" @copied="status = 'copied'" @fallback="onFallback" />
-        <slot name="actions" />
-      </div>
-    </header>
-    <textarea :id="inputId" ref="area" v-model="value" :rows="rows" @input="status = 'idle'" />
-    <p v-if="status === 'copied'" role="status" class="hint">{{ t('job.copied') }}</p>
-    <p v-else-if="status === 'fallback'" role="status" class="hint">{{ t('job.pressCopy') }}</p>
+    <template v-if="notice">
+      <header class="card-header">
+        <span class="card-label">{{ label }}</span>
+      </header>
+      <p class="card-notice" data-test="card-notice">{{ notice }}</p>
+    </template>
+    <template v-else>
+      <header class="card-header">
+        <label :for="inputId" class="card-label">{{ label }}</label>
+        <div class="card-actions">
+          <CopyButton :text="value" @copied="status = 'copied'" @fallback="onFallback" />
+          <slot name="actions" />
+        </div>
+      </header>
+      <textarea :id="inputId" ref="area" v-model="value" :rows="rows" @input="status = 'idle'" />
+      <p v-if="status === 'copied'" role="status" class="hint">{{ t('job.copied') }}</p>
+      <p v-else-if="status === 'fallback'" role="status" class="hint">{{ t('job.pressCopy') }}</p>
+    </template>
   </article>
 </template>
 
@@ -63,8 +73,15 @@ function onFallback(): void {
   flex-wrap: wrap;
 }
 
-.card-header label {
+.card-label {
   font-weight: 600;
+}
+
+.card-notice {
+  margin: 8px 0 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
 }
 
 .card-actions {

@@ -24,6 +24,7 @@ discovered from `frontend/src/tools/*/index.ts`.
 | `tool_id` | text | must exist in registry |
 | `state` | text | see state machine |
 | `failure_reason` | text? | short, user-safe (FR-016); set iff `failed` |
+| `failure_code` | text? | UI catalog key of the failure (FR-036; codes in http-api.md); set iff `failed`; added to older databases at startup (their failed rows keep `NULL`) |
 | `cancel_requested` | bool | set by cancel while running (FR-037) |
 | `upload_length` | int | declared size; ≤ `MAX_UPLOAD_BYTES` (FR-004) |
 | `upload_offset` | int | bytes received; 0 ≤ offset ≤ length |
@@ -47,7 +48,7 @@ uploading ──(offset == length)──► queued ──► extracting ──�
     │                               │            │               │               │
     └──────── cancel ───────────────┴────────────┴── cancel (at stage boundary) ─┴──► cancelled
                                     any running stage ── error / all providers fail ──► failed
-startup: queued | extracting | transcribing | generating ──► failed ("server restarted")
+startup: queued | extracting | transcribing | generating ──► failed (`server_restarted`)
 ```
 
 - `cancelled`: job directory deleted immediately; row kept until `expires_at` so the link shows

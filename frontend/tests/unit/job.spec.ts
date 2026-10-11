@@ -118,20 +118,74 @@ describe('job status and polling', () => {
     wrapper.unmount();
   });
 
-  it('stops polling at a terminal state and renders the failure reason', async () => {
+  it('stops polling at a terminal state and renders the failure from the catalog', async () => {
     jobReplies = [
       () => json(200, job({ state: 'transcribing', queue_position: null })),
-      () => json(200, job({ state: 'failed', failure_reason: 'Not a video file.' })),
+      () =>
+        json(
+          200,
+          job({
+            state: 'failed',
+            failure_code: 'not_a_video',
+            failure_reason: 'Raw server reason.',
+          }),
+        ),
     ];
     stubFetch();
     const wrapper = await mountPage();
     expect(wrapper.find('[data-test="cancel"]').exists()).toBe(true);
     await tick(2000);
-    expect(wrapper.text()).toContain('Not a video file.');
+    const failure = wrapper.get('[data-test="failure"]');
+    expect(failure.text()).toBe(en.job.failures.not_a_video);
+    expect(failure.text()).not.toContain('Raw server reason.');
+    expect(wrapper.get('[data-test="failure-detail"]').text()).toContain('Raw server reason.');
     expect(wrapper.find('[data-test="cancel"]').exists()).toBe(false);
     const calls = jobGets();
     await tick(10000);
     expect(jobGets()).toBe(calls);
+    wrapper.unmount();
+  });
+
+  it.each([
+    'not_a_video',
+    'server_restarted',
+    'extraction_failed',
+    'transcription_failed',
+    'generation_failed',
+    'generation_invalid',
+    'internal_error',
+  ] as const)('renders failure code %s from the catalog', async (code) => {
+    jobReplies = [
+      () => json(200, job({ state: 'failed', failure_code: code, failure_reason: 'x' })),
+    ];
+    stubFetch();
+    const wrapper = await mountPage();
+    expect(wrapper.get('[data-test="failure"]').text()).toBe(en.job.failures[code]);
+    wrapper.unmount();
+  });
+
+  it.each([null, 'some_future_code'])(
+    'falls back to the generic message for failure code %s',
+    async (code) => {
+      jobReplies = [
+        () => json(200, job({ state: 'failed', failure_code: code, failure_reason: 'Detail.' })),
+      ];
+      stubFetch();
+      const wrapper = await mountPage();
+      expect(wrapper.get('[data-test="failure"]').text()).toBe(en.errors.generic);
+      expect(wrapper.get('[data-test="failure-detail"]').text()).toContain('Detail.');
+      wrapper.unmount();
+    },
+  );
+
+  it('shows a coded polling error from the catalog, not the server message', async () => {
+    jobReplies = [
+      () => json(500, { error: { code: 'internal_error', message: 'Raw server text.' } }),
+      () => json(200, job()),
+    ];
+    stubFetch();
+    const wrapper = await mountPage();
+    expect(wrapper.get('[role="alert"]').text()).toBe(en.errors.codes.internal_error);
     wrapper.unmount();
   });
 
@@ -179,14 +233,24 @@ describe('cancel', () => {
     wrapper.unmount();
   });
 
-  it('shows an error when cancelling fails with a coded error', async () => {
+  it('shows a catalog error when cancelling fails with a coded error', async () => {
     cancelReply = () =>
       json(409, { error: { code: 'not_cancellable', message: 'Cannot cancel this job.' } });
     stubFetch();
     const wrapper = await mountPage();
     await wrapper.get('[data-test="cancel"]').trigger('click');
     await tick();
-    expect(wrapper.get('[role="alert"]').text()).toBe('Cannot cancel this job.');
+    expect(wrapper.get('[role="alert"]').text()).toBe(en.errors.codes.not_cancellable);
+    wrapper.unmount();
+  });
+
+  it('shows the generic error for an unknown error code', async () => {
+    cancelReply = () => json(409, { error: { code: 'brand_new_code', message: 'Raw text.' } });
+    stubFetch();
+    const wrapper = await mountPage();
+    await wrapper.get('[data-test="cancel"]').trigger('click');
+    await tick();
+    expect(wrapper.get('[role="alert"]').text()).toBe(en.errors.generic);
     wrapper.unmount();
   });
 });
@@ -268,12 +332,41 @@ describe('result cards', () => {
     wrapper.unmount();
   });
 
-  it('shows notices for no speech and too short for chapters', async () => {
-    jobReplies = [() => json(200, doneJob(['no_speech', 'too_short_for_chapters']))];
+  it('shows the no-speech notice above the cards', async () => {
+    jobReplies = [() => json(200, doneJob(['no_speech']))];
     stubFetch();
     const wrapper = await mountPage();
     const text = wrapper.findAll('[data-test="notice"]').map((n) => n.text());
-    expect(text).toEqual([en.job.notices.no_speech, en.job.notices.too_short_for_chapters]);
+    expect(text).toEqual([en.job.notices.no_speech]);
+    wrapper.unmount();
+  });
+
+  it('shows the too-short notice inside the chapters card instead of an empty textarea', async () => {
+    const tooShort = job({
+      state: 'done',
+      queue_position: null,
+      result: {
+        language: 'en',
+        notices: ['no_speech', 'too_short_for_chapters'],
+        rendered: { ...RENDERED, chapters: '' },
+      },
+    });
+    jobReplies = [() => json(200, tooShort)];
+    stubFetch();
+    const wrapper = await mountPage();
+    const chapters = wrapper.get('[data-test="card-chapters"]');
+    expect(chapters.get('[data-test="card-notice"]').text()).toBe(
+      en.job.notices.too_short_for_chapters,
+    );
+    expect(chapters.find('textarea').exists()).toBe(false);
+    expect(chapters.find('[data-test="copy"]').exists()).toBe(false);
+    expect(chapters.find('[data-test="regenerate"]').exists()).toBe(false);
+    expect(wrapper.findAll('[data-test="notice"]').map((n) => n.text())).toEqual([
+      en.job.notices.no_speech,
+    ]);
+    // The other cards are unaffected.
+    expect(wrapper.findAll('textarea')).toHaveLength(5);
+    expect(wrapper.get('[data-test="card-title"]').find('[data-test="copy"]').exists()).toBe(true);
     wrapper.unmount();
   });
 });

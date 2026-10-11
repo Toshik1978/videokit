@@ -130,10 +130,10 @@ describe('regenerate', () => {
   });
 
   it.each([
-    ['job_not_done', 409, en.regenerate.errors.job_not_done],
-    ['regeneration_in_progress', 409, en.regenerate.errors.regeneration_in_progress],
-    ['invalid_section', 422, en.regenerate.errors.invalid_section],
-    ['generation_failed', 502, en.regenerate.errors.generation_failed],
+    ['job_not_done', 409, en.errors.codes.job_not_done],
+    ['regeneration_in_progress', 409, en.errors.codes.regeneration_in_progress],
+    ['invalid_section', 422, en.errors.codes.invalid_section],
+    ['generation_failed', 502, en.errors.codes.generation_failed],
   ])('maps %s to a catalog message and keeps the previous text', async (code, status, message) => {
     regenReply = () => Promise.resolve(json(status, errorBody(code)));
     const wrapper = await mountPage();

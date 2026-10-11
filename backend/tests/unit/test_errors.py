@@ -1,7 +1,9 @@
 import logging
+from collections.abc import Iterator
 
 import pytest
 from fastapi import FastAPI
+from fastapi.responses import StreamingResponse
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
@@ -46,10 +48,51 @@ def test_unhandled_exception_is_internal_error_without_details(client: TestClien
     assert "Traceback" not in r.text
 
 
-def test_unhandled_exception_logged_server_side(client: TestClient, caplog: pytest.LogCaptureFixture) -> None:
-    with caplog.at_level(logging.ERROR, logger="videokit"):
+def test_unhandled_exception_logged_without_traceback_or_message(
+    client: TestClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Constitution VI / FR-016: only method, path and exception type; no traceback, no exception message."""
+    with caplog.at_level(logging.DEBUG):
         client.get("/boom")
-    assert any(rec.exc_info for rec in caplog.records)
+    videokit_records = [rec for rec in caplog.records if rec.name == "videokit"]
+    assert [rec.getMessage() for rec in videokit_records] == ["Unhandled error on GET /boom (RuntimeError)"]
+    assert not any(rec.exc_info or rec.exc_text or rec.stack_info for rec in caplog.records)
+    assert "Traceback" not in caplog.text
+    assert "secret-api-key-123" not in caplog.text
+
+
+def test_unhandled_exception_never_reaches_the_server() -> None:
+    """The error is answered inside the app, so the server (uvicorn) has no traceback to log."""
+    app = FastAPI()
+    install_error_handlers(app)
+
+    @app.get("/boom")
+    def boom() -> None:
+        raise RuntimeError("secret-api-key-123 leaked in message")
+
+    r = TestClient(app, raise_server_exceptions=True).get("/boom")  # would re-raise any escaping exception
+    assert r.status_code == 500
+    assert r.json() == {"error": {"code": "internal_error", "message": "Something went wrong on the server."}}
+
+
+def test_error_after_response_started_is_swallowed(caplog: pytest.LogCaptureFixture) -> None:
+    app = FastAPI()
+    install_error_handlers(app)
+
+    def chunks() -> Iterator[bytes]:
+        yield b"partial"
+        raise RuntimeError("secret-api-key-123 leaked in message")
+
+    @app.get("/stream")
+    def stream() -> StreamingResponse:
+        return StreamingResponse(chunks())
+
+    with caplog.at_level(logging.DEBUG):
+        r = TestClient(app, raise_server_exceptions=True).get("/stream")
+    assert r.status_code == 200
+    assert "Unhandled error on GET /stream (RuntimeError)" in caplog.text
+    assert "Traceback" not in caplog.text
+    assert "secret-api-key-123" not in caplog.text
 
 
 def test_validation_error_is_invalid_request_and_does_not_echo_input(

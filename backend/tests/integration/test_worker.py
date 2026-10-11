@@ -191,10 +191,11 @@ def test_completed_video_is_probed_queued_and_run(
 def test_not_a_video_fails_and_deletes_source(client: TestClient, tool: ScriptedTool) -> None:
     job_id = _upload(client, b"definitely not a video\n" * 50)
     job = _wait_state(client, job_id, JobState.FAILED)
-    assert job.failure_reason == NOT_A_VIDEO
+    assert (job.failure_reason, job.failure_code) == (NOT_A_VIDEO, "not_a_video")
     assert not (_store(client).job_dir(job_id) / "source.bin").exists()
     assert tool.runs == []
-    assert client.get(f"/api/jobs/{job_id}").json()["failure_reason"] == NOT_A_VIDEO
+    body = client.get(f"/api/jobs/{job_id}").json()
+    assert (body["failure_reason"], body["failure_code"]) == (NOT_A_VIDEO, "not_a_video")
 
 
 def test_upload_completion_is_idempotent(client: TestClient, tool: ScriptedTool, video: bytes) -> None:
@@ -402,16 +403,33 @@ def test_cancel_unknown_job(client: TestClient) -> None:
 
 
 @pytest.mark.parametrize(
-    ("stage", "error", "reason"),
+    ("stage", "error", "reason", "code"),
     [
-        ("transcribing", AllProvidersFailed("transcription"), "Transcription failed: all providers failed"),
-        ("generating", AllProvidersFailed("generation"), "Generation failed: all providers failed"),
+        (
+            "transcribing",
+            AllProvidersFailed("transcription"),
+            "Transcription failed: all providers failed",
+            "transcription_failed",
+        ),
+        (
+            "generating",
+            AllProvidersFailed("generation"),
+            "Generation failed: all providers failed",
+            "generation_failed",
+        ),
         (
             "extracting",
             AppError("extraction_failed", "The video could not be processed.", 500),
             "Extraction failed: The video could not be processed.",
+            "extraction_failed",
         ),
-        ("generating", RuntimeError("transcript: the secret words"), "Internal error"),
+        (
+            "generating",
+            AppError("generation_invalid", "the output still broke the YouTube rules", 502),
+            "Generation failed: the output still broke the YouTube rules",
+            "generation_invalid",
+        ),
+        ("generating", RuntimeError("transcript: the secret words"), "Internal error", "internal_error"),
     ],
 )
 def test_failures_map_to_user_safe_reasons(
@@ -422,12 +440,14 @@ def test_failures_map_to_user_safe_reasons(
     stage: str,
     error: Exception,
     reason: str,
+    code: str,
 ) -> None:
     caplog.set_level(logging.DEBUG)
     tool.fail_at, tool.error = stage, error
     job_id = _upload(client, video)
     job = _wait_state(client, job_id, JobState.FAILED)
-    assert job.failure_reason == reason
+    assert (job.failure_reason, job.failure_code) == (reason, code)
+    assert client.get(f"/api/jobs/{job_id}").json()["failure_code"] == code
     assert not (_store(client).job_dir(job_id) / "source.bin").exists()
     assert "secret words" not in caplog.text
     assert "Traceback" not in caplog.text
@@ -442,7 +462,8 @@ def test_unknown_tool_fails_with_internal_error(client: TestClient, video: bytes
     store.set_upload_offset(job.id, len(video))
     store.set_state(job.id, JobState.QUEUED)
     client.portal.call(_worker(client).notify)  # type: ignore[union-attr]
-    assert _wait_state(client, job.id, JobState.FAILED).failure_reason == "Internal error"
+    failed = _wait_state(client, job.id, JobState.FAILED)
+    assert (failed.failure_reason, failed.failure_code) == ("Internal error", "internal_error")
 
 
 # --- lifespan ---------------------------------------------------------------------------------------------------
@@ -463,7 +484,8 @@ def test_restart_recovery_fails_interrupted_jobs(
     app = create_app(settings, providers, tools_package="videokit.tools", static_dir=tmp_path / "static")
     app.state.tools = {tool.id: tool}
     with TestClient(app) as c:
-        assert c.get(f"/api/jobs/{job.id}").json()["failure_reason"] == RESTART_FAILURE_REASON
+        body = c.get(f"/api/jobs/{job.id}").json()
+    assert (body["failure_reason"], body["failure_code"]) == (RESTART_FAILURE_REASON, "server_restarted")
     assert tool.runs == []
     assert not source.exists()  # FR-014: a failed job's source is deleted
 

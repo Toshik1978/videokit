@@ -28,23 +28,31 @@ repos:
         entry: bash -c 'cd backend && uv run ruff check "${@/#/../}"' --
         language: system
         files: ^(backend|scripts)/.*\.py$
+        stages:
+          - pre-commit
       - id: ruff-format
         name: ruff format --check
         entry: bash -c 'cd backend && uv run ruff format --check "${@/#/../}"' --
         language: system
         files: ^(backend|scripts)/.*\.py$
+        stages:
+          - pre-commit
       - id: gitleaks
         name: gitleaks (staged)
         entry: gitleaks protect --staged --redact --verbose
         language: system
         pass_filenames: false
         always_run: true
+        stages:
+          - pre-commit
       - id: check-denylist
         name: personal-data denylist
         entry: python scripts/check_denylist.py
         language: system
         pass_filenames: false
         always_run: true
+        stages:
+          - pre-commit
 
       # Pre-push stage: the full gates. Keeping them off pre-commit avoids the
       # `--no-verify` habit.

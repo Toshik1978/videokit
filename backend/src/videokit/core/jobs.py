@@ -16,6 +16,8 @@ from typing import Any
 from videokit.core import db
 
 RESTART_FAILURE_REASON = "Server restarted, please upload again"
+RESTART_FAILURE_CODE = "server_restarted"
+INTERNAL_ERROR_CODE = "internal_error"  # failure code when a failure names none
 SOURCE_FILE = "source.bin"  # the uploaded video inside a job directory
 _ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 
@@ -59,6 +61,7 @@ class Job:
     tool_id: str
     state: JobState
     failure_reason: str | None
+    failure_code: str | None
     cancel_requested: bool
     upload_length: int
     upload_offset: int
@@ -79,6 +82,7 @@ def _job_from_row(row: sqlite3.Row) -> Job:
         tool_id=row["tool_id"],
         state=JobState(row["state"]),
         failure_reason=row["failure_reason"],
+        failure_code=row["failure_code"],
         cancel_requested=bool(row["cancel_requested"]),
         upload_length=row["upload_length"],
         upload_offset=row["upload_offset"],
@@ -180,23 +184,38 @@ class JobStore:
             conn.close()
         return None if row is None else _job_from_row(row)
 
-    def _transition(self, conn: sqlite3.Connection, job: Job, new: JobState, failure_reason: str | None = None) -> None:
+    def _transition(
+        self,
+        conn: sqlite3.Connection,
+        job: Job,
+        new: JobState,
+        failure_reason: str | None = None,
+        failure_code: str | None = None,
+    ) -> None:
         if new not in TRANSITIONS[job.state]:
             raise InvalidTransition(f"{job.state.value} -> {new.value}")
         if job.state is S.UPLOADING and new is S.QUEUED and job.upload_offset != job.upload_length:
             raise InvalidTransition("upload is not complete")
         now = self._clock()
         conn.execute(
-            "UPDATE jobs SET state = ?, failure_reason = ?, updated_at = ?,"
+            "UPDATE jobs SET state = ?, failure_reason = ?, failure_code = ?, updated_at = ?,"
             " queued_at = CASE WHEN ? = 'queued' THEN ? ELSE queued_at END WHERE id = ?",
-            (new.value, failure_reason, now, new.value, now, job.id),
+            (new.value, failure_reason, failure_code, now, new.value, now, job.id),
         )
 
-    def set_state(self, job_id: str, new: JobState, failure_reason: str | None = None) -> Job:
+    def set_state(
+        self, job_id: str, new: JobState, failure_reason: str | None = None, failure_code: str | None = None
+    ) -> Job:
+        """Move a job to `new`. A failure needs a user-safe reason and gets a code for the UI catalog
+        (`internal_error` when none is given); other states take neither."""
         if (new is S.FAILED) != (failure_reason is not None):
             raise ValueError("failure_reason must be given if and only if the new state is failed")
+        if new is not S.FAILED and failure_code is not None:
+            raise ValueError("failure_code is only allowed when the new state is failed")
+        if new is S.FAILED and failure_code is None:
+            failure_code = INTERNAL_ERROR_CODE
         with self._tx() as conn:
-            self._transition(conn, self._load(conn, job_id), new, failure_reason)
+            self._transition(conn, self._load(conn, job_id), new, failure_reason, failure_code)
             return self._load(conn, job_id)
 
     def set_upload_offset(self, job_id: str, offset: int) -> Job:
@@ -344,6 +363,11 @@ class JobStore:
             conn.close()
         return [_job_from_row(row) for row in rows]
 
+    def is_expired(self, job: Job) -> bool:
+        """Whether the purge would delete this job now (past `expires_at`, not waiting or running): such a job is
+        already gone for users, even before the purge runs (FR-015, US2-AS4)."""
+        return job.expires_at < self._clock() and job.state not in RUNNING_STATES
+
     def delete(self, job_id: str) -> bool:
         """Delete the row of a job that is not waiting or running; returns whether a row was removed."""
         with self._tx() as conn:
@@ -362,7 +386,7 @@ class JobStore:
                 [s.value for s in RUNNING_STATES],
             ).fetchall()
             for row in rows:
-                self._transition(conn, _job_from_row(row), S.FAILED, RESTART_FAILURE_REASON)
+                self._transition(conn, _job_from_row(row), S.FAILED, RESTART_FAILURE_REASON, RESTART_FAILURE_CODE)
         for row in rows:
             with contextlib.suppress(OSError, ValueError):  # never block startup on a leftover file
                 (self.job_dir(row["id"]) / SOURCE_FILE).unlink(missing_ok=True)

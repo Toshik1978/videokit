@@ -559,6 +559,7 @@ def test_invalid_output_fails_the_job_with_a_readable_reason(
         body = _upload_and_wait(client, make_video(audio=True, **LONG))
 
         assert body["state"] == "failed"
+        assert body["failure_code"] == "generation_invalid"
         reason = body["failure_reason"]
         assert reason.startswith("Generation failed: ")
         assert "title is 120 characters, at most 100 allowed" in reason

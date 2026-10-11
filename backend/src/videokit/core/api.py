@@ -30,6 +30,7 @@ def job_view(job: Job, queue_position: int, result: Any = None) -> dict[str, Any
         "upload": {"offset": job.upload_offset, "length": job.upload_length},
         "queue_position": queue_position or None,
         "failure_reason": job.failure_reason,
+        "failure_code": job.failure_code,
         "expires_at": _iso(job.expires_at),
         "duration_s": job.duration_s,
         "language": job.language,
@@ -106,7 +107,7 @@ async def get_job(job_id: str, request: Request) -> dict[str, Any]:
 
     def load() -> dict[str, Any]:
         job = store.get(job_id)
-        if job is None:
+        if job is None or store.is_expired(job):
             raise _not_found()
         try:
             position = store.queue_position(job_id)

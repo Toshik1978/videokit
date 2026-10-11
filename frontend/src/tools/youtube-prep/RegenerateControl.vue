@@ -3,31 +3,23 @@ import { ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 
 import { ApiError, postJson } from '@/api/client';
+import { useMessages } from '@/i18n/messages';
 
 import type { RegenerateResponse } from './types';
 
 const MAX_HINT = 500;
-const KNOWN_ERRORS = [
-  'job_not_done',
-  'regeneration_in_progress',
-  'invalid_section',
-  'generation_failed',
-];
 
 const props = defineProps<{ jobId: string; section: string }>();
 const emit = defineEmits<{ regenerated: [response: RegenerateResponse] }>();
 
 const { t } = useI18n();
+const { errorMessage } = useMessages();
 const hint = ref('');
 const busy = ref(false);
 const error = ref('');
 
 function messageFor(err: unknown): string {
-  if (err instanceof ApiError) {
-    if (err.status === 404) return t('job.expired');
-    if (KNOWN_ERRORS.includes(err.code)) return t(`regenerate.errors.${err.code}`);
-  }
-  return t('errors.generic');
+  return err instanceof ApiError && err.status === 404 ? t('job.expired') : errorMessage(err);
 }
 
 async function regenerate(): Promise<void> {

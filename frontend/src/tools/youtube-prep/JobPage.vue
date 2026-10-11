@@ -8,6 +8,7 @@ import { isTerminal, type JobSummary, type Usage } from '@/components/job';
 import JobStatus from '@/components/JobStatus.vue';
 import ResultCard from '@/components/ResultCard.vue';
 import UsageFooter from '@/components/UsageFooter.vue';
+import { useMessages } from '@/i18n/messages';
 
 import RegenerateControl from './RegenerateControl.vue';
 import { type RegenerateResponse, type Section, SECTIONS, type YouTubePrepResult } from './types';
@@ -22,6 +23,7 @@ interface Job extends JobSummary {
 }
 
 const { t } = useI18n();
+const { errorMessage } = useMessages();
 const route = useRoute();
 const jobId = String(route.params.id);
 
@@ -35,8 +37,13 @@ let unmounted = false;
 
 const result = computed(() => (job.value?.state === 'done' ? job.value.result : null));
 
-function messageFor(err: unknown): string {
-  return err instanceof ApiError && err.code !== 'http_error' ? err.message : t('errors.generic');
+// A too-short video has no chapters: the Chapters card shows the notice instead of its text.
+const TOO_SHORT = 'too_short_for_chapters';
+const tooShort = computed(() => result.value?.notices.includes(TOO_SHORT) ?? false);
+const pageNotices = computed(() => (result.value?.notices ?? []).filter((n) => n !== TOO_SHORT));
+
+function cardNotice(section: Section): string | undefined {
+  return section === 'chapters' && tooShort.value ? t(`job.notices.${TOO_SHORT}`) : undefined;
 }
 
 function stopTimer(): void {
@@ -63,7 +70,7 @@ async function poll(): Promise<void> {
       expired.value = true;
       return;
     }
-    error.value = messageFor(err);
+    error.value = errorMessage(err);
   }
   timer = setTimeout(() => void poll(), POLL_MS);
 }
@@ -83,7 +90,7 @@ async function cancel(): Promise<void> {
     applyJob(next);
   } catch (err) {
     if (unmounted) return;
-    cancelError.value = messageFor(err);
+    cancelError.value = errorMessage(err);
     void poll();
   }
 }
@@ -103,7 +110,7 @@ onBeforeUnmount(() => {
       <p v-if="error || cancelError" role="alert" class="error">{{ cancelError || error }}</p>
       <JobStatus v-if="job" :job="job" @cancel="cancel" />
       <template v-if="result">
-        <p v-for="notice in result.notices" :key="notice" data-test="notice" class="notice">
+        <p v-for="notice in pageNotices" :key="notice" data-test="notice" class="notice">
           {{ t(`job.notices.${notice}`) }}
         </p>
         <ResultCard
@@ -113,6 +120,7 @@ onBeforeUnmount(() => {
           :label="t(`job.sections.${section}`)"
           :text="result.rendered[section]"
           :revision="revisions[section] ?? 0"
+          :notice="cardNotice(section)"
         >
           <template #actions>
             <RegenerateControl

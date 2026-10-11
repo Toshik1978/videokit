@@ -48,6 +48,7 @@ Request: `{"tool_id": "youtube_prep", "size": 1234567890}`
   "upload": {"offset": 0, "length": 1234567890},
   "queue_position": 2,
   "failure_reason": null,
+  "failure_code": null,
   "expires_at": "2026-10-12T10:00:00Z",
   "duration_s": 1234.5,
   "language": "en",
@@ -59,6 +60,13 @@ Request: `{"tool_id": "youtube_prep", "size": 1234567890}`
 ```
 `result` is the tool's result object (for YouTube Prep: `YouTubePrepResult` from data-model.md)
 when `state == "done"`. `404 job_not_found` for unknown or purged ids (UI shows "expired").
+`failure_reason` (short, user-safe English detail) and `failure_code` are set iff
+`state == "failed"`; the UI renders the failure from its translation catalog by `failure_code`
+(FR-036) and shows `failure_reason` only as detail. Codes: `not_a_video`, `server_restarted`,
+`extraction_failed`, `transcription_failed`, `generation_failed` (all providers of the stage
+failed), `generation_invalid` (output still broke the rules after repair), `internal_error`.
+Clients fall back to a generic message for an unknown or `null` code (jobs failed before the code
+was added keep `null`).
 Polled every 2 s by the UI while not terminal.
 
 ### `POST /api/jobs/{job_id}/cancel`

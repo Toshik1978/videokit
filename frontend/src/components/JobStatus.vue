@@ -4,11 +4,13 @@ import { useI18n } from 'vue-i18n';
 
 import type { JobSummary } from '@/components/job';
 import { isTerminal } from '@/components/job';
+import { useMessages } from '@/i18n/messages';
 
 const props = defineProps<{ job: JobSummary }>();
 defineEmits<{ cancel: [] }>();
 
 const { t } = useI18n();
+const { failureMessage } = useMessages();
 
 const terminal = computed(() => isTerminal(props.job.state));
 const uploadPercent = computed(() => {
@@ -24,9 +26,12 @@ const uploadPercent = computed(() => {
     <p v-if="job.state === 'queued' && job.queue_position !== null">
       {{ t('job.queuePosition', { position: job.queue_position }) }}
     </p>
-    <p v-if="job.state === 'failed' && job.failure_reason" class="error">
-      {{ t('job.failureReason', { reason: job.failure_reason }) }}
-    </p>
+    <template v-if="job.state === 'failed'">
+      <p class="error" data-test="failure">{{ failureMessage(job.failure_code) }}</p>
+      <p v-if="job.failure_reason" class="detail" data-test="failure-detail">
+        {{ t('job.failureDetail', { detail: job.failure_reason }) }}
+      </p>
+    </template>
     <button v-if="!terminal" type="button" data-test="cancel" @click="$emit('cancel')">
       {{ t('job.cancel') }}
     </button>
@@ -40,5 +45,9 @@ const uploadPercent = computed(() => {
 
 .error {
   color: #b00020;
+}
+
+.detail {
+  color: var(--muted);
 }
 </style>

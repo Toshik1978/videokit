@@ -5,6 +5,8 @@ import type { RouteRecordRaw } from 'vue-router';
 export interface ToolModule {
   id: string;
   routes: RouteRecordRaw[];
+  /** Catalog keys for the home card; the API's name/description are used when absent. */
+  labels?: { name: string; description: string };
 }
 
 export function collectTools(modules: Record<string, ToolModule>): ToolModule[] {
