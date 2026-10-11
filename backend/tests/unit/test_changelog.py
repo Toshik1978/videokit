@@ -32,7 +32,9 @@ class Repo:
         self.git("config", "core.hooksPath", os.devnull)
         (path / "scripts").mkdir()
         shutil.copy(ROOT / ".cliff.toml", path / ".cliff.toml")
-        shutil.copy(ROOT / "CHANGELOG.md", path / "CHANGELOG.md")
+        # The bare header, not the real file: once a release exists the real file carries its
+        # commit lists, which would leak into the substring checks below.
+        (path / "CHANGELOG.md").write_text(HEADER)
         shutil.copy(ROOT / "scripts" / "changelog.sh", path / "scripts" / "changelog.sh")
         self.git("add", "-A")
         self.git("commit", "-q", "-m", "chore: scaffold")
@@ -63,8 +65,24 @@ def repo(tmp_path: Path) -> Repo:
     return Repo(tmp_path)
 
 
-def test_changelog_file_is_exactly_the_header() -> None:
-    assert (ROOT / "CHANGELOG.md").read_text() == HEADER
+def assert_header_once_at_top(text: str) -> None:
+    """The .cliff.toml header opens the changelog byte for byte and appears nowhere else."""
+    assert text.startswith(HEADER)
+    assert text.count("# Changelog") == 1
+
+
+def test_changelog_file_starts_with_the_header() -> None:
+    assert_header_once_at_top((ROOT / "CHANGELOG.md").read_text())
+
+
+def test_real_changelog_check_holds_after_a_release(repo: Repo) -> None:
+    # The real-file check above must keep passing once `task changelog` has prepended a section.
+    (repo.path / "CHANGELOG.md").write_text((ROOT / "CHANGELOG.md").read_text())
+    repo.git("commit", "-q", "--allow-empty", "-am", "docs: real changelog")
+    repo.commit("feat: first thing")
+    assert repo.run().returncode == 0
+    assert "\n## v" in repo.changelog
+    assert_header_once_at_top(repo.changelog)
 
 
 def test_first_release_is_v0_1_0(repo: Repo) -> None:
@@ -133,8 +151,7 @@ def test_header_is_preserved_once_at_the_top(repo: Repo) -> None:
     repo.commit("fix: b")
     assert repo.run().returncode == 0
     text = repo.changelog
-    assert text.startswith(HEADER)
-    assert text.count("# Changelog") == 1
+    assert_header_once_at_top(text)
     assert text.index("## v0.1.1") < text.index("## v0.1.0")
 
 
@@ -155,6 +172,7 @@ def test_nothing_releasable_refuses(repo: Repo, tag: str | None) -> None:
 def test_refuses_even_with_tag_override(repo: Repo) -> None:
     repo.git("tag", "v0.1.0")
     repo.commit("chore: housekeeping")
+    before = repo.changelog
     done = repo.run("v0.2.0")
     assert done.returncode == 1
-    assert repo.changelog == HEADER
+    assert repo.changelog == before

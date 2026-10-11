@@ -22,9 +22,9 @@ Conventional Commit types since the last tag. Pass `TAG=` to override it, for ex
 ## Step 0: before the first push only, sweep the whole history
 
 The repository is public from the first push. Before it, check that no commit anywhere in the
-history carries personal or environment data: a name, an email address, a hostname or domain, an IP,
-a token, a tunnel or proxy name, hardware details or a local filesystem path. `.beads/issues.jsonl`
-is tracked, so every past version of it counts.
+history carries personal or environment data: any name other than the author's, an email address,
+a hostname or domain, an IP, a token, a tunnel or proxy name, hardware details or a local filesystem
+path. `.beads/issues.jsonl` is tracked, so every past version of it counts.
 
 ```bash
 git log -p --all | grep -nE '<your-name>|<your-email>|<your-host>'
@@ -83,6 +83,10 @@ version, and its section extracts with content. The `chore(release)` subject kee
 of the next release's notes. The pre-push hook runs `task lint` and `task test` on the first push,
 so the gate needs no separate run.
 
+This commit is the one change pushed straight to `main` rather than through a pull request: the
+constitution's Development Workflow allows exactly this `chore(release): vX.Y.Z` changelog commit
+and nothing else.
+
 The tag must be on `main`. Pushing a tag that matches `vX.Y.Z` starts the **Publish release**
 workflow (`.github/workflows/release.yml`). It never commits, tags or pushes to the repository. Its
 jobs run in this order:
@@ -120,8 +124,9 @@ git tag -a vX.Y.Z -m vX.Y.Z
 git push origin vX.Y.Z
 ```
 
-If a release page was already created, delete it first with `gh release delete vX.Y.Z`. The page is
-created last, so this only matters when the run failed after publishing the image. If the fix
-changes the changelog section, regenerate or edit it and commit it to `main` before re-tagging.
+If a release page already exists for the tag, delete it first with `gh release delete vX.Y.Z`. The
+workflow creates the page as its very last step, so this only matters for a page left by a manual
+or partial run. If the fix changes the changelog section, regenerate or edit it and commit it to
+`main` as another `chore(release): vX.Y.Z` commit before re-tagging.
 Delete and recreate the tag rather than force-pushing it: a force-push of a tag that still points
 at the same commit triggers nothing.

@@ -1,16 +1,18 @@
 <!--
 Sync Impact Report
-Version change: 1.1.0 -> 1.2.0 (MINOR: materially expanded guidance)
-Modified principles: I. Open-Source Hygiene (author-name and repository-address exceptions;
-  "usernames" -> "usernames other than the author's")
-Modified sections: Technology & Operational Constraints (Packaging: single slim image for CPU and
-  GPU hosts, example compose.yaml with GPU access enabled by default); title and prose now use the
-  display name VideoKit
+Version change: 1.2.0 -> 1.3.0 (MINOR: materially expanded guidance)
+Modified principles: none
+Modified sections: Development Workflow (the `chore(release): vX.Y.Z` changelog commit is the
+  single change the author may push directly to main; everything else still goes through a pull
+  request)
 Added sections: none
 Removed sections: none
 Templates checked: .specify/templates/plan-template.md, spec-template.md, tasks-template.md,
   checklist-template.md, constitution-template.md (no changes needed)
 Follow-up TODOs: none
+Previous amendment: 1.1.0 -> 1.2.0 (MINOR) changed Principle I (author-name and
+  repository-address exceptions) and Technology & Operational Constraints (single slim image,
+  example compose.yaml) and adopted the display name VideoKit.
 -->
 
 # VideoKit Constitution
@@ -126,7 +128,10 @@ Rationale: one honest boundary beats a half-built auth system.
 - Work is specified and planned with Spec Kit (`spec.md` → `plan.md` → `tasks.md`) before
   implementation; `tasks.md` is the implementation contract.
 - Every change goes through a pull request; CI (lint, format check, type-check, tests, coverage
-  gate, Docker build, secret scan) MUST pass.
+  gate, Docker build, secret scan) MUST pass. The single exception is the release's
+  `chore(release): vX.Y.Z` commit, which only adds the new section to `CHANGELOG.md`: the author
+  MAY push it directly to `main` before tagging (the pre-push hook still runs lint and tests, and
+  the release workflow reruns the full CI on the tagged commit).
 - Linters, formatters and type-checkers are enforced from the first commit; line coverage MUST stay
   at or above 80 % for each stack (backend, frontend).
 - Commit messages MUST follow Conventional Commits and Principle I; enforced locally by pre-commit
@@ -147,4 +152,4 @@ that states the rationale and updates the version:
 Every plan MUST include a Constitution Check; any deviation MUST be recorded with justification in
 the plan's Complexity Tracking. Reviewers verify compliance on every pull request.
 
-**Version**: 1.2.0 | **Ratified**: 2026-10-11 | **Last Amended**: 2026-10-11
+**Version**: 1.3.0 | **Ratified**: 2026-10-11 | **Last Amended**: 2026-10-11

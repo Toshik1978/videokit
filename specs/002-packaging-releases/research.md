@@ -34,6 +34,8 @@ experiments on a GPU host (nothing from the experiments is kept). Measurements a
   transitive dependency of `nvidia-cublas-cu12` (≈ 0.2 GB unpacked, ≈ 0.1 GB compressed); it is
   not loaded either, but excluding a transitive dependency needs a resolver override hack, so it
   stays (YAGNI).
+- **Superseded by T022**: the image now leaves nvrtc out with `uv sync --no-install-package
+  nvidia-cuda-nvrtc-cu12` on both sync steps, which needs no resolver override.
 - **Alternatives considered**: `nvidia/cuda:*-cudnn-runtime` base (today; 3.15 GB base);
   `nvidia/cuda:*-base` + pip libraries (speaches; adds the CUDA base for nothing, the host driver
   is injected by the NVIDIA container toolkit); cuBLAS + cuDNN via pip (linuxserver; 1.83 GB
@@ -45,6 +47,9 @@ experiments on a GPU host (nothing from the experiments is kept). Measurements a
   (`UV_PYTHON_DOWNLOADS=never`, the venv created from `/usr/local/bin/python3`); `uv` copied from
   its image for the build only; `uv sync` with a BuildKit cache mount
   (`--mount=type=cache,target=/root/.cache/uv`) so no cache lands in a layer.
+- **Superseded by T023**: `uv` is no longer copied into the image; each `uv sync` step bind-mounts
+  it from a named `uv` stage (`--mount=from=uv,source=/uv,target=/usr/local/bin/uv`), so the
+  runtime image ships no uv binary.
 - **Rationale**: 0.04 GB compressed base; one Python instead of base Python + uv-managed Python;
   the cache mount keeps rebuilds fast without shipping 0.45 GB.
 - **GPU wiring**: `find /app/.venv -path "*/nvidia/*/lib" -type d > /etc/ld.so.conf.d/nvidia.conf
@@ -97,18 +102,18 @@ experiments on a GPU host (nothing from the experiments is kept). Measurements a
 ## R7. Changelog and version computation
 
 - **Decision**: git-cliff (added to `.mise.toml`), `.cliff.toml` adapted from the author's
-  firefly-jar (same header/body templates and skip rules: merges, `chore`, `test`, `style`,
-  `build(deps…)`, `ci(deps…)`; groups Features / Bug Fixes / Others; commit links to the
+  earlier release setup (same header/body templates and skip rules: merges, `chore`, `test`,
+  `style`, `build(deps…)`, `ci(deps…)`; groups Features / Bug Fixes / Others; commit links to the
   repository), plus `[bump] initial_tag = "v0.1.0"` and `breaking_always_bump_major = false`.
   `task changelog` runs `git-cliff --unreleased --bump --prepend CHANGELOG.md`, or `--tag $TAG`
   when `TAG` is set, and refuses when there are no releasable commits since the last tag.
 - **Evidence**: in a scratch repository git-cliff 2.14.2 with `initial_tag` produced `v0.1.0` with
-  no tags present (firefly-jar needed an explicit `TAG` for its first release), then `v0.2.0` after
-  a `feat`. Without `breaking_always_bump_major = false` a breaking change jumps 0.x to `v1.0.0`;
-  the author wants to choose 1.0.0 deliberately (`TAG=v1.0.0`).
+  no tags present (the author's earlier release setup needed an explicit `TAG` for its first
+  release), then `v0.2.0` after a `feat`. Without `breaking_always_bump_major = false` a breaking
+  change jumps 0.x to `v1.0.0`; the author wants to choose 1.0.0 deliberately (`TAG=v1.0.0`).
 - **Release-notes scripts**: `.github/scripts/extract-changelog.sh` (prints one version's section,
   fails when missing or empty) and `.github/scripts/check-release-version.sh` (the tag must equal
-  the newest `## ` heading), both taken from firefly-jar, plus
+  the newest `## ` heading), both taken from the author's earlier release setup, plus
   `.github/scripts/check-tag-on-main.sh` (`git merge-base --is-ancestor "$sha" origin/main`).
 
 ## R8. Release workflow
@@ -159,7 +164,7 @@ experiments on a GPU host (nothing from the experiments is kept). Measurements a
   `index.html` `<title>` and `apple-mobile-web-app-title`, `manifest.webmanifest` `name` and
   `short_name` (and their tests), README, new docs and CLAUDE.md prose; lowercase identifiers
   (`videokit` package, image, repo, storage keys such as `videokit.uploads`) stay.
-- **CONTRIBUTING.md and docs/RELEASING.md**: modeled on firefly-jar's (sections: no PRs/issues,
-  prerequisites, getting started, the gate, conventions, never commit live data, releases;
+- **CONTRIBUTING.md and docs/RELEASING.md**: modeled on the author's other projects (sections: no
+  PRs/issues, prerequisites, getting started, the gate, conventions, never commit live data, releases;
   RELEASING: how versions work, step 0 history sweep before the first push, changelog, preview,
   commit, tag, what the automation does, making the package public, retrying).

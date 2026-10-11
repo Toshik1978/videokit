@@ -60,9 +60,9 @@ task changelog                         # nothing releasable since the tag → "n
 
 Follow `docs/RELEASING.md`: history sweep (first time only), `task changelog`, write the summary,
 `task release:verify TAG=v0.1.0`, commit `chore(release): v0.1.0`, push `main`, push the tag.
-Expected: the Release workflow's `checks`, `ci` and `publish` jobs pass; the package page shows
-`0.1.0` and `latest` with an attestation; the release page shows the notes and the pull command;
-after making the package public once, `docker pull` works without logging in.
+Expected: the "Publish release" workflow's `checks`, `ci` and `publish` jobs pass; the package page
+shows `0.1.0` and `latest` with an attestation; the release page shows the notes and the pull
+command; after making the package public once, `docker pull` works without logging in.
 
 Then on the GPU host: `mkdir -p .data && docker compose up -d` pulls `latest`, starts with the GPU
 and reports healthy.

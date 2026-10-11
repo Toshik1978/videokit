@@ -57,8 +57,9 @@ with tempfile.TemporaryDirectory() as tmp:
             media = MediaService(settings).extract(job_dir)
             assert media.has_audio and media.frames
             assert (job_dir / "audio.wav").stat().st_size > 0 and (job_dir / "audio.mp3").stat().st_size > 0
-        except Exception:
-            print(f"codec check failed: {name}", file=sys.stderr)
+        except Exception as exc:
+            # The exception type only: its message may carry ffmpeg output or paths.
+            print(f"codec check failed: {name} ({type(exc).__name__})", file=sys.stderr)
             sys.exit(1)
 print("codecs ok")
 ' || { echo "the image cannot decode every common video codec" >&2; exit 1; }
