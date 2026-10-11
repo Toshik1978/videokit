@@ -12,7 +12,7 @@ from starlette.requests import ClientDisconnect
 from videokit.core.errors import AppError
 from videokit.core.jobs import SOURCE_FILE, InvalidTransition, Job, JobNotFound, JobState, JobStore
 
-UPLOAD_CHUNK_BYTES = 50 * 1024 * 1024  # per-PATCH cap; also advertised by /api/config
+UPLOAD_CHUNK_BYTES = 50_000_000  # 50 MB per-PATCH cap; also advertised by /api/config
 WRITE_BYTES = 1024 * 1024  # body bytes gathered before each disk write and offset update
 TUS_VERSION = "1.0.0"
 OFFSET_CONTENT_TYPE = "application/offset+octet-stream"

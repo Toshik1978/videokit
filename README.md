@@ -118,10 +118,12 @@ One image works on hosts with and without a GPU.
 
 Only the cloud providers you configure cost money. With the default configuration, text generation
 is estimated to cost under US$0.50 per 30-minute video, and regenerating one section costs a small
-fraction of that. Cloud transcription with OpenAI adds roughly US$0.006 per audio minute; local
-transcription is free. Figures are estimates based on published per-token prices, shown in each
-job's footer. If prices change, override them with `PRICING_OVERRIDES` (see the configuration
-reference).
+fraction of that. Cheap regeneration relies on the provider's prompt cache, which lives about five
+minutes and is refreshed by each use; a regeneration after a longer pause pays for the video's
+transcript and frames again. Cloud transcription with OpenAI adds roughly US$0.006 per audio
+minute; local transcription is free. Figures are estimates based on published per-token prices,
+shown in each job's footer. If prices change, override them with `PRICING_OVERRIDES` (see the
+configuration reference).
 
 ## Using it from a phone
 

@@ -284,6 +284,7 @@ def test_validate_hashtags(n: int, violates: bool) -> None:
         (chapters((0, "a"), (60, "b"), (30, "c")), "ascending"),
         (chapters((0, "a"), (30, "b"), (DURATION, "c")), "duration"),
         (chapters((0, "a"), (30, "b"), (DURATION + 5, "c")), "duration"),
+        (chapters((0, "a"), (30, "b"), (DURATION - 9.9, "c")), "before the end"),
         (chapters((0, "a"), (30, ""), (60, "c")), "empty"),
         (chapters((0, "a"), (30, "b"), (60, "")), "empty"),
     ],
@@ -299,7 +300,7 @@ def test_validate_chapters_violations(items: list[dict[str, Any]], needle: str) 
     "items",
     [
         chapters((0, "a"), (10, "b"), (20, "c")),  # gaps exactly 10 s
-        chapters((0, "a"), (30, "b"), (DURATION - 0.1, "c")),
+        chapters((0, "a"), (30, "b"), (DURATION - 10, "c")),  # last chapter exactly 10 s before the end
         chapters((0, "a"), (30, "b"), (60, "c"), (90, "d")),
     ],
 )
@@ -323,7 +324,19 @@ def test_validate_chapters_short_video_nonempty_flagged() -> None:
 def test_validate_chapters_exactly_at_duration() -> None:
     items = chapters((0, "a"), (20, "b"), (40, "c"))
     assert validate_section("chapters", items, duration_s=40.0)
-    assert validate_section("chapters", items, duration_s=40.01) == []
+    assert validate_section("chapters", items, duration_s=50.0) == []
+
+
+def test_validate_last_chapter_needs_10_s_before_the_end() -> None:
+    # YouTube disables chapters when the last one is shorter than 10 s.
+    items = chapters((0, "a"), (20, "b"), (40, "c"))
+    [violation] = validate_section("chapters", items, duration_s=49.99)
+    assert violation.message == "the last chapter starts only 9.99 s before the end; at least 10 s"
+    assert validate_section("chapters", items, duration_s=50.0) == []
+
+
+def test_three_chapters_fit_a_30_s_video() -> None:
+    assert validate_section("chapters", chapters((0, "a"), (10, "b"), (20, "c")), duration_s=30.0) == []
 
 
 def test_validate_collects_all_sections_in_order() -> None:

@@ -11,8 +11,11 @@ USAGE = Usage(input_tokens=1_000_000, output_tokens=100_000, cache_read_tokens=2
 def test_default_prices() -> None:
     assert DEFAULT_PRICES == {
         "claude-opus-5-5": {"input": 4.0, "output": 20.0, "cache_read": 0.20, "cache_write": 5.00},
-        "claude-sonnet-5-5": {"input": 2.0, "output": 10.0, "cache_read": 0.20, "cache_write": 2.50},
+        "claude-sonnet-5-5": {"input": 2.0, "output": 10.0, "cache_read": 0.10, "cache_write": 2.50},
         "claude-haiku-5-5": {"input": 0.10, "output": 0.50, "cache_read": 0.01, "cache_write": 0.125},
+        # Fallback models that `fallbacks: "default"` may route a refused request to (reported in message.model).
+        "claude-opus-5": {"input": 5.0, "output": 25.0, "cache_read": 0.50, "cache_write": 6.25},
+        "claude-opus-4-8": {"input": 5.0, "output": 25.0, "cache_read": 0.50, "cache_write": 6.25},
         "whisper-1": {"per_minute": 0.006},
     }
 
@@ -21,7 +24,9 @@ def test_default_prices() -> None:
     ("model", "expected"),
     [
         ("claude-opus-5-5", 4.0 + 2.0 + 0.4 + 2.0),
-        ("claude-sonnet-5-5", 2.0 + 1.0 + 0.4 + 1.0),
+        ("claude-sonnet-5-5", 2.0 + 1.0 + 0.2 + 1.0),
+        ("claude-opus-5", 5.0 + 2.5 + 1.0 + 2.5),
+        ("claude-opus-4-8", 5.0 + 2.5 + 1.0 + 2.5),
         ("claude-haiku-5-5", 0.10 + 0.05 + 0.02 + 0.05),
     ],
 )

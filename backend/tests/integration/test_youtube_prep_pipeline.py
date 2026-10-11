@@ -51,6 +51,10 @@ TOO_LONG_TITLE = "x" * 120
 ENGLISH_INSTRUCTION = "No speech was detected; write all output in English (language code en)."
 
 
+def _language_instruction(code: str) -> str:
+    return f"Write all output in the language detected in the speech (language code {code})."
+
+
 def _invalid() -> dict[str, Any]:
     data = copy.deepcopy(VALID)
     data["title"] = TOO_LONG_TITLE
@@ -224,7 +228,8 @@ async def test_generation_request_has_a_stable_prefix_and_the_duration_in_the_tu
     assert all(f.jpeg.startswith(b"\xff\xd8") for f in req.frames)
     [turn] = req.turns
     assert turn.role == "user"
-    assert ENGLISH_INSTRUCTION not in turn.text  # speech was detected: the model keeps its language
+    assert ENGLISH_INSTRUCTION not in turn.text  # speech was detected ...
+    assert _language_instruction("en") in turn.text  # ... so its detected language is enforced
     assert "0:36" in turn.text  # the duration lives in the turn ...
     assert "0:36" not in req.context_text and "36" not in req.system  # ... not in the cached prefix
     assert pipeline.build_prefix(media, job_dir).request(OUTPUT_SCHEMA, req.turns) == req
@@ -402,6 +407,25 @@ async def test_no_speech_gets_a_notice_and_english_as_the_language(
     assert result["language"] == "en"
     assert llm.requests[0].context_text == NO_SPEECH_TEXT
     assert (_media(store, job_id).no_speech, _media(store, job_id).language) == (True, "en")
+
+
+async def test_output_language_is_the_language_detected_by_transcription(
+    store: JobStore, settings: Settings, make_video: MakeVideo
+) -> None:
+    # Mixed-language speech: whatever the model claims, the detected language is used for all output (FR-020).
+    job_id = _queue(store, make_video(audio=True, **LONG))
+    french = {**VALID, "language": "fr"}
+    llm = FakeLLM([{**_invalid(), "language": "fr"}, french], model=MODEL)
+
+    await _run(store, job_id, settings, FakeTranscriber(name="local", language="de"), llm)
+
+    first, repair = llm.requests
+    for turn in (first.turns[0], repair.turns[2]):  # the instruction rides in the generate and repair turns ...
+        assert _language_instruction("de") in turn.text
+    for req in (first, repair):  # ... never in the cached prefix
+        assert "language code de" not in req.system and "language code de" not in req.context_text
+    assert _job(store, job_id).language == "de"
+    assert _result(store, job_id)["language"] == "de"
 
 
 async def test_result_language_falls_back_to_the_job_language(

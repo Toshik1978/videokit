@@ -23,6 +23,8 @@ export default defineConfig({
     { name: 'desktop-chrome', use: { ...devices['Desktop Chrome'] } },
     { name: 'iphone', use: { ...devices['iPhone 13'] } },
     { name: 'pixel', use: { ...devices['Pixel 7'] } },
+    // The narrowest supported phone width (FR-038, SC-010): 360x740, mobile, touch.
+    { name: 'mobile-360', use: { ...devices['Galaxy S8'] } },
   ],
   // Builds the SPA, then serves it from the backend with fake providers (no API keys, no network).
   webServer: {

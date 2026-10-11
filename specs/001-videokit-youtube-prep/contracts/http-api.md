@@ -25,7 +25,7 @@ transient conditions, e.g. local model still downloading.)
 
 ### `GET /api/config`
 ```json
-{"max_upload_bytes": 10737418240, "upload_chunk_bytes": 52428800, "job_ttl_hours": 24}
+{"max_upload_bytes": 10737418240, "upload_chunk_bytes": 50000000, "job_ttl_hours": 24}
 ```
 
 ### `GET /api/tools`

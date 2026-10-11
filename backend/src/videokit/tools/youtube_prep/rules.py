@@ -233,6 +233,9 @@ def _validate_chapters(value: list[dict[str, Any]], duration_s: float) -> list[s
             problems.append(f"chapter {i} has an empty title")
         if chapter["start_seconds"] >= duration_s:
             problems.append(f"chapter {i} starts at or after the video duration")
+    remaining = round(duration_s - value[-1]["start_seconds"], 2) if value else CHAPTER_MIN_GAP_S
+    if 0 < remaining < CHAPTER_MIN_GAP_S:  # YouTube disables chapters when the last one is under 10 s
+        problems.append(f"the last chapter starts only {remaining:g} s before the end; at least {CHAPTER_MIN_GAP_S} s")
     for i in range(1, len(value)):
         gap = value[i]["start_seconds"] - value[i - 1]["start_seconds"]
         if gap <= 0:

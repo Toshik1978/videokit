@@ -13,6 +13,8 @@ from pydantic_settings.exceptions import SettingsError
 TRANSCRIBE_PROVIDER_NAMES = ("local", "openai")
 LLM_PROVIDER_NAMES = ("anthropic", "openai")
 MAX_FRAMES_RANGE = (1, 100)
+ANTHROPIC_EFFORTS = ("low", "medium", "high")
+WHISPER_DEVICES = ("auto", "cuda", "cpu")
 
 
 class Settings(BaseSettings):
@@ -113,6 +115,13 @@ def validate(settings: Settings) -> list[str]:
         problems.append("OPENAI_API_KEY is required when 'openai' is listed in a providers variable")
     if "openai" in settings.llm_providers and not (settings.openai_model or "").strip():
         problems.append("OPENAI_MODEL is required when 'openai' is listed in LLM_PROVIDERS")
+
+    for var, value, choices in (
+        ("ANTHROPIC_EFFORT", settings.anthropic_effort, ANTHROPIC_EFFORTS),
+        ("WHISPER_DEVICE", settings.whisper_device, WHISPER_DEVICES),
+    ):
+        if value not in choices:
+            problems.append(f"{var} must be one of: {', '.join(choices)}")
 
     if settings.whisper_device == "cuda" and not cuda_available():
         problems.append("WHISPER_DEVICE is 'cuda' but no usable GPU was found")

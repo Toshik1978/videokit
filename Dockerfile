@@ -46,6 +46,11 @@ RUN useradd --uid 10001 --user-group --no-create-home --home-dir /app videokit \
     && chown videokit:videokit /data \
     && chmod -R a+rX /app /opt/python
 
+# The user's home (/app) is read-only, so runtime caches (Hugging Face hub/xet, XDG) live in the /data
+# volume. Set only here, after the build steps, so build-time tools (uv) do not write into /data.
+ENV HF_HOME=/data/huggingface \
+    XDG_CACHE_HOME=/data/cache
+
 USER 10001:10001
 VOLUME ["/data"]
 EXPOSE 8000

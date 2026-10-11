@@ -374,9 +374,9 @@ home screen.
 - **SC-008**: An automated scan of the repository on every change finds zero secrets or personal
   identifiers.
 - **SC-009**: Average text-generation cost per 30-minute video with the default provider stays
+  under US$0.50.
 - **SC-010**: The complete flow from opening the app to copying all six sections can be done on a
   360 px-wide phone in both iOS Safari and Android Chrome without horizontal scrolling or zooming.
-  under US$0.50.
 
 ## Assumptions
 

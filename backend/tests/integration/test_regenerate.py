@@ -224,6 +224,22 @@ def test_regenerate_reuses_the_byte_identical_request_prefix(
     assert "0:36" in turn.text  # duration facts ride in the turn, as for generation
 
 
+def test_regenerate_enforces_the_detected_language(
+    tmp_path: Path, settings: Settings, store: JobStore, llm: FakeLLM
+) -> None:
+    job_id = _seed(store, settings, llm, transcriber=FakeTranscriber(name="local", language="de"))
+    llm.script.append(_only("title", "Hotel tour", language="fr"))
+
+    with _client(tmp_path, settings, llm) as client:
+        result = client.post(_url(job_id), json={"section": "title"}).json()["result"]
+
+    instruction = "Write all output in the language detected in the speech (language code de)."
+    original, regen = llm.requests
+    assert instruction in original.turns[0].text and instruction in regen.turns[0].text
+    assert instruction not in regen.system and instruction not in regen.context_text
+    assert result["language"] == "de"
+
+
 def test_usage_accumulates_including_cache_tokens(
     tmp_path: Path, settings: Settings, store: JobStore, llm: FakeLLM
 ) -> None:
@@ -281,7 +297,7 @@ def test_regenerated_chapters_follow_the_chapter_rules(
     chapters = [
         {"start_seconds": 0, "title": "Welcome - arrival"},
         {"start_seconds": 15, "title": "“The pool”"},
-        {"start_seconds": 30, "title": "Goodbye"},
+        {"start_seconds": 26, "title": "Goodbye"},
     ]
     llm.script.append(_only("chapters", chapters))
 
@@ -291,9 +307,9 @@ def test_regenerated_chapters_follow_the_chapter_rules(
     assert result["chapters"] == [
         {"start_seconds": 0.0, "title": "Welcome arrival"},
         {"start_seconds": 15.0, "title": "The pool"},
-        {"start_seconds": 30.0, "title": "Goodbye"},
+        {"start_seconds": 26.0, "title": "Goodbye"},
     ]
-    assert result["rendered"]["chapters"] == '0:00 "Welcome arrival"\n0:15 "The pool"\n0:30 "Goodbye"'
+    assert result["rendered"]["chapters"] == '0:00 "Welcome arrival"\n0:15 "The pool"\n0:26 "Goodbye"'
     assert result["title"] == VALID["title"]
 
 

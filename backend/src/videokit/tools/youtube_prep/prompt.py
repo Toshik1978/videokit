@@ -19,10 +19,10 @@ the video (lines like "[m:ss] text") and frames sampled from it (each preceded b
 "[frame m:ss]"). Base everything on what is actually said and shown.
 
 Language
-- Detect the spoken language of the video and write EVERYTHING in that language: cover titles, \
-title, description, tags, hashtags and chapter titles. Return its ISO 639-1 code in "language".
-- If there is no speech, infer the likely language from on-screen text, or use English, and rely \
-on the frames.
+- Write EVERYTHING in the output language named in the request: cover titles, title, \
+description, tags, hashtags and chapter titles, even where the video uses other languages. Return \
+its ISO 639-1 code in "language".
+- If there is no speech, rely on the frames.
 
 YouTube best practices
 - Cover titles: exactly 3 distinct options for the thumbnail, each at most 5 words, punchy and \
@@ -37,7 +37,7 @@ NOT put chapters, timestamps or time ranges in the description, and do not put h
 Chapters
 - Add chapters only at real topic changes, not at every sentence. The first chapter starts at \
 0:00 (start_seconds 0). Use at least 3 chapters, each at least 10 seconds after the previous one, \
-in ascending order, and all before the end of the video.
+in ascending order, and the last one at least 10 seconds before the end of the video.
 - Chapter titles are short (a few words) and plain: no dashes, no emojis, no symbols or \
 decoration, no quotation marks.
 - start_seconds is a number of seconds from the start of the video.

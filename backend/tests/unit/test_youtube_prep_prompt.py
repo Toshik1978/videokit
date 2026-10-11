@@ -113,8 +113,9 @@ def test_determinism() -> None:
 
 def test_system_prompt_rules() -> None:
     s = prompt.SYSTEM_PROMPT.lower()
-    for needle in ("spoken language", "5 words", "timestamp", "dash", "emoji", "0:00", "topic"):
+    for needle in ("output language", "5 words", "timestamp", "dash", "emoji", "0:00", "topic"):
         assert needle in s
+    assert "detect" not in s  # the language comes from transcription, not from the model (FR-020)
 
 
 def test_repair_turn_lists_violations() -> None:

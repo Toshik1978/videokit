@@ -113,6 +113,11 @@ decision, why, and what else was considered.
 - **Rationale**: Neither vendor ingests video directly; frames + transcript is the common
   denominator. Structured output removes JSON parsing failures. Caching makes regenerate cheap
   (SC-004).
+- **Cache window**: the breakpoint uses the default ephemeral cache, which lives ~5 minutes and is
+  refreshed by each use, so regenerations within that window read the prefix from cache; a later
+  regeneration re-pays the full prefix. A 1 h TTL was rejected: its cache writes cost 2× the base
+  input price instead of 1.25×, which raises every first run and endangers SC-009 (< US$0.50 per
+  30-minute video).
 - **Alternatives**: Gemini native video (not in scope of chosen vendors); free-text parsing
   (fragile).
 
@@ -125,7 +130,7 @@ decision, why, and what else was considered.
     dedupe, keep first 5).
   - Validate (repairable by the model only): cover options = 3 and ≤ 5 words each; title ≤ 100;
     description 2–4 paragraphs and ≤ 5000; hashtags ≥ 3; chapters first at 0, ≥ 3, gaps ≥ 10 s,
-    strictly ascending, < duration.
+    strictly ascending, < duration, last one ≥ 10 s before the end (YouTube disables chapters otherwise).
   - One repair call with the list of violations; still invalid → job fails with a readable
     reason (FR-029). Videos < 30 s: chapters omitted with a notice.
   - Render time as `m:ss` below 1 h, `h:mm:ss` from 1 h on; line = `<time> "<title>"`.

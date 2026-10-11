@@ -90,7 +90,7 @@ def test_health(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
 def test_config(client: TestClient) -> None:
     assert client.get("/api/config").json() == {
         "max_upload_bytes": 1024**3,
-        "upload_chunk_bytes": 50 * 1024 * 1024,
+        "upload_chunk_bytes": 50_000_000,
         "job_ttl_hours": 24,
     }
 

@@ -1,12 +1,26 @@
 #!/usr/bin/env bash
 # Container smoke test: start the image with placeholder keys (startup checks key presence only,
 # no network), wait for GET /api/health to return 200, then fetch / (the SPA).
+# Before that, as the image's user and without any keys, check that the caches the local
+# transcription stack writes to (Hugging Face hub/xet, XDG) resolve to a writable place under /data;
+# a cache under the read-only home directory makes every local transcription job fail.
 # Usage: scripts/docker_smoke.sh [image]   (default: videokit:ci)
 set -euo pipefail
 
 image="${1:-videokit:ci}"
 name="videokit-smoke-$$"
 timeout_s="${SMOKE_TIMEOUT:-120}"
+
+docker run --rm --entrypoint python "$image" -c '
+import os, pathlib
+from huggingface_hub import constants
+
+for path in (constants.HF_HOME, constants.HF_HUB_CACHE, os.environ.get("XDG_CACHE_HOME", "")):
+    assert path.startswith("/data/"), f"cache dir {path!r} is outside /data"
+    pathlib.Path(path).mkdir(parents=True, exist_ok=True)
+    (pathlib.Path(path) / ".write-test").write_text("ok")
+print("cache dirs writable")
+' || { echo "model cache directories are not writable for the container user" >&2; exit 1; }
 
 cleanup() {
   status=$?

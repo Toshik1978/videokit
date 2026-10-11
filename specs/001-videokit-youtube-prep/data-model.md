@@ -118,7 +118,7 @@ Validation (code, FR-021–FR-028; normalize first, then validate, one repair ca
 | `description` | trim, `\n\n` paragraph breaks | < 2 or > 4 paragraphs; > 5000 chars; contains timestamp lines |
 | `tags` | trim, dedupe, drop trailing until joined ≤ 500 chars | empty |
 | `hashtags` | add `#`, remove spaces, dedupe, keep first 5 | < 3 |
-| `chapters` | strip dashes, emojis, decorative symbols, `"`; collapse spaces | first ≠ 0; < 3; gap < 10 s; not ascending; ≥ duration; empty title |
+| `chapters` | strip dashes, emojis, decorative symbols, `"`; collapse spaces | first ≠ 0; < 3; gap < 10 s; not ascending; ≥ duration; last < 10 s before the end; empty title |
 
 `chapters` is `[]` with notice `too_short_for_chapters` when `duration_s < 30`.
 

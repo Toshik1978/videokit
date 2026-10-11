@@ -25,5 +25,5 @@ placeholder values only.
 | `LOG_LEVEL` | `INFO` | |
 
 Startup fails (non-zero exit, one clear line per problem) when: a provider name is unknown, a
-listed provider lacks its key or required model id, `WHISPER_DEVICE=cuda` without a usable GPU, `MAX_FRAMES` out of
-range, or `DATA_DIR` is not writable (FR-012).
+listed provider lacks its key or required model id, `ANTHROPIC_EFFORT` or `WHISPER_DEVICE` is not one of its allowed
+values, `WHISPER_DEVICE=cuda` without a usable GPU, `MAX_FRAMES` out of range, or `DATA_DIR` is not writable (FR-012).

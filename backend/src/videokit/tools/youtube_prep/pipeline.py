@@ -112,7 +112,7 @@ def duration_note(duration_s: float) -> str:
     """Duration facts for a turn (kept out of the cached prefix)."""
     note = (
         f"The video is {format_timestamp(duration_s)} long ({duration_s:.1f} seconds); "
-        f"every chapter must start before {duration_s:.1f} seconds."
+        f"the last chapter must start at or before {duration_s - rules.CHAPTER_MIN_GAP_S:.1f} seconds."
     )
     if duration_s < rules.CHAPTERS_MIN_DURATION_S:
         note = (
@@ -122,10 +122,20 @@ def duration_note(duration_s: float) -> str:
     return note
 
 
+def output_language(media: MediaArtifacts) -> str:
+    """The output language: the one detected by transcription, or English without speech (FR-020)."""
+    return DEFAULT_LANGUAGE if media.no_speech else media.language or DEFAULT_LANGUAGE
+
+
+def language_instruction(media: MediaArtifacts) -> str:
+    if media.no_speech:
+        return ENGLISH_INSTRUCTION
+    return f"Write all output in the language detected in the speech (language code {output_language(media)})."
+
+
 def turn_notes(media: MediaArtifacts) -> str:
     """Per-job facts appended to every generate/repair/regenerate turn (never part of the cached prefix)."""
-    notes = duration_note(media.duration_s)
-    return f"{notes}\n{ENGLISH_INSTRUCTION}" if media.no_speech else notes
+    return f"{duration_note(media.duration_s)}\n{language_instruction(media)}"
 
 
 # ---------------------------------------------------------------- stages
@@ -194,13 +204,10 @@ def _generate(job: JobHandle, ctx: CoreContext, media: MediaArtifacts, providers
 def build_result(normalized: dict[str, Any], media: MediaArtifacts) -> YouTubePrepResult:
     notices = [NOTICE_NO_SPEECH] if media.no_speech else []
     notices += rules.notices(duration_s=media.duration_s)
-    if media.no_speech:
-        language = DEFAULT_LANGUAGE  # no speech: the output is English whatever the model claims (spec edge case)
-    else:
-        language = normalized["language"].strip() or media.language or DEFAULT_LANGUAGE
     sections = {section: normalized[section] for section in rules.SECTIONS}
+    # The language detected by transcription (English without speech), whatever the model claims (FR-020).
     return YouTubePrepResult(
-        language=language, notices=notices, rendered=Rendered(**rules.render(normalized)), **sections
+        language=output_language(media), notices=notices, rendered=Rendered(**rules.render(normalized)), **sections
     )
 
 

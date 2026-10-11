@@ -21,6 +21,7 @@ from videokit.core.jobs import JobState, JobStore
 from videokit.main import create_app
 
 MiB = 1024 * 1024
+MB = 1000 * 1000
 TUS = {"Tus-Resumable": "1.0.0"}
 PATCH_HEADERS = {**TUS, "Content-Type": "application/offset+octet-stream"}
 
@@ -331,22 +332,22 @@ def test_patch_rejected_when_not_uploading(client: TestClient, state: JobState) 
 
 
 def _blocks(first: int, count: int) -> Iterator[bytes]:
-    """1 MiB blocks whose byte value encodes the block number, so misplaced data is detected."""
+    """1 MB blocks whose byte value encodes the block number, so misplaced data is detected."""
     for i in range(first, first + count):
-        yield bytes([i % 251]) * MiB
+        yield bytes([i % 251]) * MB
 
 
 def _streamed(first: int, count: int) -> Receive:
-    """A body arriving as `count` 1 MiB messages, generated lazily."""
+    """A body arriving as `count` 1 MB messages, generated lazily."""
     messages = (_body(block) for block in _blocks(first, count))
     return _scripted(itertools.chain(messages, [{"type": "http.request", "body": b"", "more_body": False}]))
 
 
 def test_upload_over_100_mb_in_50_mb_chunks(client: TestClient, completed: list[str]) -> None:
-    assert uploads.UPLOAD_CHUNK_BYTES == 50 * MiB
+    assert uploads.UPLOAD_CHUNK_BYTES == 50 * MB == 50_000_000  # decimal megabytes, as the spec says
     app = _app(client)
     total_blocks = 110
-    job_id = _create(client, total_blocks * MiB)
+    job_id = _create(client, total_blocks * MB)
 
     # A streamed body without Content-Length that overruns 50 MB is cut off and leaves nothing behind,
     # although most of it was already written and recorded.
@@ -357,17 +358,17 @@ def test_upload_over_100_mb_in_50_mb_chunks(client: TestClient, completed: list[
 
     expected = hashlib.sha256()
     for first, count in ((0, 50), (50, 50), (100, 10)):
-        offset = first * MiB
-        status, headers = _portal(client).call(_asgi_patch, app, job_id, offset, _streamed(first, count), count * MiB)
+        offset = first * MB
+        status, headers = _portal(client).call(_asgi_patch, app, job_id, offset, _streamed(first, count), count * MB)
         assert status == 204
-        assert int(headers["upload-offset"]) == offset + count * MiB
+        assert int(headers["upload-offset"]) == offset + count * MB
         for block in _blocks(first, count):
             expected.update(block)
 
     assert completed == [job_id]
     actual = hashlib.sha256()
     with _source(client, job_id).open("rb") as f:
-        while block := f.read(MiB):
+        while block := f.read(MB):
             actual.update(block)
     assert actual.hexdigest() == expected.hexdigest()
-    assert _source(client, job_id).stat().st_size == total_blocks * MiB > 100 * 1000 * 1000
+    assert _source(client, job_id).stat().st_size == total_blocks * MB > 100 * MB

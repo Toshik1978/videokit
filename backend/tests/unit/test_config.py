@@ -102,6 +102,31 @@ def test_cuda_with_gpu(ok_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
     assert validate(Settings()) == []
 
 
+@pytest.mark.parametrize(("var", "value"), [("ANTHROPIC_EFFORT", "max"), ("WHISPER_DEVICE", "gpu")])
+def test_unknown_enum_values_are_reported(ok_env: None, monkeypatch: pytest.MonkeyPatch, var: str, value: str) -> None:
+    monkeypatch.setenv(var, value)
+    monkeypatch.setattr(config, "cuda_available", lambda: False)
+    problems = validate(Settings())
+    assert len(problems) == 1
+    assert problems[0].startswith(var)
+    assert "\n" not in problems[0]
+
+
+@pytest.mark.parametrize(
+    ("var", "value"),
+    [
+        ("ANTHROPIC_EFFORT", "low"),
+        ("ANTHROPIC_EFFORT", "medium"),
+        ("ANTHROPIC_EFFORT", "high"),
+        ("WHISPER_DEVICE", "auto"),
+        ("WHISPER_DEVICE", "cpu"),
+    ],
+)
+def test_allowed_enum_values_pass(ok_env: None, monkeypatch: pytest.MonkeyPatch, var: str, value: str) -> None:
+    monkeypatch.setenv(var, value)
+    assert validate(Settings()) == []
+
+
 def test_cuda_not_checked_for_other_devices(ok_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
     def boom() -> bool:
         raise AssertionError("must not be called")

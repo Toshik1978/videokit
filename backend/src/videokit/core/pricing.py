@@ -14,8 +14,11 @@ FREE_TRANSCRIPTION_PROVIDERS = frozenset({"local"})  # run on this machine: cost
 
 DEFAULT_PRICES: PriceTable = {
     "claude-opus-5-5": {"input": 4.0, "output": 20.0, "cache_read": 0.20, "cache_write": 5.00},
-    "claude-sonnet-5-5": {"input": 2.0, "output": 10.0, "cache_read": 0.20, "cache_write": 2.50},
+    "claude-sonnet-5-5": {"input": 2.0, "output": 10.0, "cache_read": 0.10, "cache_write": 2.50},
     "claude-haiku-5-5": {"input": 0.10, "output": 0.50, "cache_read": 0.01, "cache_write": 0.125},
+    # Fallback models that `fallbacks: "default"` may route a refused request to (reported in message.model).
+    "claude-opus-5": {"input": 5.0, "output": 25.0, "cache_read": 0.50, "cache_write": 6.25},
+    "claude-opus-4-8": {"input": 5.0, "output": 25.0, "cache_read": 0.50, "cache_write": 6.25},
     "whisper-1": {"per_minute": 0.006},
 }
 
