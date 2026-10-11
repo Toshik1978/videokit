@@ -395,3 +395,12 @@ Polish (Docker, README, live tests). Each phase is one commit and leaves the app
 - [x] T050 Reject expired uploads in `backend/src/videokit/core/uploads.py` per FR-015 (partial)
   - `HEAD` and `PATCH /api/uploads/{id}` return `404 upload_not_found` when `JobStore.is_expired(job)` is true for the `uploading` job; a completed upload of an expired job is not queued.
   - Tests: `backend/tests/integration/test_uploads.py` with an injectable clock or an expired `uploading` row; assert 404 for HEAD and PATCH, no bytes appended, and no transition to `queued`.
+
+## Phase 12: Convergence
+
+- [x] T051 CRITICAL: Make the CI secret scan pass on the branch history in `.gitleaks.toml` and `backend/tests/unit/test_errors.py` per Constitution Development Workflow / SC-008 (contradicts)
+  - The test constant `SECRET = "secret-api-key-123 leaked in message"` (`test_errors.py:14`) trips gitleaks' `generic-api-key` rule; rename it to a marker that does not look like a key assignment, and, because the value is already in history, add a narrowly scoped allowlist entry in `.gitleaks.toml` (path `backend/tests/unit/test_errors.py` plus a regex for that exact marker, with an explanatory comment) — no history rewrite.
+  - Verify: `gitleaks detect --redact` reports no leaks over the full history; `task lint` and `task test` pass.
+- [x] T052 Do not queue expired uploads completed at startup in `backend/src/videokit/core/worker.py` per T050 / FR-015 (partial)
+  - `Worker.on_upload_complete` returns without probing or queueing when `JobStore.is_expired(job)` is true; the purge then deletes the job.
+  - Tests: extend `backend/tests/integration/test_uploads_resume.py` with an expired finished `uploading` row (past-clock store as in `test_api_platform.py::_expired_store`); assert that after startup the job is not `queued` and the worker never ran it.

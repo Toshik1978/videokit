@@ -11,7 +11,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from videokit.core.errors import AppError, UnhandledErrorMiddleware, configure_logging, install_error_handlers
 
-SECRET = "secret-api-key-123 leaked in message"
+SECRET = "leaked-sensitive-payload leaked in message"
 
 
 class Body(BaseModel):
@@ -29,7 +29,7 @@ def client() -> TestClient:
 
     @app.get("/boom")
     def boom() -> None:
-        raise RuntimeError("secret-api-key-123 leaked in message")
+        raise RuntimeError("leaked-sensitive-payload leaked in message")
 
     @app.post("/body")
     def body(b: Body) -> dict[str, int]:
@@ -62,7 +62,7 @@ def test_unhandled_exception_logged_without_traceback_or_message(
     assert [rec.getMessage() for rec in videokit_records] == ["Unhandled error on GET /boom (RuntimeError)"]
     assert not any(rec.exc_info or rec.exc_text or rec.stack_info for rec in caplog.records)
     assert "Traceback" not in caplog.text
-    assert "secret-api-key-123" not in caplog.text
+    assert "leaked-sensitive-payload" not in caplog.text
 
 
 def test_unhandled_exception_never_reaches_the_server() -> None:
@@ -72,7 +72,7 @@ def test_unhandled_exception_never_reaches_the_server() -> None:
 
     @app.get("/boom")
     def boom() -> None:
-        raise RuntimeError("secret-api-key-123 leaked in message")
+        raise RuntimeError("leaked-sensitive-payload leaked in message")
 
     r = TestClient(app, raise_server_exceptions=True).get("/boom")  # would re-raise any escaping exception
     assert r.status_code == 500
@@ -85,7 +85,7 @@ def test_error_after_response_started_is_swallowed(caplog: pytest.LogCaptureFixt
 
     def chunks() -> Iterator[bytes]:
         yield b"partial"
-        raise RuntimeError("secret-api-key-123 leaked in message")
+        raise RuntimeError("leaked-sensitive-payload leaked in message")
 
     @app.get("/stream")
     def stream() -> StreamingResponse:
@@ -96,7 +96,7 @@ def test_error_after_response_started_is_swallowed(caplog: pytest.LogCaptureFixt
     assert r.status_code == 200
     assert "Unhandled error on GET /stream (RuntimeError)" in caplog.text
     assert "Traceback" not in caplog.text
-    assert "secret-api-key-123" not in caplog.text
+    assert "leaked-sensitive-payload" not in caplog.text
 
 
 async def _run_lifespan(app: ASGIApp) -> tuple[list[Message], Exception | None]:

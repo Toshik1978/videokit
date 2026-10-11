@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import itertools
+import time
 from collections.abc import Awaitable, Callable, Iterable, Iterator, MutableMapping
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,7 @@ from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from videokit.core import uploads
+from videokit.core import worker as worker_module
 from videokit.core.config import Settings
 from videokit.core.jobs import JobState, JobStore
 from videokit.main import create_app
@@ -219,6 +221,34 @@ def test_finished_uploads_are_completed_at_startup(tmp_path: Path) -> None:
     with TestClient(app) as c:
         assert completed == [finished]
         assert c.get("/api/health").status_code == 200
+
+
+def test_expired_finished_upload_is_not_queued_at_startup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """FR-015: a finished upload already past `expires_at` must not be probed or queued; the purge deletes it."""
+    settings = Settings(data_dir=tmp_path / "data", anthropic_api_key=SecretStr("sk-test"), max_upload_gb=1)
+    past = time.time() - (settings.job_ttl_hours + 1) * 3600
+    old = JobStore(settings.data_dir, settings.job_ttl_hours, settings.max_upload_bytes, clock=lambda: past)
+    job_id = old.create("demo_tool", 4).id
+    old.set_upload_offset(job_id, 4)
+    probed: list[Path] = []
+
+    def spy_probe(path: Path) -> None:
+        probed.append(path)
+        raise AssertionError("an expired upload must not be probed")
+
+    monkeypatch.setattr(worker_module, "probe", spy_probe)
+    monkeypatch.setattr("videokit.main.run_purge_loop", _never_purge)
+
+    app = create_app(settings, tools_package="videokit.tools", static_dir=tmp_path / "static")
+    with TestClient(app):
+        job = old.get(job_id)
+        assert job is not None
+        assert job.state is JobState.UPLOADING  # not queued
+        assert probed == []  # and the worker never ran it
+
+
+async def _never_purge(store: JobStore) -> None:
+    await asyncio.Event().wait()
 
 
 # --- streaming and concurrency ---------------------------------------------------------------------------------------

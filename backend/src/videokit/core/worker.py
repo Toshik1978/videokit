@@ -147,6 +147,8 @@ class Worker:
         job = await asyncio.to_thread(self._store.get, job_id)
         if job is None or job.state is not JobState.UPLOADING or job.upload_offset != job.upload_length:
             return
+        if self._store.is_expired(job):  # FR-015: leave it for the purge, which deletes it
+            return
         source = self._store.job_dir(job_id) / SOURCE_NAME
         try:
             info = await asyncio.to_thread(probe, source)

@@ -6,3 +6,13 @@ useDefault = true
 description = "OpenAI model ids named in prose (e.g. research.md), not secrets"
 regexTarget = "secret"
 regexes = ['''^gpt-4o(-mini)?-transcribe(-diarize)?$''']
+
+[[allowlists]]
+description = "Old test marker secret-api-key-123: in test_errors.py history and quoted in the T051 task text in tasks.md; not a real key"
+condition = "AND"
+paths = [
+  '''^backend/tests/unit/test_errors\.py$''',
+  '''^specs/001-videokit-youtube-prep/tasks\.md$''',
+]
+regexTarget = "secret"
+regexes = ['''^secret-api-key-123$''']
