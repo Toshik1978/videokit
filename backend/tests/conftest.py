@@ -6,7 +6,21 @@ from pathlib import Path
 
 import pytest
 
+from videokit.core.config import Settings
+
 MakeVideo = Callable[..., Path]
+
+
+@pytest.fixture(autouse=True)
+def _isolate_settings_env(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Remove every Settings variable from the process environment so tests are hermetic.
+
+    Tests marked ``live`` need real provider keys from the environment and are left untouched.
+    """
+    if request.node.get_closest_marker("live"):
+        return
+    for name in Settings.model_fields:
+        monkeypatch.delenv(name.upper(), raising=False)
 
 
 @pytest.fixture

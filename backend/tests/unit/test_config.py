@@ -5,18 +5,6 @@ import pytest
 from videokit.core import config
 from videokit.core.config import Settings, validate
 
-ENV_VARS = [
-    "DATA_DIR", "PORT", "MAX_UPLOAD_GB", "JOB_TTL_HOURS", "MAX_FRAMES", "FRAME_WIDTH", "TRANSCRIBE_PROVIDERS",
-    "WHISPER_MODEL", "WHISPER_DEVICE", "OPENAI_TRANSCRIBE_MODEL", "LLM_PROVIDERS", "ANTHROPIC_API_KEY",
-    "ANTHROPIC_MODEL", "ANTHROPIC_EFFORT", "OPENAI_API_KEY", "OPENAI_MODEL", "PRICING_OVERRIDES", "LOG_LEVEL",
-]  # fmt: skip
-
-
-@pytest.fixture(autouse=True)
-def clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in ENV_VARS:
-        monkeypatch.delenv(name, raising=False)
-
 
 @pytest.fixture
 def ok_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -195,3 +183,14 @@ def test_empty_values_fall_back_to_defaults(monkeypatch: pytest.MonkeyPatch, var
 
 def test_load_settings_success(ok_env: None) -> None:
     assert config.load_settings().max_frames == 80
+
+
+def test_polluted_host_environment_does_not_leak_into_tests() -> None:
+    # The autouse conftest fixture removes every Settings variable, so the host shell cannot change results.
+    s = Settings()
+    assert s.openai_api_key is None
+    assert s.anthropic_api_key is None
+    assert s.max_frames == 80
+    assert s.transcribe_providers == ["local"]
+    assert s.llm_providers == ["anthropic"]
+    assert s.openai_transcribe_model == "whisper-1"

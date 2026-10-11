@@ -49,9 +49,7 @@ VALID: dict[str, Any] = {
 
 @pytest.fixture
 def env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> pytest.MonkeyPatch:
-    """A clean environment (no variables leaking in from the host) with a writable DATA_DIR."""
-    for name in Settings.model_fields:
-        monkeypatch.delenv(name.upper(), raising=False)
+    """A writable DATA_DIR on top of the hermetic environment provided by conftest."""
     monkeypatch.setenv("DATA_DIR", str(tmp_path / "data"))
     return monkeypatch
 

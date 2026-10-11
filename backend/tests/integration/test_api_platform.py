@@ -218,7 +218,6 @@ def test_entry_point_validation_problems_exit_cleanly(
 ) -> None:
     monkeypatch.setenv("DATA_DIR", str(tmp_path / "d"))
     monkeypatch.setenv("MAX_FRAMES", "500")
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     with pytest.raises(SystemExit) as exc:
         app_from_env()
     assert exc.value.code == 1
