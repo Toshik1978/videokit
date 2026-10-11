@@ -3,7 +3,8 @@
 The real app and worker run upload -> done -> regenerate with real ffmpeg extraction, a fake transcriber and a
 scripted LLM. Each chain starts with a provider whose error message echoes the secrets, so the fallback logging
 paths run too. Every record from every logger is captured at DEBUG level and checked for distinctive markers.
-An unhandled route error under a real uvicorn server logs no traceback and no exception message (Constitution VI).
+An unhandled route error, a startup failure and a shutdown failure under a real uvicorn server log no traceback
+and no exception message (Constitution VI).
 """
 
 import base64
@@ -13,21 +14,24 @@ import socket
 import threading
 import time
 from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
 import httpx
 import pytest
 import uvicorn
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from fakes_llm import FakeLLM
 from fakes_transcribe import FakeTranscriber
 from videokit.core.config import Settings
+from videokit.core.jobs import JobStore
 from videokit.core.llm import LLMChain, ProviderError
 from videokit.core.transcribe import Segment, TranscriberChain
-from videokit.core.worker import Providers
+from videokit.core.worker import Providers, Worker
 from videokit.main import create_app
 
 MakeVideo = Callable[..., Path]
@@ -153,43 +157,96 @@ def test_full_run_logs_no_transcript_frames_hints_or_keys(
     assert leaks == [], f"secrets or private data in the logs: {leaks}"
 
 
-def test_unhandled_route_error_under_uvicorn_logs_no_traceback_or_message(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, captured: Capture
-) -> None:
-    secret = f"store failed near {TRANSCRIPT_MARKERS[0]} with key {ANTHROPIC_KEY}"
+def _quiet_app(tmp_path: Path) -> FastAPI:
     settings = Settings(data_dir=tmp_path / "data", anthropic_api_key=SecretStr(ANTHROPIC_KEY), log_level="DEBUG")
     providers = Providers(
         transcriber=TranscriberChain([FakeTranscriber(name="local", segments=[])]), llm=LLMChain([FakeLLM([])])
     )
-    app = create_app(settings, providers, static_dir=tmp_path / "static")
+    return create_app(settings, providers, static_dir=tmp_path / "static")
+
+
+@contextmanager
+def _uvicorn(app: FastAPI) -> Iterator[tuple[uvicorn.Server, int]]:
+    """A real uvicorn server in a thread; yields once it has started (or given up starting), then stops it."""
     sock = socket.socket()
     sock.bind(("127.0.0.1", 0))
-    port = sock.getsockname()[1]
     server = uvicorn.Server(uvicorn.Config(app, log_config=None, log_level="debug", lifespan="on"))
     thread = threading.Thread(target=server.run, kwargs={"sockets": [sock]}, daemon=True)
     thread.start()
     try:
         deadline = time.monotonic() + 10
-        while not server.started:
-            assert thread.is_alive() and time.monotonic() < deadline, "uvicorn did not start"
+        while not server.started and thread.is_alive():
+            assert time.monotonic() < deadline, "uvicorn did not start"
             time.sleep(0.02)
+        yield server, sock.getsockname()[1]
+    finally:
+        server.should_exit = True
+        thread.join(timeout=10)
+        sock.close()
+    assert not thread.is_alive(), "uvicorn did not stop"
+
+
+def _assert_no_traceback_or_message(log: str, message: str) -> None:
+    assert "uvicorn.error" in log, "uvicorn's own log records were not captured"  # e.g. "Waiting for application ..."
+    assert "Traceback" not in log
+    assert "Exception in " not in log  # uvicorn's "Exception in ASGI application" / "Exception in 'lifespan' protocol"
+    assert message not in log
+    assert TRANSCRIPT_MARKERS[0] not in log and ANTHROPIC_KEY not in log
+
+
+def test_unhandled_route_error_under_uvicorn_logs_no_traceback_or_message(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, captured: Capture
+) -> None:
+    secret = f"store failed near {TRANSCRIPT_MARKERS[0]} with key {ANTHROPIC_KEY}"
+    app = _quiet_app(tmp_path)
+    with _uvicorn(app) as (server, port):
+        assert server.started
 
         def broken_get(job_id: str) -> None:
             raise RuntimeError(secret)
 
         monkeypatch.setattr(app.state.store, "get", broken_get)
         response = httpx.get(f"http://127.0.0.1:{port}/api/jobs/abc123")
-    finally:
-        server.should_exit = True
-        thread.join(timeout=10)
-        sock.close()
 
     assert response.status_code == 500
     assert response.json() == {"error": {"code": "internal_error", "message": "Something went wrong on the server."}}
     log = "\n".join(captured.lines)
-    assert "uvicorn.error" in log, "uvicorn's own log records were not captured"  # e.g. "Application startup ..."
     assert "videokit ERROR Unhandled error on GET /api/jobs/abc123 (RuntimeError)" in log
-    assert "Traceback" not in log
-    assert "Exception in ASGI application" not in log
-    assert "store failed near" not in log
-    assert TRANSCRIPT_MARKERS[0] not in log and ANTHROPIC_KEY not in log
+    _assert_no_traceback_or_message(log, secret)
+
+
+def test_startup_failure_under_uvicorn_logs_no_traceback_or_message(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, captured: Capture
+) -> None:
+    secret = f"recovery failed near {TRANSCRIPT_MARKERS[0]} with key {ANTHROPIC_KEY}"
+
+    def broken_recover(self: JobStore) -> int:
+        raise RuntimeError(secret)
+
+    monkeypatch.setattr(JobStore, "recover_after_restart", broken_recover)
+    with _uvicorn(_quiet_app(tmp_path)) as (server, _):
+        pass
+
+    assert not server.started  # what `uvicorn.run` / the CLI turn into a non-zero exit status
+    log = "\n".join(captured.lines)
+    assert "uvicorn.error ERROR Startup failed (RuntimeError)" in log
+    assert "uvicorn.error ERROR Application startup failed. Exiting." in log
+    _assert_no_traceback_or_message(log, secret)
+
+
+def test_shutdown_failure_under_uvicorn_logs_no_traceback_or_message(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, captured: Capture
+) -> None:
+    secret = f"worker stop failed near {TRANSCRIPT_MARKERS[0]} with key {ANTHROPIC_KEY}"
+
+    async def broken_stop(self: Worker) -> None:
+        raise RuntimeError(secret)
+
+    monkeypatch.setattr(Worker, "stop", broken_stop)
+    with _uvicorn(_quiet_app(tmp_path)) as (server, _):
+        assert server.started
+
+    log = "\n".join(captured.lines)
+    assert "uvicorn.error ERROR Shutdown failed (RuntimeError)" in log
+    assert "uvicorn.error ERROR Application shutdown failed. Exiting." in log
+    _assert_no_traceback_or_message(log, secret)

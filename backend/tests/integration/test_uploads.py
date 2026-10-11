@@ -8,7 +8,7 @@ from pydantic import SecretStr
 
 from videokit.core import uploads
 from videokit.core.config import Settings
-from videokit.core.jobs import JobState, JobStore
+from videokit.core.jobs import Job, JobState, JobStore
 from videokit.main import create_app
 
 TUS = {"Tus-Resumable": "1.0.0"}
@@ -240,3 +240,49 @@ def test_patch_not_uploading_or_unknown(client: TestClient) -> None:
     job_id = _create(client)
     _store(client).set_state(job_id, JobState.CANCELLED)
     assert client.patch(f"/api/uploads/{job_id}", content=b"a", headers=headers).status_code == 404
+
+
+def _expire(client: TestClient) -> None:
+    store = _store(client)
+    future = store._clock() + 10 * 365 * 24 * 3600  # noqa: SLF001
+    store._clock = lambda: future  # noqa: SLF001
+
+
+def test_head_expired_upload_is_not_found(client: TestClient) -> None:
+    job_id = _create(client)
+    _expire(client)
+    r = client.head(f"/api/uploads/{job_id}", headers=TUS)
+    assert r.status_code == 404
+    assert r.headers["Tus-Resumable"] == "1.0.0"
+
+
+def test_patch_expired_upload_appends_nothing_and_is_not_queued(client: TestClient, completed: list[str]) -> None:
+    job_id = _create(client, 10)
+    _expire(client)
+    r = client.patch(f"/api/uploads/{job_id}", content=b"0123456789", headers={**PATCH_HEADERS, "Upload-Offset": "0"})
+    assert r.status_code == 404
+    assert r.json()["error"]["code"] == "upload_not_found"
+    assert completed == []
+    store = _store(client)
+    assert not (store.job_dir(job_id) / "source.bin").exists()
+    job = store.get(job_id)
+    assert job is not None
+    assert job.upload_offset == 0
+    assert job.state is JobState.UPLOADING
+
+
+def test_patch_completing_after_expiry_is_not_queued(client: TestClient, completed: list[str]) -> None:
+    job_id = _create(client, 10)
+    store = _store(client)
+    real = store.is_expired
+    calls = 0
+
+    def expires_after_first_check(job: Job) -> bool:
+        nonlocal calls
+        calls += 1
+        return calls > 1 or real(job)
+
+    store.is_expired = expires_after_first_check  # type: ignore[method-assign]
+    r = client.patch(f"/api/uploads/{job_id}", content=b"0123456789", headers={**PATCH_HEADERS, "Upload-Offset": "0"})
+    assert r.status_code == 404
+    assert completed == []

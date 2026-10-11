@@ -383,3 +383,15 @@ Polish (Docker, README, live tests). Each phase is one commit and leaves the app
 - [x] T047 Restrict the fast pre-commit hooks to the pre-commit stage in `.pre-commit-config.yaml` per T006 (partial)
   - Add `stages: [pre-commit]` to `ruff-check`, `ruff-format`, `gitleaks` and `check-denylist` (or top-level `default_stages: [pre-commit]`), keeping the explicit stages of the pre-push and post-* hooks.
   - Verify with `pre-commit run --hook-stage commit-msg --commit-msg-filename <file>` and `pre-commit run --hook-stage pre-push --all-files`: neither lists the four fast hooks. Never install hooks.
+
+## Phase 11: Convergence
+
+- [x] T048 CRITICAL: Stop uvicorn from logging tracebacks for app lifespan failures in `backend/src/videokit/main.py` and `backend/src/videokit/core/errors.py` per Constitution VI / FR-016 / FR-012 (contradicts)
+  - Handle the `lifespan` scope in the outermost pure-ASGI layer (e.g. extend `UnhandledErrorMiddleware` to rewrite `lifespan.startup.failed` / `lifespan.shutdown.failed` messages to a type-only line such as "Startup failed (RuntimeError)" and not let the exception propagate to uvicorn's "Exception in 'lifespan' protocol" handler); keep the one-line-per-problem "Configuration error:" stderr output for `StartupError`; the process must still exit non-zero on startup failure.
+  - Tests: extend `backend/tests/integration/test_log_hygiene.py` with real uvicorn runs for a startup failure (e.g. `JobStore.recover_after_restart` raising with a marker message) and a shutdown failure (`Worker.stop` raising); assert no record from any logger contains "Traceback", the exception message or the marker, and that startup still fails.
+- [x] T049 Tell the user that an expired job must be uploaded again in `frontend/src/i18n/en.json` per US2-AS4 (partial)
+  - Reword `job.expired` (used by `JobPage.vue` and `RegenerateControl.vue`) along the lines of "This job has expired or does not exist. Please upload the video again."
+  - Tests: `frontend/tests/unit/regenerate.spec.ts` and `frontend/tests/unit/job.spec.ts` assert the 404 message tells the user to upload again.
+- [x] T050 Reject expired uploads in `backend/src/videokit/core/uploads.py` per FR-015 (partial)
+  - `HEAD` and `PATCH /api/uploads/{id}` return `404 upload_not_found` when `JobStore.is_expired(job)` is true for the `uploading` job; a completed upload of an expired job is not queued.
+  - Tests: `backend/tests/integration/test_uploads.py` with an injectable clock or an expired `uploading` row; assert 404 for HEAD and PATCH, no bytes appended, and no transition to `queued`.

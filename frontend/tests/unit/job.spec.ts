@@ -203,6 +203,7 @@ describe('job status and polling', () => {
     stubFetch();
     const wrapper = await mountPage();
     expect(wrapper.text()).toContain(en.job.expired);
+    expect(en.job.expired).toMatch(/upload the video again/i);
     await tick(10000);
     expect(jobGets()).toBe(1);
     wrapper.unmount();

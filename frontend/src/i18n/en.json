@@ -44,7 +44,7 @@
     "intro": "Upload a video to get a title, description, tags and chapters."
   },
   "job": {
-    "expired": "This job has expired or does not exist. Results are deleted after a while.",
+    "expired": "This job has expired or does not exist. Please upload the video again.",
     "state": {
       "uploading": "Uploading",
       "queued": "Waiting in the queue",

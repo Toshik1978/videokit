@@ -152,6 +152,7 @@ describe('regenerate', () => {
     await card(wrapper, 'title').get('[data-test="regenerate"]').trigger('click');
     await flushPromises();
     expect(card(wrapper, 'title').get('[role="alert"]').text()).toBe(en.job.expired);
+    expect(en.job.expired).toMatch(/upload the video again/i);
     wrapper.unmount();
   });
 

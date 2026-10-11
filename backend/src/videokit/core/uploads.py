@@ -61,7 +61,7 @@ def _too_large() -> AppError:
 
 def _uploading_job(store: JobStore, job_id: str) -> Job:
     job = store.get(job_id)
-    if job is None or job.state is not JobState.UPLOADING:
+    if job is None or job.state is not JobState.UPLOADING or store.is_expired(job):
         raise _not_found()
     return job
 
@@ -196,5 +196,6 @@ async def _patch(job_id: str, offset: int, request: Request) -> Response:
         await asyncio.to_thread(_discard_if_gone, store, job_id)
         raise _not_found() from None
     if new_offset == job.upload_length:  # also on a repeated PATCH, to retry a completion that never ran (idempotent)
+        await asyncio.to_thread(_uploading_job, store, job_id)  # expired while receiving: 404, do not queue
         await request.app.state.on_upload_complete(job_id)
     return Response(status_code=204, headers={"Upload-Offset": str(new_offset)})

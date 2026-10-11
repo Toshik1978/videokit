@@ -5,6 +5,7 @@ Messages never contain stack traces, request bodies, secrets or transcript text 
 """
 
 import logging
+import sys
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -56,12 +57,20 @@ class UnhandledErrorMiddleware:
     ("Exception in ASGI application"). Catching here means no exception reaches the server. Only the method, path
     and exception type are logged: tracebacks and exception messages may carry secrets or user data (Constitution
     VI, FR-016). If the response has already started, it is left incomplete (the server closes the connection).
+
+    For the ``lifespan`` scope, a startup or shutdown failure is reported to the server as "Startup failed (<type>)"
+    / "Shutdown failed (<type>)" instead of Starlette's traceback text (which uvicorn logs). Once a failure has been
+    reported, uvicorn exits (non-zero on startup) without logging the exception it then receives, so the exception
+    is re-raised: in-process callers such as ``TestClient`` still see it.
     """
 
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "lifespan":
+            await self._lifespan(scope, receive, send)
+            return
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
@@ -79,6 +88,32 @@ class UnhandledErrorMiddleware:
             logger.error("Unhandled error on %s %s (%s)", scope["method"], scope["path"], type(exc).__name__)
             if not started:
                 await error_response("internal_error", "Something went wrong on the server.", 500)(scope, receive, send)
+
+    async def _lifespan(self, scope: Scope, receive: Receive, send: Send) -> None:
+        started = reported = False
+
+        async def safe_send(message: Message) -> None:
+            nonlocal started, reported
+            if message["type"] == "lifespan.startup.complete":
+                started = True
+            elif message["type"] in ("lifespan.startup.failed", "lifespan.shutdown.failed"):
+                reported = True
+                # Starlette sends this from inside its `except` block, so the exception being handled is current.
+                message = {"type": message["type"], "message": _lifespan_failure(started, sys.exception())}
+            await send(message)
+
+        try:
+            await self.app(scope, receive, safe_send)
+        except Exception as exc:
+            if not reported:  # the server would log it with a traceback ("Exception in 'lifespan' protocol")
+                phase = "shutdown" if started else "startup"
+                await send({"type": f"lifespan.{phase}.failed", "message": _lifespan_failure(started, exc)})
+            raise
+
+
+def _lifespan_failure(started: bool, exc: BaseException | None) -> str:
+    phase = "Shutdown" if started else "Startup"
+    return f"{phase} failed ({type(exc).__name__})" if exc is not None else f"{phase} failed"
 
 
 def install_error_handlers(app: FastAPI) -> None:

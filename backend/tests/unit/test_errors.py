@@ -1,13 +1,17 @@
 import logging
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager
 
 import pytest
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from videokit.core.errors import AppError, configure_logging, install_error_handlers
+from videokit.core.errors import AppError, UnhandledErrorMiddleware, configure_logging, install_error_handlers
+
+SECRET = "secret-api-key-123 leaked in message"
 
 
 class Body(BaseModel):
@@ -93,6 +97,81 @@ def test_error_after_response_started_is_swallowed(caplog: pytest.LogCaptureFixt
     assert "Unhandled error on GET /stream (RuntimeError)" in caplog.text
     assert "Traceback" not in caplog.text
     assert "secret-api-key-123" not in caplog.text
+
+
+async def _run_lifespan(app: ASGIApp) -> tuple[list[Message], Exception | None]:
+    """Drive one lifespan (startup, then shutdown) through the app; return what it sent and what it raised."""
+    incoming: list[Message] = [{"type": "lifespan.startup"}, {"type": "lifespan.shutdown"}]
+    sent: list[Message] = []
+
+    async def receive() -> Message:
+        return incoming.pop(0)
+
+    async def send(message: Message) -> None:
+        sent.append(message)
+
+    try:
+        await app({"type": "lifespan", "state": {}}, receive, send)
+    except Exception as exc:
+        return sent, exc
+    return sent, None
+
+
+def _app_failing_in(phase: str) -> FastAPI:
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        if phase == "startup":
+            raise RuntimeError(SECRET)
+        yield
+        raise RuntimeError(SECRET)
+
+    app = FastAPI(lifespan=lifespan)
+    install_error_handlers(app)
+    return app
+
+
+@pytest.mark.parametrize(
+    ("phase", "expected"),
+    [
+        ("startup", [{"type": "lifespan.startup.failed", "message": "Startup failed (RuntimeError)"}]),
+        (
+            "shutdown",
+            [
+                {"type": "lifespan.startup.complete"},
+                {"type": "lifespan.shutdown.failed", "message": "Shutdown failed (RuntimeError)"},
+            ],
+        ),
+    ],
+)
+async def test_lifespan_failure_is_reported_by_exception_type_only(phase: str, expected: list[Message]) -> None:
+    """Starlette reports the full traceback text, which uvicorn logs; the catch-all reduces it to the type name."""
+    sent, exc = await _run_lifespan(_app_failing_in(phase))
+    assert sent == expected
+    assert isinstance(exc, RuntimeError)  # in-process callers (TestClient) still see the real exception
+
+
+@pytest.mark.parametrize(
+    ("complete_startup", "expected"),
+    [
+        (False, {"type": "lifespan.startup.failed", "message": "Startup failed (ValueError)"}),
+        (True, {"type": "lifespan.shutdown.failed", "message": "Shutdown failed (ValueError)"}),
+    ],
+)
+async def test_unreported_lifespan_exception_is_reported_before_it_reaches_the_server(
+    complete_startup: bool, expected: Message
+) -> None:
+    """A failure the server has not been told about would be logged by uvicorn with a traceback."""
+
+    async def raw(scope: Scope, receive: Receive, send: Send) -> None:
+        await receive()
+        if complete_startup:
+            await send({"type": "lifespan.startup.complete"})
+            await receive()
+        raise ValueError(SECRET)
+
+    sent, exc = await _run_lifespan(UnhandledErrorMiddleware(raw))
+    assert sent[-1] == expected
+    assert isinstance(exc, ValueError)
 
 
 def test_validation_error_is_invalid_request_and_does_not_echo_input(
