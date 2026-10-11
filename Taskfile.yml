@@ -63,12 +63,18 @@ tasks:
     cmds:
       - hadolint Dockerfile
 
+  lint:workflows:
+    desc: Lint the GitHub Actions workflows
+    cmds:
+      - actionlint
+
   lint:
-    desc: Lint both stacks and the Dockerfile
+    desc: Lint both stacks, the Dockerfile and the workflows
     cmds:
       - task: lint:backend
       - task: lint:frontend
       - task: lint:docker
+      - task: lint:workflows
 
   test:backend:
     desc: Run backend tests with coverage
@@ -130,6 +136,19 @@ tasks:
     dir: frontend
     cmds:
       - npm run e2e
+
+  changelog:
+    desc: Prepend the next release's section to CHANGELOG.md (TAG=vX.Y.Z overrides the version)
+    cmds:
+      - scripts/changelog.sh {{.TAG}}
+
+  release:verify:
+    desc: Run the release guards for a tag before pushing it (TAG=vX.Y.Z)
+    requires:
+      vars: [TAG]
+    cmds:
+      - .github/scripts/check-release-version.sh {{.TAG}}
+      - .github/scripts/extract-changelog.sh {{.TAG}} > /dev/null
 
   docker:build:
     desc: Build the Docker image as videokit:local

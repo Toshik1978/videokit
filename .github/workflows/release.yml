@@ -1,0 +1,164 @@
+# Not "Release": CI is called from here and sees this workflow's name as `github.workflow`, so its
+# own concurrency group becomes "<this name>-<ref>". Group names are case-insensitive, and
+# "Release-refs/tags/vX.Y.Z" would equal this workflow's "release-<ref>" group and deadlock.
+name: Publish release
+
+# Releases are cut by pushing a tag that matches the newest CHANGELOG.md section:
+#
+#   git tag vX.Y.Z && git push origin vX.Y.Z
+#
+# The tag is the version. This workflow only reads the repository; it never commits, tags or
+# pushes to it. Nothing is published unless every guard and every CI job passes.
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # Cheap guards first: a wrong tag fails here before anything is built.
+  checks:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The tag-on-main check needs the history of both the tag and main.
+          fetch-depth: 0
+
+      - name: Check the tag format
+        run: |
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::tag '$GITHUB_REF_NAME' is not vX.Y.Z"
+            exit 1
+          fi
+
+      # A tag checkout does not guarantee a main ref; fetch it explicitly.
+      - name: Fetch main
+        run: git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+
+      - name: Check the tag is on main
+        run: .github/scripts/check-tag-on-main.sh "$GITHUB_SHA" origin/main
+
+      - name: Check the tag is the newest changelog version
+        run: .github/scripts/check-release-version.sh "$GITHUB_REF_NAME"
+
+      - name: Extract the release notes
+        run: .github/scripts/extract-changelog.sh "$GITHUB_REF_NAME" > "$RUNNER_TEMP/release-notes.md"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-notes
+          path: ${{ runner.temp }}/release-notes.md
+          if-no-files-found: error
+
+  # Exactly what CI runs on main. Its PR-comment and badge steps are skipped on a tag push, and
+  # its test job asks for pull-requests: write, which a called workflow only gets if granted here.
+  ci:
+    permissions:
+      contents: read
+      pull-requests: write
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    needs: [checks, ci]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v7
+
+      # Registry names must be lowercase; the repository name may not be.
+      - name: Set the image name
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=raw,value=latest
+          labels: |
+            org.opencontainers.image.title=VideoKit
+
+      # Build into the local Docker daemon and check that exact image before anything is pushed.
+      - name: Build the image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: videokit:release
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Container smoke test
+        run: scripts/docker_smoke.sh videokit:release
+
+      - name: Image size guard
+        run: scripts/image_size_guard.sh videokit:release
+
+      # Same inputs and cache as the checked build, so the layers are identical.
+      - name: Push the image
+        id: push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Attest build provenance
+        uses: actions/attest@v4
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-notes
+          path: ${{ runner.temp }}/notes
+
+      # The extracted section already ends with the changelog's "---" rule.
+      - name: Add the docker pull command to the release notes
+        run: |
+          {
+            echo
+            echo '### Docker'
+            echo
+            echo '```bash'
+            echo "docker pull ${IMAGE}:${GITHUB_REF_NAME#v}"
+            echo '```'
+          } >> "$RUNNER_TEMP/notes/release-notes.md"
+
+      # Last, so a failed run leaves no release page behind.
+      - uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body_path: ${{ runner.temp }}/notes/release-notes.md
