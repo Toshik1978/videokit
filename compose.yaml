@@ -1,0 +1,23 @@
+# Example deployment. Copy .env.example to .env and fill in your keys first.
+services:
+  videokit:
+    build: .
+    image: videokit:latest
+    env_file: .env
+    ports:
+      - "8000:8000"
+    volumes:
+      - videokit-data:/data
+    restart: unless-stopped
+    # Optional GPU for local transcription (needs the NVIDIA Container Toolkit on the host).
+    # Leave commented out on CPU-only hosts.
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+volumes:
+  videokit-data:

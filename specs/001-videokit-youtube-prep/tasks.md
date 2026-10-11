@@ -301,18 +301,18 @@ appears without shared-code changes.
 
 ## Phase 9: Polish & Cross-Cutting Concerns
 
-- [ ] T039 Package the app in `Dockerfile`, `.dockerignore`, `compose.yaml`, `scripts/docker_smoke.sh` with hadolint and image CI
+- [x] T039 Package the app in `Dockerfile`, `.dockerignore`, `compose.yaml`, `scripts/docker_smoke.sh` with hadolint and image CI
   - Research R12: multi-stage — Node 24 stage builds the SPA; runtime stage on an NVIDIA CUDA runtime + cuDNN Ubuntu base with apt `ffmpeg`, `uv sync --locked` backend env, SPA copied to `backend/src/videokit/static/`, non-root user, `DATA_DIR=/data` volume, port 8000, `HEALTHCHECK` on `/api/health`.
   - `compose.yaml`: `env_file: .env`, named data volume, commented optional GPU `deploy.resources.reservations.devices` block.
   - `scripts/docker_smoke.sh` per quickstart V14.
   - CI jobs in `.github/workflows/ci.yml`: `hadolint` on `Dockerfile`; build the image and run the smoke script. Add `task lint:docker` (hadolint) to `Taskfile.yml` and include it in `task lint`.
-- [ ] T040 [P] Add real-provider smoke tests in `backend/tests/live/test_live_providers.py`
+- [x] T040 [P] Add real-provider smoke tests in `backend/tests/live/test_live_providers.py`
   - Marked `live`, skipped unless the relevant key/GPU is present: Anthropic generation on a tiny fixture, OpenAI generation, OpenAI transcription of a short speech-free clip (asserts no_speech handling), local Whisper on CUDA.
-- [ ] T041 [P] Write `README.md`
+- [x] T041 [P] Write `README.md`
   - Purpose and YouTube Prep features; quickstart (`cp .env.example .env`, `docker compose up`); configuration (link `specs/001-videokit-youtube-prep/contracts/configuration.md`); GPU optional; cost per 30-min video; mobile use and add-to-home-screen.
   - Prominent "No authentication — protect it yourself" section with generic reverse-proxy/tunnel/auth-gateway guidance (FR-017); data lifecycle and privacy.
   - Development: `mise install`, `task setup`, `pre-commit install`, `git config merge.beads.driver "br merge-driver %O %A %B"`, `task lint`, `task test`, Conventional Commits; test/coverage badges; MIT. Placeholders only.
-- [ ] T042 Run quickstart validation and add log hygiene test in `backend/tests/integration/test_log_hygiene.py`
+- [x] T042 Run quickstart validation and add log hygiene test in `backend/tests/integration/test_log_hygiene.py`
   - Run V1–V4, V8, V14 from `specs/001-videokit-youtube-prep/quickstart.md` and fix any drift.
   - Log-hygiene test: a full fake run never logs transcript text, frame data or API key values (FR-016).
 

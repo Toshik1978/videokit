@@ -55,11 +55,17 @@ tasks:
       - npm run lint
       - npm run format:check
 
+  lint:docker:
+    desc: Lint the Dockerfile
+    cmds:
+      - hadolint Dockerfile
+
   lint:
-    desc: Lint both stacks
+    desc: Lint both stacks and the Dockerfile
     cmds:
       - task: lint:backend
       - task: lint:frontend
+      - task: lint:docker
 
   test:backend:
     desc: Run backend tests with coverage

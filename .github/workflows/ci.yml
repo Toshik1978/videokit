@@ -229,6 +229,29 @@ jobs:
           path: frontend/test-results/
           if-no-files-found: ignore
 
+  hadolint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: jdx/mise-action@v4
+        with:
+          install_args: hadolint
+
+      - name: Lint Dockerfile
+        run: hadolint Dockerfile
+
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build image
+        run: docker build --tag videokit:ci .
+
+      - name: Container smoke test
+        run: scripts/docker_smoke.sh videokit:ci
+
   secrets:
     runs-on: ubuntu-latest
     steps:

@@ -13,7 +13,7 @@ Runnable scenarios proving the feature end-to-end. Contracts: [http-api](contrac
 
 ```bash
 cp .env.example .env            # fill in <your-anthropic-api-key> etc.; .env is gitignored
-docker compose up --build       # GPU block in compose.yaml is optional
+docker compose up -d --build    # builds the image; GPU block in compose.yaml is optional
 open http://localhost:8000      # or any host you expose it on
 ```
 
@@ -23,8 +23,8 @@ Local dev: `cd backend && uv sync && uv run pytest`; `cd frontend && npm ci && n
 
 | ID | Command | Proves |
 |---|---|---|
-| V1 | `cd backend && uv run pytest` | chapter rendering/validation (FR-026–FR-029), normalizers, state machine, cancel, restart recovery, TTL purge, provider fallback, tus protocol, pipeline with fakes on generated video |
-| V2 | `cd backend && uv run ruff check && uv run mypy` | lint and types |
+| V1 | `cd backend && uv run pytest` | chapter rendering/validation (FR-026–FR-029), normalizers, state machine, cancel, restart recovery, TTL purge, provider fallback, tus protocol, pipeline with fakes on generated video, log hygiene (FR-016) |
+| V2 | `cd backend && uv run ruff check . ../scripts && uv run mypy` | lint and types |
 | V3 | `cd frontend && npm run lint && npm run typecheck && npm test` | components: upload flow, status, editable cards, copy fallback, regenerate |
 | V4 | `cd frontend && npm run e2e` | Playwright against the app with fake providers, desktop + iPhone/Pixel emulation: full flow, no horizontal scroll at 360 px, ≤ 9 clicks (FR-038, SC-005, SC-010) |
 | V8 | `gitleaks detect` | no secrets in history (SC-008) |

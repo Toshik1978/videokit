@@ -1,0 +1,8 @@
+# gitleaks configuration: the default rules plus allowlisted false positives.
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "OpenAI model ids named in prose (e.g. research.md), not secrets"
+regexTarget = "secret"
+regexes = ['''^gpt-4o(-mini)?-transcribe(-diarize)?$''']
