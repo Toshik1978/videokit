@@ -1,9 +1,9 @@
 # VideoKit
 
-[![Backend tests](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/<gist-user>/<gist-id>/raw/backend-tests.json)](.github/workflows/ci.yml)
-[![Backend coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/<gist-user>/<gist-id>/raw/backend-coverage.json)](.github/workflows/ci.yml)
-[![Frontend tests](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/<gist-user>/<gist-id>/raw/frontend-tests.json)](.github/workflows/ci.yml)
-[![Frontend coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/<gist-user>/<gist-id>/raw/frontend-coverage.json)](.github/workflows/ci.yml)
+[![Backend tests](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/toshik1978/3efce57fa029fdddf6aa3c3faefa8a70/raw/backend-tests.json)](.github/workflows/ci.yml)
+[![Backend coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/toshik1978/3efce57fa029fdddf6aa3c3faefa8a70/raw/backend-coverage.json)](.github/workflows/ci.yml)
+[![Frontend tests](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/toshik1978/3efce57fa029fdddf6aa3c3faefa8a70/raw/frontend-tests.json)](.github/workflows/ci.yml)
+[![Frontend coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/toshik1978/3efce57fa029fdddf6aa3c3faefa8a70/raw/frontend-coverage.json)](.github/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 VideoKit is an open-source, self-hosted web app that hosts small video tools. You run it as a
@@ -228,10 +228,9 @@ task format    # auto-format both stacks
 ### Test and coverage badges
 
 The badges at the top read JSON files from a GitHub gist that CI updates on every push to `main`.
-Replace `<gist-user>` and `<gist-id>` in the badge URLs with your own gist owner and gist id. In
-your fork, configure the `GIST_ID` secret (the gist id) and a `GIST_TOKEN` secret (a token with the
-`gist` scope) so the workflow in [`.github/workflows/ci.yml`](.github/workflows/ci.yml) can publish
-them.
+In a fork, create your own gist, point the badge URLs at it (`<gist-user>/<gist-id>`), and configure
+the `GIST_ID` secret (the gist id) and a `GIST_TOKEN` secret (a token with the `gist` scope) so the
+workflow in [`.github/workflows/ci.yml`](.github/workflows/ci.yml) can publish them.
 
 ## License
 

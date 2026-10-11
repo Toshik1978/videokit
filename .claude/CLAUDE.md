@@ -17,7 +17,9 @@ constitution `.specify/memory/constitution.md`.
   names or hardware details. Exceptions: the author's name, Anton Krivenko, MAY appear where
   authorship is stated (LICENSE, package metadata, image labels, documentation bylines), and the
   repository's own public addresses (`github.com/toshik1978/videokit`,
-  `ghcr.io/toshik1978/videokit`) MAY appear in links and configuration. Nothing else about the
+  `ghcr.io/toshik1978/videokit`) and its CI badge gist
+  (`gist.githubusercontent.com/toshik1978/3efce57fa029fdddf6aa3c3faefa8a70`) MAY appear in links
+  and configuration. Nothing else about the
   author (email, other accounts, hosts, hardware) may appear. Use
   placeholders (`example.com`, `<your-api-key>`, `/data`). Secrets only via env vars; `.env` is
   gitignored, `.env.example` holds placeholders. A gitignored `.denylist` (one string per line)

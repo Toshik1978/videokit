@@ -1,16 +1,17 @@
 <!--
 Sync Impact Report
-Version change: 1.2.0 -> 1.3.0 (MINOR: materially expanded guidance)
-Modified principles: none
-Modified sections: Development Workflow (the `chore(release): vX.Y.Z` changelog commit is the
-  single change the author may push directly to main; everything else still goes through a pull
-  request)
+Version change: 1.3.0 -> 1.4.0 (MINOR: materially expanded guidance)
+Modified principles: I. Open-Source Hygiene (the repository's CI badge gist address MAY appear in
+  links and configuration, next to the repository addresses)
+Modified sections: none
 Added sections: none
 Removed sections: none
 Templates checked: .specify/templates/plan-template.md, spec-template.md, tasks-template.md,
   checklist-template.md, constitution-template.md (no changes needed)
 Follow-up TODOs: none
-Previous amendment: 1.1.0 -> 1.2.0 (MINOR) changed Principle I (author-name and
+Previous amendment: 1.2.0 -> 1.3.0 (MINOR) made the `chore(release): vX.Y.Z` changelog commit
+  the single change the author may push directly to main (Development Workflow).
+Earlier amendment: 1.1.0 -> 1.2.0 (MINOR) changed Principle I (author-name and
   repository-address exceptions) and Technology & Operational Constraints (single slim image,
   example compose.yaml) and adopted the display name VideoKit.
 -->
@@ -29,8 +30,10 @@ of personal or environment-specific data.
   API keys, tokens, file paths from a developer machine, or hardware/host specifics.
 - The author's name, Anton Krivenko, MAY appear where authorship is stated: LICENSE, package
   metadata, image labels and documentation bylines. The repository's own public addresses
-  (`github.com/toshik1978/videokit`, `ghcr.io/toshik1978/videokit`) MAY appear in links and
-  configuration. Nothing else about the author (email, other accounts, hosts, hardware) may appear.
+  (`github.com/toshik1978/videokit`, `ghcr.io/toshik1978/videokit`) and its CI badge gist
+  (`gist.githubusercontent.com/toshik1978/3efce57fa029fdddf6aa3c3faefa8a70`) MAY appear in links
+  and configuration. Nothing else about the author (email, other accounts, hosts, hardware) may
+  appear.
 - Examples MUST use neutral placeholders (`example.com`, `<your-api-key>`, `/data`).
 - Secrets MUST be supplied only through environment variables. `.env` MUST be gitignored;
   `.env.example` MUST contain placeholders only.
@@ -152,4 +155,4 @@ that states the rationale and updates the version:
 Every plan MUST include a Constitution Check; any deviation MUST be recorded with justification in
 the plan's Complexity Tracking. Reviewers verify compliance on every pull request.
 
-**Version**: 1.3.0 | **Ratified**: 2026-10-11 | **Last Amended**: 2026-10-11
+**Version**: 1.4.0 | **Ratified**: 2026-10-11 | **Last Amended**: 2026-10-11
