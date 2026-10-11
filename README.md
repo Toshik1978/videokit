@@ -64,11 +64,17 @@ You need Docker with the Compose plugin.
 
 ```bash
 cp .env.example .env     # then edit .env and fill in your API key placeholders
-docker compose up -d --build
+UID=$(id -u) GID=$(id -g) docker compose up -d --build
 ```
 
 Then open <http://localhost:8000>. The service listens on port 8000 and keeps its data (jobs,
-SQLite index, model cache) in the `/data` volume.
+SQLite index, model cache) in the gitignored `./.data` directory next to `compose.yaml`, bind
+mounted as `/data`. The container runs as your user (`UID`/`GID`, default 1000) so it can write
+there; bash does not export `UID`, hence the explicit assignment above. To back up or wipe the
+data, copy or delete `./.data`.
+
+To build and run the image without Compose, use `task docker:build` and `task docker:run`
+(`task docker:run GPU=true` adds `--gpus all`). These use the same `./.data` directory.
 
 The default configuration transcribes locally and generates text with Anthropic, so set
 `ANTHROPIC_API_KEY` in `.env`. The app refuses to start, with a message naming the problem, if a

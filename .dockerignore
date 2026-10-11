@@ -11,6 +11,7 @@ tools
 !.env.example
 .denylist
 data/
+.data/
 **/__pycache__
 **/.venv
 **/.ruff_cache

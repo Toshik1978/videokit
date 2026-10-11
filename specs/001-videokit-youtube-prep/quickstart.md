@@ -13,7 +13,9 @@ Runnable scenarios proving the feature end-to-end. Contracts: [http-api](contrac
 
 ```bash
 cp .env.example .env            # fill in <your-anthropic-api-key> etc.; .env is gitignored
-docker compose up -d --build    # builds the image; GPU block in compose.yaml is optional
+UID=$(id -u) GID=$(id -g) docker compose up -d --build   # builds the image; runtime data goes to
+                                # the gitignored ./.data bind mount; GPU block in compose.yaml is optional
+# or without Compose: task docker:build && task docker:run
 open http://localhost:8000      # or any host you expose it on
 ```
 
@@ -51,4 +53,6 @@ Local dev: `cd backend && uv sync && uv run pytest`; `cd frontend && npm ci && n
   `JOB_TTL_HOURS=1`, the job directory is gone within 1 h after expiry.
 - **V14 – Container smoke (CI)**: `scripts/docker_smoke.sh` runs the image with
   `TRANSCRIBE_PROVIDERS=openai`, `LLM_PROVIDERS=anthropic` and placeholder keys (startup checks key
-  presence only, no network), waits for `GET /api/health` 200 and fetches `/` (SPA served).
+  presence only, no network), waits for `GET /api/health` 200 and fetches `/` (SPA served). It
+  also runs the image as the invoking uid:gid with a bind-mounted temp directory as `/data` and
+  checks that the SQLite DB and caches land there, owned by that uid.

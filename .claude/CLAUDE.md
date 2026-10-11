@@ -37,6 +37,7 @@ task format                     # auto-format both stacks
 cd backend && uv run pytest -m live   # opt-in real-provider smoke tests (needs keys / GPU)
 gitleaks detect --redact        # full-history secret scan (CI does the same; see .gitleaks.toml)
 docker build -t videokit:ci . && scripts/docker_smoke.sh videokit:ci
+task docker:build && task docker:run   # run the image directly with ./.data bind-mounted
 ```
 
 Git hooks: `pre-commit install` (one call wires commit-msg, pre-commit, pre-push and the beads
@@ -106,8 +107,12 @@ Dockerfile, compose.yaml, scripts/docker_smoke.sh, .github/workflows/{ci,commit-
 
 - `faster-whisper` is incompatible with `av` 19 — keep the `av<19` pin (see `pyproject.toml`
   comment and `tests/unit/test_whisper_audio_compat.py`) until faster-whisper supports it.
-- The Docker image runs as uid 10001 with a read-only `/app`; Hugging Face/XDG caches point to
-  `/data` (`HF_HOME`, `XDG_CACHE_HOME`, set after the build steps). The smoke test checks it.
+- The Docker image defaults to uid 10001 with a read-only `/app`; Hugging Face/XDG caches point to
+  `/data` (`HF_HOME`, `XDG_CACHE_HOME`, set after the build steps). Compose and `task docker:run`
+  instead run it as the host uid:gid with `./.data` (gitignored and in `.dockerignore`) bind
+  mounted as `/data`, so the image must work under any uid: keep `/app` and the Python env
+  world-readable and never write outside `/data`. bash does not export `UID`, so Compose needs
+  `UID=$(id -u) GID=$(id -g) docker compose up -d --build`. The smoke test checks both runs.
 - Backend tests are isolated from the developer's shell env by an autouse fixture (except `live`
   tests). Don't rely on exported provider keys in default tests.
 - gitleaks false positives are handled with narrow, `condition = "AND"` path+exact-regex

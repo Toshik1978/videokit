@@ -2,6 +2,9 @@ version: '3'
 
 # Single entry point for local development, git hooks and CI.
 
+vars:
+  GPU: 'false'
+
 tasks:
   setup:
     desc: Install backend and frontend dependencies
@@ -127,3 +130,16 @@ tasks:
     dir: frontend
     cmds:
       - npm run e2e
+
+  docker:build:
+    desc: Build the Docker image as videokit:local
+    cmds:
+      - docker build -t videokit:local .
+
+  docker:run:
+    desc: Run videokit:local on port 8000 with ./.data as /data (set GPU=true for --gpus all)
+    vars:
+      GPU_FLAGS: '{{if eq .GPU "true"}}--gpus all{{end}}'
+    cmds:
+      - mkdir -p .data
+      - docker run --rm -p 8000:8000 --env-file .env --user "$(id -u):$(id -g)" -v "$PWD/.data:/data" {{.GPU_FLAGS}} videokit:local

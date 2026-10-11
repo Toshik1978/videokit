@@ -4,6 +4,7 @@
 
 # Runtime data
 data/
+.data/
 
 # Python
 .venv/
