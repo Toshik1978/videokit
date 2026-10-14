@@ -71,7 +71,7 @@ test('home to six copied sections in at most 9 clicks, with an edit', async ({ p
   };
 
   await page.goto('/');
-  await click(page.getByTestId('tool-card'));
+  await click(page.locator('[data-test=tool-card][href="/tools/youtube-prep"]'));
   await expect(page).toHaveURL(/\/tools\/youtube-prep$/);
   await uploadAndWaitForResult(page); // the file picker and the wait are not clicks
 
@@ -118,7 +118,7 @@ test.describe('at 360 px wide', () => {
   test('no page scrolls horizontally and touch targets are at least 44x44', async ({ page }) => {
     expect(video).not.toBe('');
     await page.goto('/');
-    await expect(page.getByTestId('tool-card')).toBeVisible();
+    await expect(page.getByTestId('tool-card').first()).toBeVisible();
     await expectNoHorizontalScroll(page);
     await expectTouchTargets(page);
 

@@ -43,6 +43,16 @@
     "heading": "YouTube Prep",
     "intro": "Upload a video to get a title, description, tags and chapters."
   },
+  "audioExtract": {
+    "heading": "Audio Extract",
+    "intro": "Upload a video to get its audio as an MP3.",
+    "duration": "Duration",
+    "size": "Size",
+    "download": "Download MP3",
+    "share": "Share",
+    "sharePreparing": "Preparing…",
+    "shareReady": "Ready — tap Share again"
+  },
   "job": {
     "expired": "This job has expired or does not exist. Please upload the video again.",
     "state": {
@@ -61,6 +71,7 @@
     "failures": {
       "not_a_video": "The uploaded file is not a playable video.",
       "server_restarted": "The server restarted while this job was waiting or running. Please upload the video again.",
+      "no_audio": "The video has no audio track.",
       "extraction_failed": "Audio and frames could not be extracted from the video.",
       "transcription_failed": "Transcription failed: no transcription provider could process the audio. Please try again later.",
       "generation_failed": "Generating the metadata failed: no AI provider could answer. Please try again later.",
