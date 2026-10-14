@@ -37,6 +37,10 @@
     "youtube_prep": {
       "name": "YouTube Prep",
       "description": "Title, description, tags and chapters for a video."
+    },
+    "audio_extract": {
+      "name": "Audio Extract",
+      "description": "Get a video's audio as an MP3."
     }
   },
   "youtubePrep": {

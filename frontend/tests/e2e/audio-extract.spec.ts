@@ -37,3 +37,12 @@ test('upload a video, get an MP3 named after it, on a phone-sized screen', async
   const [saved] = await Promise.all([page.waitForEvent('download'), download.click()]);
   expect(saved.suggestedFilename()).toBe('clip.mp3');
 });
+
+test('the home page lists Audio Extract and its card opens the upload page', async ({ page }) => {
+  await page.goto('/');
+  const card = page.locator('[data-test="tool-card"]', { hasText: 'Audio Extract' });
+  await expect(card).toBeVisible();
+  await card.click();
+  await expect(page).toHaveURL(/\/tools\/audio-extract$/);
+  await expect(page.locator('input[type=file]')).toBeEnabled();
+});

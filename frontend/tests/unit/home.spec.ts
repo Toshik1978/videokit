@@ -104,6 +104,23 @@ describe('HomePage', () => {
     });
   });
 
+  it('shows both real tool cards, Audio Extract linking to its upload page', async () => {
+    const modules = Object.values(
+      import.meta.glob<ToolModule>('@/tools/*/index.ts', { eager: true }),
+    );
+    respond(200, [
+      backendTool('youtube_prep', 'API yt', 'x'),
+      backendTool('audio_extract', 'API audio', 'x'),
+    ]);
+    const wrapper = await mountHome(modules);
+    await flushPromises();
+    const cards = wrapper.findAll('[data-test="tool-card"]');
+    expect(cards).toHaveLength(2);
+    const audio = cards.find((c) => c.attributes('href') === '/tools/audio-extract');
+    expect(audio?.text()).toContain('Audio Extract');
+    expect(audio?.text()).toContain("Get a video's audio as an MP3.");
+  });
+
   it('shows a test-only tool without any shared-code change', async () => {
     respond(200, [backendTool('test_tool', 'Test Tool', 'Only for tests.')]);
     const wrapper = await mountHome([yt, makeTool('test_tool', '/tools/test-tool')]);

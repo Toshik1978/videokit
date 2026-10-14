@@ -2,6 +2,11 @@ import type { RouteRecordRaw } from 'vue-router';
 
 export const id = 'audio_extract';
 
+export const labels = {
+  name: 'tools.audio_extract.name',
+  description: 'tools.audio_extract.description',
+};
+
 export const routes: RouteRecordRaw[] = [
   {
     path: '/tools/audio-extract',

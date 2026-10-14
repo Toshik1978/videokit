@@ -92,13 +92,16 @@ afterEach(() => {
 });
 
 describe('audio extract module', () => {
-  it('has the backend id and both routes, without home-card labels', () => {
+  it('has the backend id and both routes, and the home-card labels', () => {
     expect(tool.id).toBe('audio_extract');
     expect(tool.routes.map((r) => r.path)).toEqual([
       '/tools/audio-extract',
       '/tools/audio-extract/jobs/:id',
     ]);
-    expect('labels' in tool).toBe(false);
+    expect(tool.labels).toEqual({
+      name: 'tools.audio_extract.name',
+      description: 'tools.audio_extract.description',
+    });
   });
 
   it('renders the upload page with heading and intro', async () => {

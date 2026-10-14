@@ -112,7 +112,7 @@ phase: the project, toolchain and CI already exist.
 
 **Independent Test**: Open `/`; both cards are shown; the Audio Extract card opens `/tools/audio-extract`.
 
-- [ ] T011 [US3] Add the home card labels in `frontend/src/tools/audio-extract/index.ts` and `frontend/src/i18n/en.json`
+- [x] T011 [US3] Add the home card labels in `frontend/src/tools/audio-extract/index.ts` and `frontend/src/i18n/en.json`
   - `labels = { name: 'tools.audio_extract.name', description: 'tools.audio_extract.description' }` with catalog entries "Audio Extract" / "Get a video's audio as an MP3.".
   - Tests: `frontend/tests/unit/home.spec.ts` (both cards from the real tool modules, Audio Extract card links to `/tools/audio-extract`), `frontend/tests/e2e/audio-extract.spec.ts` (home → Audio Extract card → upload page).
 
