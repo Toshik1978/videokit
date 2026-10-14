@@ -71,7 +71,7 @@
     "failures": {
       "not_a_video": "The uploaded file is not a playable video.",
       "server_restarted": "The server restarted while this job was waiting or running. Please upload the video again.",
-      "no_audio": "The video has no audio track.",
+      "no_audio": "This video has no audio track, so there is nothing to extract.",
       "extraction_failed": "Audio and frames could not be extracted from the video.",
       "transcription_failed": "Transcription failed: no transcription provider could process the audio. Please try again later.",
       "generation_failed": "Generating the metadata failed: no AI provider could answer. Please try again later.",

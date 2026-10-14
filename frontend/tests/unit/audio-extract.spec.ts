@@ -215,6 +215,8 @@ describe('audio extract job page', () => {
     stubFetch();
     const wrapper = await mountJob();
     expect(wrapper.get('[data-test="failure"]').text()).toBe(en.job.failures.no_audio);
+    expect(wrapper.find('[data-test="download"]').exists()).toBe(false);
+    expect(wrapper.find('[data-test="share"]').exists()).toBe(false);
     wrapper.unmount();
   });
 });

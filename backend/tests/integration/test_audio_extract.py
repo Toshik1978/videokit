@@ -2,6 +2,7 @@
 
 import asyncio
 import re
+import subprocess
 import threading
 import time
 import warnings
@@ -294,6 +295,29 @@ def test_video_without_audio_fails_with_no_audio(client: TestClient, make_video:
     assert job.failure_code == "no_audio"
     assert not (_store(client).job_dir(job_id) / "source.bin").exists()
     assert _error(client, "GET", job_id) == (409, "job_not_done")
+    assert _error(client, "HEAD", job_id)[0] == 409
+
+
+def test_text_file_fails_with_not_a_video(client: TestClient) -> None:
+    job_id = _upload(client, b"just some text, not a video\n" * 20, file_name="notes.mp4")
+    job = _wait_state(client, job_id, JobState.FAILED)
+    assert job.failure_code == "not_a_video"
+    assert not (_store(client).job_dir(job_id) / "source.bin").exists()
+    assert _error(client, "GET", job_id) == (409, "job_not_done")
+
+
+def test_multi_track_video_uses_the_default_track(client: TestClient, make_video: MakeVideo) -> None:
+    """The first track is mono, the default (second) one stereo: the MP3 follows the default track."""
+    job_id = _upload(client, make_video(two_audio_tracks=True).read_bytes(), file_name="two.mp4")
+    _wait_state(client, job_id, JobState.DONE)
+    mp3 = _store(client).job_dir(job_id) / "audio.mp3"
+    out = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "stream=channels", "-of", "csv=p=0", str(mp3)],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert out.split() == ["2"]
 
 
 # --- cancellation ----------------------------------------------------------------------------------------------

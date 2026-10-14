@@ -96,7 +96,7 @@ phase: the project, toolchain and CI already exist.
 
 **Independent Test**: Upload a no-audio video and a text file; each ends `failed` with its catalog message and no Download button.
 
-- [ ] T010 [US2] Show the "no audio" failure in `frontend/src/i18n/en.json` and `frontend/src/tools/audio-extract/JobPage.vue`, with the backend path covered in `backend/tests/integration/test_audio_extract.py`
+- [x] T010 [US2] Show the "no audio" failure in `frontend/src/i18n/en.json` and `frontend/src/tools/audio-extract/JobPage.vue`, with the backend path covered in `backend/tests/integration/test_audio_extract.py`
   - Catalog: `job.failures.no_audio` (e.g. "This video has no audio track, so there is nothing to extract."). `not_a_video` reuses the existing entry.
   - The failed page shows the catalog failure (via `JobStatus`/`useMessages`) and no Download or Share button.
   - Add `no_audio` to the failure code list in `specs/001-videokit-youtube-prep/contracts/http-api.md`.
