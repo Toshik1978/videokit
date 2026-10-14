@@ -305,6 +305,19 @@ def test_extract_mp3_resamples_above_48khz(tmp_path: Path, make_video: MakeVideo
     assert info["streams"][0]["sample_rate"] == "48000"
 
 
+@pytest.mark.parametrize("rate", [16000, 22050, 24000])
+def test_extract_mp3_upsamples_low_rates_to_keep_192k(tmp_path: Path, make_video: MakeVideo, rate: int) -> None:
+    _, info, _ = _extract_mp3(tmp_path, make_video(audio_rate=rate))
+    stream = info["streams"][0]
+    assert stream["sample_rate"] == "44100"
+    assert abs(int(stream["bit_rate"]) - 192_000) < 10_000
+
+
+def test_extract_mp3_keeps_32khz(tmp_path: Path, make_video: MakeVideo) -> None:
+    _, info, _ = _extract_mp3(tmp_path, make_video(audio_rate=32000))
+    assert info["streams"][0]["sample_rate"] == "32000"
+
+
 def test_extract_mp3_drops_metadata(tmp_path: Path, make_video: MakeVideo) -> None:
     source = make_video(audio=True, location=True)
     assert "location" in json.dumps(_mp3_info(source)["format"].get("tags", {}))  # fixture really has the tag

@@ -62,7 +62,7 @@
     "state": {
       "uploading": "Uploading",
       "queued": "Waiting in the queue",
-      "extracting": "Extracting audio and frames",
+      "extracting": "Extracting",
       "transcribing": "Transcribing",
       "generating": "Generating metadata",
       "done": "Done",
@@ -76,7 +76,7 @@
       "not_a_video": "The uploaded file is not a playable video.",
       "server_restarted": "The server restarted while this job was waiting or running. Please upload the video again.",
       "no_audio": "This video has no audio track, so there is nothing to extract.",
-      "extraction_failed": "Audio and frames could not be extracted from the video.",
+      "extraction_failed": "The video could not be processed.",
       "transcription_failed": "Transcription failed: no transcription provider could process the audio. Please try again later.",
       "generation_failed": "Generating the metadata failed: no AI provider could answer. Please try again later.",
       "generation_invalid": "The generated metadata still broke the YouTube rules after a repair attempt. Please try again.",

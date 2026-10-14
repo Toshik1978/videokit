@@ -194,6 +194,8 @@ class AudioTrack:
 MP3_NAME = "audio.mp3"
 MP3_BITRATE = "192k"
 MP3_MAX_RATE = 48000
+MP3_MIN_RATE = 32000
+MP3_LOW_RATE_TARGET = 44100
 
 
 class MediaService:
@@ -224,8 +226,9 @@ class MediaService:
     def extract_mp3(self, job_dir: Path) -> AudioTrack:
         """Encode the source's main audio track to a 192 kbps CBR MP3 without metadata (research A3, A4).
 
-        Mono stays mono, more than two channels become stereo, rates above 48 kHz become 48 kHz. Deletes
-        ``source.bin`` on success. Raises ``AppError``: not_a_video, no_audio or extraction_failed.
+        Mono stays mono, more than two channels become stereo, rates above 48 kHz become 48 kHz, rates below 32 kHz
+        become 44.1 kHz (keeps 192 kbps). Deletes ``source.bin`` on success. Raises ``AppError``: not_a_video,
+        no_audio or extraction_failed.
         """
         source = job_dir / SOURCE_NAME
         _, streams, _, _ = _probe_json(source)
@@ -238,8 +241,11 @@ class MediaService:
         cmd += ["-c:a", "libmp3lame", "-b:a", MP3_BITRATE]
         if (_seconds(stream.get("channels")) or 0) > 2:
             cmd += ["-ac", "2"]
-        if (_seconds(stream.get("sample_rate")) or 0) > MP3_MAX_RATE:
+        rate = _seconds(stream.get("sample_rate")) or 0
+        if rate > MP3_MAX_RATE:
             cmd += ["-ar", str(MP3_MAX_RATE)]
+        elif 0 < rate < MP3_MIN_RATE:  # libmp3lame would silently drop to 160 kbps below 32 kHz
+            cmd += ["-ar", str(MP3_LOW_RATE_TARGET)]
         try:
             _run([*cmd, str(out)])
             duration = _mp3_duration(out)

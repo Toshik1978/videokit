@@ -157,3 +157,15 @@ Phase 3:  T010            Phase 4: T011            Phase 5: T012 | T013
 
 Foundational → US1 (MVP) → US2 no-audio message → US3 home card → Polish (smoke check, docs).
 Each phase is one commit and leaves the app working.
+
+## Phase 6: Convergence
+
+- [x] T014 Keep the MP3 at 192 kbps for sources sampled below 32 kHz in `backend/src/videokit/core/media.py` per FR-002 / SC-003 (partial)
+  - libmp3lame silently lowers the bitrate to 160 kbps for 16, 22.05 and 24 kHz input while `result.json` still reports `bitrate_kbps: 192`. In `MediaService.extract_mp3`, add `-ar 44100` when the chosen track's sample rate is below 32000 (keep `-ar 48000` above 48000; leave 32–48 kHz unchanged).
+  - Tests: `backend/tests/integration/test_media.py` — extend `make_video` in `backend/tests/conftest.py` with an audio sample-rate option; a 16 kHz source yields an MP3 at 44.1 kHz with bitrate ≈ 192 kb/s.
+- [x] T015 Fall back to `audio.mp3` when a file name has no letter or digit in `backend/src/videokit/tools/audio_extract/naming.py` per spec Edge Cases (contradicts)
+  - Spec: a name "made only of characters unsafe in file names" falls back to `audio.mp3`; today `???.mp4` becomes `___.mp3`. After replacement and stripping, an empty stem or a stem with no Unicode letter or digit becomes `audio`.
+  - Tests: `backend/tests/unit/test_audio_extract_naming.py` — change the `???.mp4` row to `audio.mp3`; add `___.mov` → `audio.mp3` and `a?b.mp4` → `a_b.mp3`.
+- [x] T016 Make the shared extracting stage label and extraction failure message tool-neutral in `frontend/src/i18n/en.json` per FR-009 (partial)
+  - `job.state.extracting` ("Extracting audio and frames") and `job.failures.extraction_failed` ("Audio and frames could not be extracted from the video.") are shown on Audio Extract jobs, which extract no frames. Reword both so they fit both tools (e.g. "Extracting" / "The video could not be processed.").
+  - Tests: `frontend/tests/unit/audio-extract.spec.ts` (extracting stage and a failed `extraction_failed` job show the new catalog text) and update any YouTube Prep test asserting the old wording.

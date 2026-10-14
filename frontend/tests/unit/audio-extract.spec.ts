@@ -123,6 +123,7 @@ describe('audio extract job page', () => {
     stubFetch();
     const wrapper = await mountJob();
     expect(wrapper.text()).toContain(en.job.state.extracting);
+    expect(en.job.state.extracting).toBe('Extracting');
     expect(wrapper.find('[data-test="cancel"]').exists()).toBe(true);
     expect(jobGets()).toBe(1);
     await tick(2000);
@@ -220,6 +221,26 @@ describe('audio extract job page', () => {
     expect(wrapper.get('[data-test="failure"]').text()).toBe(en.job.failures.no_audio);
     expect(wrapper.find('[data-test="download"]').exists()).toBe(false);
     expect(wrapper.find('[data-test="share"]').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it('renders the extraction_failed failure from the neutral catalog text', async () => {
+    jobReplies = [
+      () =>
+        json(
+          200,
+          job({
+            state: 'failed',
+            queue_position: null,
+            failure_code: 'extraction_failed',
+            failure_reason: 'Raw reason.',
+          }),
+        ),
+    ];
+    stubFetch();
+    const wrapper = await mountJob();
+    expect(wrapper.get('[data-test="failure"]').text()).toBe('The video could not be processed.');
+    expect(en.job.failures.extraction_failed).toBe('The video could not be processed.');
     wrapper.unmount();
   });
 });

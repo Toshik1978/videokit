@@ -13,4 +13,6 @@ def download_name(source_name: str | None) -> str:
     stem = _EXTENSION.sub("", source_name or "")
     stem = _UNSAFE.sub("_", stem).strip(" .")
     stem = stem[:_MAX_STEM].strip(" .")
-    return f"{stem or _FALLBACK}.mp3"
+    if not any(ch.isalnum() for ch in stem):
+        stem = _FALLBACK
+    return f"{stem}.mp3"
