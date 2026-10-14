@@ -96,8 +96,8 @@ def _video_end(video: dict[str, Any], container: dict[str, Any], duration: float
     return end if 0 < end <= duration else duration
 
 
-def probe(path: Path) -> ProbeResult:
-    """Validate that ``path`` is a playable video and read its duration, video end and audio presence."""
+def _probe_json(path: Path) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any], float]:
+    """ffprobe a playable video: ``(info, streams, video stream, duration)``; else ``not_a_video``."""
     try:
         out = _run(["ffprobe", "-v", "error", "-show_format", "-show_streams", "-of", "json", str(path)])
         info = json.loads(out.stdout)
@@ -111,11 +111,28 @@ def probe(path: Path) -> ProbeResult:
         raise _not_a_video() from None
     if video is None or duration <= 0:
         raise _not_a_video()
+    return info, streams, video, duration
+
+
+def probe(path: Path) -> ProbeResult:
+    """Validate that ``path`` is a playable video and read its duration, video end and audio presence."""
+    info, streams, video, duration = _probe_json(path)
     return ProbeResult(
         duration_s=duration,
         has_audio=any(s.get("codec_type") == "audio" for s in streams),
         video_end_s=_video_end(video, info["format"], duration),
     )
+
+
+def _main_audio_stream(streams: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """The first default-flagged audio stream, else the first audio stream (research A4)."""
+    audio = [s for s in streams if s.get("codec_type") == "audio"]
+    return next((s for s in audio if s.get("disposition", {}).get("default") == 1), audio[0] if audio else None)
+
+
+def _mp3_duration(path: Path) -> float:
+    out = _run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "json", str(path)])
+    return float(json.loads(out.stdout)["format"]["duration"])
 
 
 def _scene_times(source: Path) -> list[float]:
@@ -166,6 +183,19 @@ def _extract_frames(source: Path, job_dir: Path, times: list[float], width: int)
     return frames
 
 
+@dataclass(frozen=True)
+class AudioTrack:
+    file: str
+    """``audio.mp3``, relative to the job directory."""
+    duration_s: float
+    size_bytes: int
+
+
+MP3_NAME = "audio.mp3"
+MP3_BITRATE = "192k"
+MP3_MAX_RATE = 48000
+
+
 class MediaService:
     """`CoreContext.media`: turns an uploaded source video into audio files, frames and media.json."""
 
@@ -190,3 +220,31 @@ class MediaService:
         (job_dir / MEDIA_JSON).write_text(media.model_dump_json(indent=2), encoding="utf-8")
         source.unlink()
         return media
+
+    def extract_mp3(self, job_dir: Path) -> AudioTrack:
+        """Encode the source's main audio track to a 192 kbps CBR MP3 without metadata (research A3, A4).
+
+        Mono stays mono, more than two channels become stereo, rates above 48 kHz become 48 kHz. Deletes
+        ``source.bin`` on success. Raises ``AppError``: not_a_video, no_audio or extraction_failed.
+        """
+        source = job_dir / SOURCE_NAME
+        _, streams, _, _ = _probe_json(source)
+        stream = _main_audio_stream(streams)
+        if stream is None:
+            raise AppError("no_audio", "The video has no audio track.", 422)
+        out = job_dir / MP3_NAME
+        cmd = ["ffmpeg", "-v", "error", "-y", "-i", str(source), "-map", f"0:{stream['index']}"]
+        cmd += ["-vn", "-sn", "-dn", "-map_metadata", "-1", "-map_chapters", "-1"]
+        cmd += ["-c:a", "libmp3lame", "-b:a", MP3_BITRATE]
+        if (_seconds(stream.get("channels")) or 0) > 2:
+            cmd += ["-ac", "2"]
+        if (_seconds(stream.get("sample_rate")) or 0) > MP3_MAX_RATE:
+            cmd += ["-ar", str(MP3_MAX_RATE)]
+        try:
+            _run([*cmd, str(out)])
+            duration = _mp3_duration(out)
+        except subprocess.CalledProcessError, json.JSONDecodeError, KeyError, ValueError, TypeError:
+            raise AppError("extraction_failed", "The video could not be processed.", 500) from None
+        track = AudioTrack(file=MP3_NAME, duration_s=duration, size_bytes=out.stat().st_size)
+        source.unlink()
+        return track

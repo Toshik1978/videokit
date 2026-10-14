@@ -41,17 +41,18 @@ class ScriptedTool:
     inside stage ``fail_at``.
     """
 
-    id = "scripted"
     name = "Scripted"
     description = "A tool driven by the test."
     router = APIRouter()
 
-    def __init__(self) -> None:
+    def __init__(self, tool_id: str = "scripted") -> None:
+        self.id = tool_id
         self.gate = threading.Event()
         self.gate.set()
         self.hold_at = "extracting"
         self.fail_at = "transcribing"
         self.error: Exception | None = None
+        self.stage_names: tuple[str, ...] = STAGES
         self.runs: list[str] = []
         self.stages: list[tuple[str, str]] = []
         self.contexts: list[CoreContext] = []
@@ -64,7 +65,7 @@ class ScriptedTool:
         self.running += 1
         self.max_running = max(self.max_running, self.running)
         try:
-            for stage in STAGES:
+            for stage in self.stage_names:
                 job.check_cancelled()
                 if stage == "transcribing":
                     job.set_state(stage, language="en")
@@ -86,6 +87,12 @@ def tool() -> ScriptedTool:
 
 
 @pytest.fixture
+def other() -> ScriptedTool:
+    """A second tool: its jobs run in their own lane (FR-018)."""
+    return ScriptedTool("other")
+
+
+@pytest.fixture
 def settings(tmp_path: Path) -> Settings:
     return Settings(data_dir=tmp_path / "data", anthropic_api_key=SecretStr("sk-test"), max_upload_gb=1)
 
@@ -97,17 +104,23 @@ def providers() -> Providers:
 
 @pytest.fixture
 def client(
-    tmp_path: Path, settings: Settings, providers: Providers, tool: ScriptedTool, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    settings: Settings,
+    providers: Providers,
+    tool: ScriptedTool,
+    other: ScriptedTool,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> Iterator[TestClient]:
     # A long fallback poll proves jobs are picked up by the wake-up event, not by polling.
     monkeypatch.setattr(worker_module, "POLL_INTERVAL_S", 60.0)
     app = create_app(settings, providers, tools_package="videokit.tools", static_dir=tmp_path / "static")
-    app.state.tools = {tool.id: tool}
+    app.state.tools = {tool.id: tool, other.id: other}
     with TestClient(app) as c:
         try:
             yield c
         finally:
             tool.gate.set()
+            other.gate.set()
 
 
 @pytest.fixture
@@ -144,8 +157,8 @@ def _wait_state(client: TestClient, job_id: str, state: JobState) -> Job:
     return _job(client, job_id)
 
 
-def _create(client: TestClient, size: int) -> str:
-    r = client.post("/api/jobs", json={"tool_id": "scripted", "size": size})
+def _create(client: TestClient, size: int, tool_id: str = "scripted") -> str:
+    r = client.post("/api/jobs", json={"tool_id": tool_id, "size": size})
     assert r.status_code == 201
     return str(r.json()["job_id"])
 
@@ -155,8 +168,8 @@ def _patch(client: TestClient, job_id: str, data: bytes, offset: int = 0) -> int
     return client.patch(f"/api/uploads/{job_id}", content=data, headers=headers).status_code
 
 
-def _upload(client: TestClient, data: bytes) -> str:
-    job_id = _create(client, len(data))
+def _upload(client: TestClient, data: bytes, tool_id: str = "scripted") -> str:
+    job_id = _create(client, len(data), tool_id)
     assert _patch(client, job_id, data) == 204
     return job_id
 
@@ -186,6 +199,13 @@ def test_completed_video_is_probed_queued_and_run(
     body = client.get(f"/api/jobs/{job_id}").json()
     assert body["state"] == "done"
     assert body["result"] == {"title": "ok"}
+
+
+def test_single_stage_tool_ends_done(client: TestClient, tool: ScriptedTool, video: bytes) -> None:
+    tool.stage_names = ("extracting",)
+    job_id = _upload(client, video)
+    _wait_state(client, job_id, JobState.DONE)
+    assert [s for j, s in tool.stages if j == job_id] == ["extracting"]
 
 
 def test_not_a_video_fails_and_deletes_source(client: TestClient, tool: ScriptedTool) -> None:
@@ -251,6 +271,52 @@ def test_jobs_run_one_at_a_time_in_fifo_order(client: TestClient, tool: Scripted
         _wait_state(client, job_id, JobState.DONE)
     assert tool.runs == [first, second, third]
     assert tool.max_running == 1
+
+
+def _position(client: TestClient, job_id: str) -> int | None:
+    position: int | None = client.get(f"/api/jobs/{job_id}").json()["queue_position"]
+    return position
+
+
+def test_a_blocked_job_of_one_tool_does_not_delay_another_tools_job(
+    client: TestClient, tool: ScriptedTool, other: ScriptedTool, video: bytes
+) -> None:
+    tool.gate.clear()
+    blocked = _upload(client, video)
+    _wait_state(client, blocked, JobState.EXTRACTING)
+    independent = _upload(client, video, "other")
+    _wait_state(client, independent, JobState.DONE)
+    assert _job(client, blocked).state is JobState.EXTRACTING
+    assert other.runs == [independent]
+
+    tool.gate.set()
+    _wait_state(client, blocked, JobState.DONE)
+
+
+def test_each_lane_runs_its_own_jobs_one_at_a_time(
+    client: TestClient, tool: ScriptedTool, other: ScriptedTool, video: bytes
+) -> None:
+    tool.gate.clear()
+    other.gate.clear()
+    a1 = _upload(client, video)
+    _wait_state(client, a1, JobState.EXTRACTING)
+    b1 = _upload(client, video, "other")
+    _wait_state(client, b1, JobState.EXTRACTING)  # runs next to a1
+    a2, b2, a3 = _upload(client, video), _upload(client, video, "other"), _upload(client, video)
+    assert _job(client, a2).state is JobState.QUEUED  # waits for a1
+    assert _job(client, b2).state is JobState.QUEUED  # waits for b1
+    assert [_position(client, j) for j in (a2, b2, a3)] == [1, 1, 2]  # positions count only the same tool
+    assert client.get("/api/health").json()["queue_length"] == 3  # the total over every lane
+
+    other.gate.set()
+    _wait_state(client, b2, JobState.DONE)
+    assert _job(client, a2).state is JobState.QUEUED  # the other lane finishing does not start a2
+
+    tool.gate.set()
+    for job_id in (a1, a2, a3):
+        _wait_state(client, job_id, JobState.DONE)
+    assert (tool.runs, other.runs) == ([a1, a2, a3], [b1, b2])
+    assert (tool.max_running, other.max_running) == (1, 1)
 
 
 # --- cancellation -----------------------------------------------------------------------------------------------
@@ -344,6 +410,61 @@ def test_cancel_queued_job(client: TestClient, tool: ScriptedTool, video: bytes)
     _wait_state(client, running, JobState.DONE)
     assert tool.runs == [running]
     assert _job(client, waiting).state is JobState.CANCELLED
+
+
+def test_cancel_a_queued_job_in_each_lane(
+    client: TestClient, tool: ScriptedTool, other: ScriptedTool, video: bytes
+) -> None:
+    tool.gate.clear()
+    other.gate.clear()
+    running = {t.id: _upload(client, video, t.id) for t in (tool, other)}
+    for job_id in running.values():
+        _wait_state(client, job_id, JobState.EXTRACTING)
+    waiting = {t.id: _upload(client, video, t.id) for t in (tool, other)}
+    for job_id in waiting.values():
+        status, body = _cancel(client, job_id)
+        assert (status, body["state"], body["queue_position"]) == (202, "cancelled", None)
+        assert not _store(client).job_dir(job_id).exists()
+
+    tool.gate.set()
+    other.gate.set()
+    for job_id in running.values():
+        _wait_state(client, job_id, JobState.DONE)
+    assert (tool.runs, other.runs) == ([running[tool.id]], [running[other.id]])
+    assert all(_job(client, job_id).state is JobState.CANCELLED for job_id in waiting.values())
+
+
+def test_cancel_keeps_race_protection_per_job(
+    client: TestClient, tool: ScriptedTool, other: ScriptedTool, video: bytes, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A cancel landing while a lane is starting a job only flags that job; a queued job of another lane is
+    still cancelled at once."""
+    store, worker = _store(client), _worker(client)
+    other.gate.clear()
+    busy = _upload(client, video, "other")
+    _wait_state(client, busy, JobState.EXTRACTING)
+    idle = _upload(client, video, "other")
+    starting = _create(client, len(video))
+    seen: dict[str, Job] = {}
+    original_get = store.get
+
+    def get(job_id: str) -> Job | None:
+        job = original_get(job_id)
+        if job_id == starting and not seen and job is not None and job.state is JobState.QUEUED:
+            if job_id in worker._current:  # the lane is starting it right now
+                for target in (starting, idle):
+                    seen[target] = client.portal.call(worker.cancel, target)  # type: ignore[union-attr]
+                return original_get(job_id)
+        return job
+
+    monkeypatch.setattr(store, "get", get)
+    assert _patch(client, starting, video) == 204
+    _wait(lambda: bool(seen))
+    assert (seen[starting].state, seen[starting].cancel_requested) == (JobState.QUEUED, True)
+    assert seen[idle].state is JobState.CANCELLED
+    _wait_state(client, starting, JobState.CANCELLED)
+    assert tool.runs == []  # the lane honours the flag before the tool starts
+    assert not store.job_dir(starting).exists()
 
 
 def test_cancel_running_job_stops_at_next_stage_boundary(client: TestClient, tool: ScriptedTool, video: bytes) -> None:
@@ -456,14 +577,22 @@ def test_failures_map_to_user_safe_reasons(
     _wait_state(client, _upload(client, video), JobState.DONE)
 
 
-def test_unknown_tool_fails_with_internal_error(client: TestClient, video: bytes) -> None:
+def test_upload_of_an_unknown_tool_fails_with_internal_error(client: TestClient, video: bytes) -> None:
+    """No lane runs a tool that is not registered (e.g. removed across a restart), so its upload is failed."""
     store = _store(client)
     job = store.create("vanished_tool", len(video))
+    source = store.job_dir(job.id) / "source.bin"
+    source.parent.mkdir(parents=True)
+    source.write_bytes(video)
     store.set_upload_offset(job.id, len(video))
-    store.set_state(job.id, JobState.QUEUED)
-    client.portal.call(_worker(client).notify)  # type: ignore[union-attr]
-    failed = _wait_state(client, job.id, JobState.FAILED)
-    assert (failed.failure_reason, failed.failure_code) == ("Internal error", "internal_error")
+    client.portal.call(_worker(client).on_upload_complete, job.id)  # type: ignore[union-attr]
+    failed = _job(client, job.id)
+    assert (failed.state, failed.failure_reason, failed.failure_code) == (
+        JobState.FAILED,
+        "Internal error",
+        "internal_error",
+    )
+    assert not source.exists()
 
 
 # --- lifespan ---------------------------------------------------------------------------------------------------
@@ -488,6 +617,20 @@ def test_restart_recovery_fails_interrupted_jobs(
     assert (body["failure_reason"], body["failure_code"]) == (RESTART_FAILURE_REASON, "server_restarted")
     assert tool.runs == []
     assert not source.exists()  # FR-014: a failed job's source is deleted
+
+
+def test_worker_runs_one_loop_per_tool_and_stop_cancels_every_loop(
+    tmp_path: Path, settings: Settings, providers: Providers, tool: ScriptedTool, other: ScriptedTool
+) -> None:
+    app = create_app(settings, providers, tools_package="videokit.tools", static_dir=tmp_path / "static")
+    app.state.tools = {tool.id: tool, other.id: other}
+    with TestClient(app) as c:
+        worker = _worker(c)
+        loops = list(worker._tasks)
+        assert len(loops) == 2
+        assert not any(task.done() for task in loops)
+    assert all(task.cancelled() for task in loops)
+    assert worker._tasks == []
 
 
 def test_marking_a_vanished_job_cancelled_is_harmless(client: TestClient) -> None:

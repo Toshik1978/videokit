@@ -14,6 +14,9 @@ class Tool(Protocol):
     async def run(self, job: JobHandle, ctx: CoreContext) -> None: ...
 ```
 
+- `JobHandle.source_name` (read-only property, `str | None`) is the original upload file name as
+  sanitized by core, or `None` when the client sent none. `Job.source_name` carries it in the
+  `JobAccess.get` snapshot.
 - Tools live in `videokit/tools/<id>/` and expose a module-level `TOOL`; the registry imports every
   subpackage of `videokit.tools` at startup.
 - `run` is called by the worker after upload completes. It drives stages via `job.set_state(...)`

@@ -44,6 +44,11 @@ class JobHandle(Protocol):
         """The job directory `DATA_DIR/jobs/<id>/`."""
         ...
 
+    @property
+    def source_name(self) -> str | None:
+        """The original upload file name (sanitized by core), or None when the client sent none."""
+        ...
+
     def set_state(self, state: str, **fields: Any) -> None:
         """Move to the next stage; `fields` (`duration_s`, `language`, `no_speech`, `providers`) are recorded too."""
         ...

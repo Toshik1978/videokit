@@ -35,7 +35,11 @@ transient conditions, e.g. local model still downloading.)
 
 ### `POST /api/jobs`
 Creates a job in `uploading` state and its upload resource.
-Request: `{"tool_id": "youtube_prep", "size": 1234567890}`
+Request: `{"tool_id": "youtube_prep", "size": 1234567890, "file_name": "trip.mp4"}`
+- `file_name` is optional (string, at most 1024 characters; longer → `422 invalid_request`). Core keeps
+  only its last path component (split on `/` and `\`), removes control characters, trims
+  surrounding whitespace and cuts it to 255 characters; empty → none. It is stored for the tool's
+  use, never logged and not echoed back by `GET /api/jobs/{job_id}`.
 - `201` → `{"job_id": "<id>", "upload_url": "/api/uploads/<id>"}`
 - `404 unknown_tool`, `413 file_too_large` (size > max, FR-004), `422 invalid_request`
 

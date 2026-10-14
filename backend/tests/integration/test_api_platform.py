@@ -285,3 +285,42 @@ def test_entry_point_valid_returns_app(monkeypatch: pytest.MonkeyPatch, tmp_path
     monkeypatch.setenv("DATA_DIR", str(tmp_path / "d"))
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
     assert app_from_env().state.settings.data_dir == tmp_path / "d"
+
+
+@pytest.mark.parametrize(
+    ("sent", "stored"),
+    [
+        ("trip.mp4", "trip.mp4"),
+        ("C:\\Users\\x\\trip.mp4", "trip.mp4"),
+        ("/home/x/clips/trip.mp4", "trip.mp4"),
+        ("..\\..//etc/trip.mp4", "trip.mp4"),
+        ("  trip.mp4 \t", "trip.mp4"),
+        ("tr\x00i\x07p\n.mp4", "trip.mp4"),
+        ("поездка 旅行.mp4", "поездка 旅行.mp4"),
+        ("a" * 300 + ".mp4", ("a" * 300 + ".mp4")[:255]),
+        ("", None),
+        ("   ", None),
+        ("dir/", None),
+        ("\x01\x02", None),
+        (None, None),
+    ],
+)
+def test_create_job_sanitizes_the_file_name(client: TestClient, sent: str | None, stored: str | None) -> None:
+    body: dict[str, object] = {"tool_id": "demo_tool", "size": 10}
+    if sent is not None:
+        body["file_name"] = sent
+    created = client.post("/api/jobs", json=body)
+    assert created.status_code == 201
+    job_id = created.json()["job_id"]
+    job = client.app.state.store.get(job_id)  # type: ignore[attr-defined]
+    assert job.source_name == stored
+    assert "source_name" not in client.get(f"/api/jobs/{job_id}").text
+    assert "file_name" not in client.get(f"/api/jobs/{job_id}").text
+
+
+def test_create_job_file_name_limit(client: TestClient) -> None:
+    at_limit = client.post("/api/jobs", json={"tool_id": "demo_tool", "size": 10, "file_name": "a" * 1024})
+    assert at_limit.status_code == 201
+    too_long = client.post("/api/jobs", json={"tool_id": "demo_tool", "size": 10, "file_name": "a" * 1025})
+    assert too_long.status_code == 422
+    assert too_long.json()["error"]["code"] == "invalid_request"

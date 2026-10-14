@@ -41,6 +41,7 @@ TRANSCRIPT_MARKERS = ("Zebrafinch-transcript-7q2x", "Quokka-transcript-9w4v")
 ANTHROPIC_KEY = "sk-ant-loghygiene-anthropic-key-5k8m"
 OPENAI_KEY = "sk-loghygiene-openai-key-3j6n"
 HINT_MARKER = "Pangolin-hint-2r5t"
+FILE_NAME_MARKER = "Narwhal-file-name-4d8z"
 TUS_PATCH = {"Tus-Resumable": "1.0.0", "Content-Type": "application/offset+octet-stream", "Upload-Offset": "0"}
 RESULT: dict[str, Any] = {
     "language": "en",
@@ -130,7 +131,10 @@ def test_full_run_logs_no_transcript_frames_hints_or_keys(
     data = make_video(audio=True, colors=("red", "blue", "green"), segment_s=12.0).read_bytes()
 
     with TestClient(create_app(settings, providers, static_dir=tmp_path / "static")) as client:
-        created = client.post("/api/jobs", json={"tool_id": "youtube_prep", "size": len(data)})
+        created = client.post(
+            "/api/jobs",
+            json={"tool_id": "youtube_prep", "size": len(data), "file_name": f"{FILE_NAME_MARKER}.mp4"},
+        )
         job_id = created.json()["job_id"]
         assert client.patch(f"/api/uploads/{job_id}", content=data, headers=TUS_PATCH).status_code == 204
         assert _wait_done(client, job_id)["state"] == "done"
@@ -151,7 +155,14 @@ def test_full_run_logs_no_transcript_frames_hints_or_keys(
     assert "provider anthropic failed" in log and "provider openai failed" in log
     assert "Invalid request" in log
 
-    forbidden = [*TRANSCRIPT_MARKERS, HINT_MARKER, ANTHROPIC_KEY, OPENAI_KEY, "/9j/"]  # "/9j/": base64 JPEG start
+    forbidden = [
+        *TRANSCRIPT_MARKERS,
+        HINT_MARKER,
+        FILE_NAME_MARKER,
+        ANTHROPIC_KEY,
+        OPENAI_KEY,
+        "/9j/",
+    ]  # "/9j/": base64 JPEG start
     for jpeg in frames:
         forbidden += [base64.b64encode(jpeg).decode(), base64.b64encode(jpeg[63:159]).decode(), repr(jpeg[:64])[2:-1]]
     leaks = [s[:40] for s in forbidden if s in log]

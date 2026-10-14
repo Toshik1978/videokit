@@ -37,7 +37,7 @@ S = JobState
 TRANSITIONS: dict[JobState, set[JobState]] = {
     S.UPLOADING: {S.QUEUED, S.CANCELLED, S.FAILED},
     S.QUEUED: {S.EXTRACTING, S.CANCELLED, S.FAILED},
-    S.EXTRACTING: {S.TRANSCRIBING, S.CANCELLED, S.FAILED},
+    S.EXTRACTING: {S.TRANSCRIBING, S.DONE, S.CANCELLED, S.FAILED},
     S.TRANSCRIBING: {S.GENERATING, S.CANCELLED, S.FAILED},
     S.GENERATING: {S.DONE, S.CANCELLED, S.FAILED},
     S.DONE: set(),
@@ -74,6 +74,7 @@ class Job:
     no_speech: bool
     providers: dict[str, str]
     usage: dict[str, Any]
+    source_name: str | None
 
 
 def _job_from_row(row: sqlite3.Row) -> Job:
@@ -95,6 +96,7 @@ def _job_from_row(row: sqlite3.Row) -> Job:
         no_speech=bool(row["no_speech"]),
         providers=json.loads(row["providers"]),
         usage=json.loads(row["usage"]),
+        source_name=row["source_name"],
     )
 
 
@@ -154,15 +156,15 @@ class JobStore:
             raise ValueError("invalid job id")
         return self._data_dir / "jobs" / job_id
 
-    def create(self, tool_id: str, upload_length: int) -> Job:
+    def create(self, tool_id: str, upload_length: int, source_name: str | None = None) -> Job:
         if not 0 < upload_length <= self._max_upload_bytes:
             raise ValueError("upload_length out of range")
         now = self._clock()
         job_id = secrets.token_urlsafe(16)
         with self._tx() as conn:
             conn.execute(
-                "INSERT INTO jobs (id, tool_id, state, upload_length, created_at, updated_at, expires_at, usage)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO jobs (id, tool_id, state, upload_length, created_at, updated_at, expires_at, usage,"
+                " source_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     job_id,
                     tool_id,
@@ -172,6 +174,7 @@ class JobStore:
                     now,
                     now + self._ttl_seconds,
                     json.dumps(_empty_usage()),
+                    source_name,
                 ),
             )
             return self._load(conn, job_id)
@@ -253,29 +256,31 @@ class JobStore:
                 )
             return self._load(conn, job_id)
 
-    def next_queued(self) -> str | None:
-        """Id of the job that has waited longest in the queue (FIFO by `queued_at`), or None."""
+    def next_queued(self, tool_id: str) -> str | None:
+        """Id of the job of this tool that has waited longest in its lane (FIFO by `queued_at`), or None."""
         conn = db.connect(self._db_path)
         try:
             row = conn.execute(
-                "SELECT id FROM jobs WHERE state = 'queued' ORDER BY queued_at, rowid LIMIT 1"
+                "SELECT id FROM jobs WHERE state = 'queued' AND tool_id = ? ORDER BY queued_at, rowid LIMIT 1",
+                (tool_id,),
             ).fetchone()
         finally:
             conn.close()
         return None if row is None else str(row["id"])
 
     def queue_position(self, job_id: str) -> int:
-        """1 + number of queued jobs ahead of this one; 0 when the job is not queued."""
+        """1 + number of queued jobs of the same tool ahead of this one; 0 when the job is not queued."""
         conn = db.connect(self._db_path)
         try:
-            row = conn.execute("SELECT rowid, state, queued_at FROM jobs WHERE id = ?", (job_id,)).fetchone()
+            row = conn.execute("SELECT rowid, tool_id, state, queued_at FROM jobs WHERE id = ?", (job_id,)).fetchone()
             if row is None:
                 raise JobNotFound(job_id)
             if row["state"] != S.QUEUED.value:
                 return 0
             ahead = conn.execute(
-                "SELECT COUNT(*) FROM jobs WHERE state = 'queued' AND (queued_at < ? OR (queued_at = ? AND rowid < ?))",
-                (row["queued_at"], row["queued_at"], row["rowid"]),
+                "SELECT COUNT(*) FROM jobs WHERE state = 'queued' AND tool_id = ?"
+                " AND (queued_at < ? OR (queued_at = ? AND rowid < ?))",
+                (row["tool_id"], row["queued_at"], row["queued_at"], row["rowid"]),
             ).fetchone()[0]
         finally:
             conn.close()
@@ -293,7 +298,7 @@ class JobStore:
         return [str(row["id"]) for row in rows]
 
     def queue_length(self) -> int:
-        """Number of jobs currently waiting in the queue."""
+        """Number of jobs currently waiting, over every tool's lane."""
         conn = db.connect(self._db_path)
         try:
             return int(conn.execute("SELECT COUNT(*) FROM jobs WHERE state = 'queued'").fetchone()[0])

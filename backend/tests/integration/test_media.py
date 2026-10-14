@@ -10,7 +10,7 @@ import pytest
 from videokit.core import media as media_module
 from videokit.core.config import Settings
 from videokit.core.errors import AppError
-from videokit.core.media import MediaArtifacts, MediaService, probe
+from videokit.core.media import AudioTrack, MediaArtifacts, MediaService, probe
 
 MakeVideo = Callable[..., Path]
 pytestmark = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")
@@ -260,3 +260,84 @@ def test_no_frame_written_fails_extraction_even_when_ffmpeg_exits_cleanly(
     with pytest.raises(AppError) as exc:
         MediaService(_settings(tmp_path)).extract(job)
     assert exc.value.code == "extraction_failed"
+
+
+def _mp3_info(path: Path) -> dict[str, Any]:
+    out = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "stream=codec_name,sample_rate,channels,bit_rate:format_tags",
+         "-of", "json", str(path)],
+        check=True, capture_output=True, text=True,
+    )  # fmt: skip
+    info: dict[str, Any] = json.loads(out.stdout)
+    return info
+
+
+def _extract_mp3(tmp_path: Path, source: Path) -> tuple[AudioTrack, dict[str, Any], Path]:
+    job = _job_dir(tmp_path, source)
+    track = MediaService(_settings(tmp_path)).extract_mp3(job)
+    return track, _mp3_info(job / track.file), job
+
+
+def test_extract_mp3_encodes_192k_mp3_and_deletes_source(tmp_path: Path, make_video: MakeVideo) -> None:
+    track, info, job = _extract_mp3(tmp_path, make_video(audio=True))
+    stream = info["streams"][0]
+    assert track.file == "audio.mp3"
+    assert stream["codec_name"] == "mp3"
+    assert abs(int(stream["bit_rate"]) - 192_000) < 10_000
+    assert stream["channels"] == 1  # mono stays mono
+    assert abs(track.duration_s - 6.0) < 1.0
+    assert track.size_bytes == (job / "audio.mp3").stat().st_size > 0
+    assert not (job / "source.bin").exists()
+
+
+def test_extract_mp3_prefers_the_default_flagged_track(tmp_path: Path, make_video: MakeVideo) -> None:
+    _, info, _ = _extract_mp3(tmp_path, make_video(two_audio_tracks=True))
+    assert info["streams"][0]["channels"] == 2
+
+
+def test_extract_mp3_downmixes_surround_to_stereo(tmp_path: Path, make_video: MakeVideo) -> None:
+    _, info, _ = _extract_mp3(tmp_path, make_video(audio_channels=6))
+    assert info["streams"][0]["channels"] == 2
+
+
+def test_extract_mp3_resamples_above_48khz(tmp_path: Path, make_video: MakeVideo) -> None:
+    _, info, _ = _extract_mp3(tmp_path, make_video(audio_rate=96000))
+    assert info["streams"][0]["sample_rate"] == "48000"
+
+
+def test_extract_mp3_drops_metadata(tmp_path: Path, make_video: MakeVideo) -> None:
+    source = make_video(audio=True, location=True)
+    assert "location" in json.dumps(_mp3_info(source)["format"].get("tags", {}))  # fixture really has the tag
+    _, info, _ = _extract_mp3(tmp_path, source)
+    assert "location" not in json.dumps(info["format"].get("tags", {})).lower()
+
+
+def test_extract_mp3_without_audio_is_no_audio(tmp_path: Path, make_video: MakeVideo) -> None:
+    job = _job_dir(tmp_path, make_video())
+    with pytest.raises(AppError) as exc:
+        MediaService(_settings(tmp_path)).extract_mp3(job)
+    assert (exc.value.code, exc.value.status) == ("no_audio", 422)
+
+
+def test_extract_mp3_of_a_text_file_is_not_a_video(tmp_path: Path, make_non_video: Callable[[], Path]) -> None:
+    job = _job_dir(tmp_path, make_non_video())
+    with pytest.raises(AppError) as exc:
+        MediaService(_settings(tmp_path)).extract_mp3(job)
+    assert exc.value.code == "not_a_video"
+
+
+def test_extract_mp3_ffmpeg_failure_is_extraction_failed(
+    tmp_path: Path, make_video: MakeVideo, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    job = _job_dir(tmp_path, make_video(audio=True))
+    real_run = media_module._run
+
+    def failing(cmd: list[str]) -> Any:
+        if cmd[0] == "ffmpeg":
+            raise subprocess.CalledProcessError(1, cmd)
+        return real_run(cmd)
+
+    monkeypatch.setattr(media_module, "_run", failing)
+    with pytest.raises(AppError) as exc:
+        MediaService(_settings(tmp_path)).extract_mp3(job)
+    assert (exc.value.code, exc.value.status) == ("extraction_failed", 500)

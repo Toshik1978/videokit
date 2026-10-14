@@ -36,8 +36,8 @@ def advance(store: JobStore, job_id: str, *states: JobState) -> None:
         store.set_state(job_id, state)
 
 
-def queue(store: JobStore, length: int = 10) -> Job:
-    job = store.create("youtube_prep", length)
+def queue(store: JobStore, length: int = 10, tool_id: str = "youtube_prep") -> Job:
+    job = store.create(tool_id, length)
     store.set_upload_offset(job.id, length)
     return store.set_state(job.id, JobState.QUEUED)
 
@@ -52,7 +52,7 @@ def test_wal_mode_and_schema(tmp_path: Path) -> None:
     assert {
         "id", "tool_id", "state", "failure_reason", "cancel_requested", "upload_length", "upload_offset",
         "created_at", "queued_at", "updated_at", "expires_at", "duration_s", "language", "no_speech",
-        "providers", "usage", "failure_code",
+        "providers", "usage", "failure_code", "source_name",
     } <= cols  # fmt: skip
 
 
@@ -169,11 +169,19 @@ def test_full_happy_path(store: JobStore) -> None:
     assert final.updated_at > final.created_at
 
 
+def test_single_stage_job_may_finish_after_extracting(store: JobStore) -> None:
+    job = queue(store)
+    advance(store, job.id, JobState.EXTRACTING, JobState.DONE)
+    final = store.get(job.id)
+    assert final is not None
+    assert final.state is JobState.DONE
+
+
 def test_transition_table_matches_state_machine() -> None:
     S = JobState
     assert TRANSITIONS[S.UPLOADING] == {S.QUEUED, S.CANCELLED, S.FAILED}
     assert TRANSITIONS[S.QUEUED] == {S.EXTRACTING, S.CANCELLED, S.FAILED}
-    assert TRANSITIONS[S.EXTRACTING] == {S.TRANSCRIBING, S.CANCELLED, S.FAILED}
+    assert TRANSITIONS[S.EXTRACTING] == {S.TRANSCRIBING, S.DONE, S.CANCELLED, S.FAILED}
     assert TRANSITIONS[S.TRANSCRIBING] == {S.GENERATING, S.CANCELLED, S.FAILED}
     assert TRANSITIONS[S.GENERATING] == {S.DONE, S.CANCELLED, S.FAILED}
     for terminal in (S.DONE, S.FAILED, S.CANCELLED):
@@ -253,12 +261,21 @@ def test_request_cancel_sets_flag(store: JobStore) -> None:
 
 
 def test_next_queued_is_fifo_by_queued_at(store: JobStore) -> None:
-    assert store.next_queued() is None
-    store.create("t", 10)  # still uploading: never picked
+    assert store.next_queued("youtube_prep") is None
+    store.create("youtube_prep", 10)  # still uploading: never picked
     first, second = queue(store), queue(store)
-    assert store.next_queued() == first.id
+    assert store.next_queued("youtube_prep") == first.id
     store.set_state(first.id, JobState.EXTRACTING)
-    assert store.next_queued() == second.id
+    assert store.next_queued("youtube_prep") == second.id
+
+
+def test_next_queued_takes_only_jobs_of_its_own_lane(store: JobStore) -> None:
+    a1, b1, a2 = queue(store, tool_id="a"), queue(store, tool_id="b"), queue(store, tool_id="a")
+    assert (store.next_queued("a"), store.next_queued("b"), store.next_queued("c")) == (a1.id, b1.id, None)
+    store.set_state(a1.id, JobState.EXTRACTING)  # lane a moves on; lane b is untouched
+    assert (store.next_queued("a"), store.next_queued("b")) == (a2.id, b1.id)
+    store.set_state(b1.id, JobState.EXTRACTING)
+    assert (store.next_queued("a"), store.next_queued("b")) == (a2.id, None)
 
 
 def test_cancel_uploading_or_idle_queued_is_immediate(store: JobStore) -> None:
@@ -309,6 +326,22 @@ def test_queue_position_breaks_timestamp_ties_by_insertion_order(tmp_path: Path)
     flat = JobStore(tmp_path, ttl_hours=1, max_upload_bytes=1000, clock=lambda: 5.0)
     a, b = queue(flat), queue(flat)
     assert (flat.queue_position(a.id), flat.queue_position(b.id)) == (1, 2)
+
+
+def test_queue_position_counts_only_the_same_tool_and_length_counts_every_lane(store: JobStore) -> None:
+    a1, b1, a2, b2 = (queue(store, tool_id=t) for t in ("a", "b", "a", "b"))
+    assert [store.queue_position(j.id) for j in (a1, b1, a2, b2)] == [1, 1, 2, 2]
+    assert store.queue_length() == 4
+    store.set_state(a1.id, JobState.EXTRACTING)
+    assert [store.queue_position(j.id) for j in (a1, b1, a2, b2)] == [0, 1, 1, 2]
+    assert store.queue_length() == 3
+
+
+def test_queue_position_ties_break_by_insertion_order_within_a_lane(tmp_path: Path) -> None:
+    flat = JobStore(tmp_path, ttl_hours=1, max_upload_bytes=1000, clock=lambda: 5.0)
+    a1, b1, a2 = queue(flat, tool_id="a"), queue(flat, tool_id="b"), queue(flat, tool_id="a")
+    assert [flat.queue_position(j.id) for j in (a1, b1, a2)] == [1, 1, 2]
+    assert flat.next_queued("a") == a1.id
 
 
 def test_add_usage_accumulates(store: JobStore) -> None:
@@ -424,3 +457,46 @@ def test_connect_failure_surfaces(tmp_path: Path) -> None:
     blocker.write_text("x")
     with pytest.raises((sqlite3.Error, OSError)):
         db.connect(blocker / "sub" / "db.sqlite")
+
+
+def test_source_name_is_stored_and_read_back(store: JobStore) -> None:
+    named = store.create("t", 10, "trip.mp4")
+    assert named.source_name == "trip.mp4"
+    assert store.get(named.id).source_name == "trip.mp4"  # type: ignore[union-attr]
+    assert store.create("t", 10).source_name is None
+
+
+def test_connect_adds_source_name_to_an_existing_database(tmp_path: Path) -> None:
+    path = tmp_path / "videokit.db"
+    old = sqlite3.connect(path)
+    old.execute(
+        "CREATE TABLE jobs (id TEXT PRIMARY KEY, tool_id TEXT NOT NULL, state TEXT NOT NULL, failure_reason TEXT,"
+        " failure_code TEXT, cancel_requested INTEGER NOT NULL DEFAULT 0, upload_length INTEGER NOT NULL,"
+        " upload_offset INTEGER NOT NULL DEFAULT 0, created_at REAL NOT NULL, queued_at REAL,"
+        " updated_at REAL NOT NULL, expires_at REAL NOT NULL, duration_s REAL, language TEXT,"
+        " no_speech INTEGER NOT NULL DEFAULT 0, providers TEXT NOT NULL DEFAULT '{}', usage TEXT NOT NULL)"
+    )
+    old.execute(
+        "INSERT INTO jobs (id, tool_id, state, upload_length, created_at, updated_at, expires_at, usage)"
+        " VALUES ('old', 't', 'queued', 10, 1, 1, 2, '{}')"
+    )
+    old.commit()
+    old.close()
+
+    store = JobStore(tmp_path, ttl_hours=24, max_upload_bytes=1000)
+    got = store.get("old")
+    assert got is not None
+    assert got.source_name is None
+    assert store.create("t", 10, "a.mp4").source_name == "a.mp4"
+    db.connect(path).close()  # migrating twice is a no-op
+
+
+def test_worker_job_handle_reads_source_name(store: JobStore) -> None:
+    from videokit.core.worker import WorkerJobHandle
+
+    job = store.create("t", 10, "trip.mp4")
+    assert WorkerJobHandle(store, job.id).source_name == "trip.mp4"
+    assert WorkerJobHandle(store, store.create("t", 10).id).source_name is None
+    store.delete(job.id)
+    with pytest.raises(JobNotFound):
+        WorkerJobHandle(store, job.id).source_name  # noqa: B018

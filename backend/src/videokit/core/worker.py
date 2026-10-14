@@ -1,7 +1,10 @@
-"""In-process job worker: upload completion, the FIFO queue, tool runs and cancellation (FR-005, FR-014, FR-037).
+"""In-process job worker: upload completion, the FIFO queues, tool runs and cancellation (FR-005, FR-014, FR-018,
+FR-037).
 
-One asyncio task runs queued jobs one at a time in `queued_at` order. It sleeps on an event that is set whenever a
-job is queued (with a slow fallback poll). Blocking work runs in threads via `asyncio.to_thread`.
+Each registered tool has its own lane: one asyncio task per tool runs that tool's queued jobs one at a time in
+`queued_at` order, so jobs of different tools run side by side but never two of the same tool. Each lane sleeps on
+its own event, set whenever a job is queued (with a slow fallback poll). Blocking work runs in threads via
+`asyncio.to_thread`.
 """
 
 import asyncio
@@ -56,6 +59,13 @@ class WorkerJobHandle:
         self.id = job_id
         self.dir = store.job_dir(job_id)
 
+    @property
+    def source_name(self) -> str | None:
+        job = self._store.get(self.id)
+        if job is None:
+            raise JobNotFound(self.id)
+        return job.source_name
+
     def set_state(self, state: str, **fields: Any) -> None:
         if fields:
             self._store.update_info(self.id, **fields)
@@ -106,39 +116,46 @@ class Worker:
         self._store = store
         self._tools = tools
         self._ctx = ctx
-        self._wake = asyncio.Event()
-        # Serializes "which job is the worker starting" with cancel decisions (see `cancel`).
+        # One event per lane: a lane clears only its own, so a wake-up is never lost to another lane.
+        self._wakes: list[asyncio.Event] = []
+        # Serializes "which jobs are the lanes starting" with cancel decisions (see `cancel`).
         self._lock = asyncio.Lock()
-        self._current: str | None = None
-        self._task: asyncio.Task[None] | None = None
+        self._current: set[str] = set()
+        self._tasks: list[asyncio.Task[None]] = []
 
     # --- lifecycle ------------------------------------------------------------------------------------------------
 
     def start(self) -> None:
-        self._task = asyncio.create_task(self._loop())
+        """Start one lane per registered tool (FR-018)."""
+        for tool_id in self._tools:
+            wake = asyncio.Event()
+            self._wakes.append(wake)
+            self._tasks.append(asyncio.create_task(self._loop(tool_id, wake)))
 
     async def stop(self) -> None:
-        if self._task is not None:
-            self._task.cancel()
-            await asyncio.gather(self._task, return_exceptions=True)
-            self._task = None
+        for task in self._tasks:
+            task.cancel()
+        await asyncio.gather(*self._tasks, return_exceptions=True)
+        self._tasks.clear()
+        self._wakes.clear()
 
     def notify(self) -> None:
-        """Wake the worker: a job was queued. Call from the event loop thread."""
-        self._wake.set()
+        """Wake every lane: a job was queued. Call from the event loop thread."""
+        for wake in self._wakes:
+            wake.set()
 
-    async def _loop(self) -> None:
+    async def _loop(self, tool_id: str, wake: asyncio.Event) -> None:
         while True:
-            self._wake.clear()  # before looking, so a job queued meanwhile is not missed
+            wake.clear()  # before looking, so a job queued meanwhile is not missed
             try:
-                job_id = await asyncio.to_thread(self._store.next_queued)
+                job_id = await asyncio.to_thread(self._store.next_queued, tool_id)
                 if job_id is not None:
                     await self._process(job_id)
                     continue
-            except Exception as exc:  # never let one bad job stop the worker
+            except Exception as exc:  # never let one bad job stop the lane
                 logger.error("Worker error (%s)", type(exc).__name__)
             with contextlib.suppress(TimeoutError):
-                await asyncio.wait_for(self._wake.wait(), POLL_INTERVAL_S)
+                await asyncio.wait_for(wake.wait(), POLL_INTERVAL_S)
 
     # --- upload completion ----------------------------------------------------------------------------------------
 
@@ -148,6 +165,9 @@ class Worker:
         if job is None or job.state is not JobState.UPLOADING or job.upload_offset != job.upload_length:
             return
         if self._store.is_expired(job):  # FR-015: leave it for the purge, which deletes it
+            return
+        if job.tool_id not in self._tools:  # e.g. a tool removed across a restart: no lane would ever run it
+            await asyncio.to_thread(self._fail, job_id, INTERNAL_ERROR, INTERNAL_ERROR_CODE)
             return
         source = self._store.job_dir(job_id) / SOURCE_NAME
         try:
@@ -167,7 +187,7 @@ class Worker:
     async def cancel(self, job_id: str) -> Job:
         """FR-037. Raises `JobNotFound` for unknown jobs and `InvalidTransition` for terminal ones."""
         async with self._lock:
-            job = await asyncio.to_thread(self._store.cancel, job_id, active=job_id == self._current)
+            job = await asyncio.to_thread(self._store.cancel, job_id, active=job_id in self._current)
         if job.state is JobState.CANCELLED:
             await asyncio.to_thread(self._remove_dir, job_id)
         return job
@@ -176,13 +196,13 @@ class Worker:
 
     async def _process(self, job_id: str) -> None:
         async with self._lock:
-            self._current = job_id
+            self._current.add(job_id)
         try:
             job = await asyncio.to_thread(self._store.get, job_id)
             if job is not None and job.state is JobState.QUEUED:
                 await self._run(job)
         finally:
-            self._current = None
+            self._current.discard(job_id)
 
     async def _run(self, job: Job) -> None:
         handle = WorkerJobHandle(self._store, job.id)

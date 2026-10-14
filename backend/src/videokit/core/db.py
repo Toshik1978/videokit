@@ -21,13 +21,14 @@ CREATE TABLE IF NOT EXISTS jobs (
     language TEXT,
     no_speech INTEGER NOT NULL DEFAULT 0,
     providers TEXT NOT NULL DEFAULT '{}',
-    usage TEXT NOT NULL
+    usage TEXT NOT NULL,
+    source_name TEXT
 );
 CREATE INDEX IF NOT EXISTS jobs_state_queued_at ON jobs (state, queued_at);
 CREATE INDEX IF NOT EXISTS jobs_expires_at ON jobs (expires_at);
 """
 # Columns added after the first release: (name, SQL type). Added in place to databases created before them.
-_ADDED_COLUMNS = (("failure_code", "TEXT"),)
+_ADDED_COLUMNS = (("failure_code", "TEXT"), ("source_name", "TEXT"))
 
 
 def _migrate(conn: sqlite3.Connection) -> None:

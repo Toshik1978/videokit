@@ -112,6 +112,7 @@ describe('upload page', () => {
     expect(JSON.parse((post![1] as RequestInit).body as string)).toEqual({
       tool_id: 'youtube_prep',
       size: 500,
+      file_name: 'clip.mp4',
     });
 
     expect(tus.instances).toHaveLength(1);
