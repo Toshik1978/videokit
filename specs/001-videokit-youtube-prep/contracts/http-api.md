@@ -67,8 +67,9 @@ when `state == "done"`. `404 job_not_found` for unknown or purged ids (UI shows 
 `failure_reason` (short, user-safe English detail) and `failure_code` are set iff
 `state == "failed"`; the UI renders the failure from its translation catalog by `failure_code`
 (FR-036) and shows `failure_reason` only as detail. Codes: `not_a_video`, `server_restarted`,
-`no_audio` (Audio Extract: the video has no audio track), `extraction_failed`, `transcription_failed`, `generation_failed` (all providers of the stage
-failed), `generation_invalid` (output still broke the rules after repair), `internal_error`.
+`no_audio` (Audio Extract: the video has no audio track), `extraction_failed`,
+`transcription_failed`, `generation_failed` (all providers of the stage failed),
+`generation_invalid` (output still broke the rules after repair), `internal_error`.
 Clients fall back to a generic message for an unknown or `null` code (jobs failed before the code
 was added keep `null`).
 Polled every 2 s by the UI while not terminal.

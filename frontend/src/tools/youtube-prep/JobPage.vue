@@ -14,9 +14,11 @@ import RegenerateControl from './RegenerateControl.vue';
 import { type RegenerateResponse, type Section, SECTIONS, type YouTubePrepResult } from './types';
 
 const POLL_MS = 2000;
+const TOOL_ID = 'youtube_prep';
 
 interface Job extends JobSummary {
   job_id: string;
+  tool_id?: string;
   providers?: { transcription?: string; llm?: string } | null;
   usage?: Usage | null;
   result: YouTubePrepResult | null;
@@ -61,6 +63,10 @@ async function poll(): Promise<void> {
   try {
     const next = await getJson<Job>(`/api/jobs/${encodeURIComponent(jobId)}`);
     if (unmounted) return;
+    if (next.tool_id !== undefined && next.tool_id !== TOOL_ID) {
+      expired.value = true;
+      return;
+    }
     error.value = '';
     applyJob(next);
     if (isTerminal(next.state)) return;

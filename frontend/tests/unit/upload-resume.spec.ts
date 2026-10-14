@@ -36,7 +36,8 @@ vi.mock('tus-js-client', () => ({
 
 const STORAGE_KEY = 'videokit.uploads';
 const CONFIG = { max_upload_bytes: 1000, upload_chunk_bytes: 256, job_ttl_hours: 24 };
-const FINGERPRINT = 'clip.mp4|500|1700000000000|video/mp4';
+const FINGERPRINT = 'youtube_prep|clip.mp4|500|1700000000000|video/mp4';
+const OTHER_FINGERPRINT = 'audio_extract|clip.mp4|500|1700000000000|video/mp4';
 
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -65,9 +66,9 @@ const posted = () =>
   fetchMock.mock.calls.filter(([url, init]) => url === '/api/jobs' && init?.method === 'POST');
 const stored = () => JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}');
 
-async function setup() {
+async function setup(toolId = 'youtube_prep') {
   const wrapper = mount(UploadPanel, {
-    props: { toolId: 'youtube_prep' },
+    props: { toolId },
     global: { plugins: [createI18nInstance()] },
   });
   await flushPromises();
@@ -93,7 +94,7 @@ function seed(entry: Record<string, unknown> = { job_id: 'old', upload_url: '/ap
 beforeEach(() => {
   tus.instances.length = 0;
   localStorage.clear();
-  jobReply = () => json(200, { job_id: 'old', state: 'uploading' });
+  jobReply = () => json(200, { job_id: 'old', tool_id: 'youtube_prep', state: 'uploading' });
   stubFetch();
 });
 afterEach(() => vi.unstubAllGlobals());
@@ -120,12 +121,44 @@ describe('resumable uploads', () => {
 
   it('starts fresh and drops the entry when the job is no longer uploading', async () => {
     seed();
-    jobReply = () => json(200, { job_id: 'old', state: 'queued' });
+    jobReply = () => json(200, { job_id: 'old', tool_id: 'youtube_prep', state: 'queued' });
     const wrapper = await setup();
     await choose(wrapper);
     expect(posted()).toHaveLength(1);
     expect(tus.instances[0].options.uploadUrl).toBe('/api/uploads/new');
     expect(stored()[FINGERPRINT].job_id).toBe('new');
+  });
+
+  it("does not resume, cancel or drop another tool's saved upload of the same file", async () => {
+    seed();
+    const wrapper = await setup('audio_extract');
+    await choose(wrapper);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith('/api/jobs/old'))).toBe(
+      false,
+    );
+    expect(posted()).toHaveLength(1);
+    expect(JSON.parse(posted()[0][1].body as string).tool_id).toBe('audio_extract');
+    expect(tus.instances[0].options.uploadUrl).toBe('/api/uploads/new');
+    expect(stored()).toEqual({
+      [FINGERPRINT]: { job_id: 'old', upload_url: '/api/uploads/old' },
+      [OTHER_FINGERPRINT]: { job_id: 'new', upload_url: '/api/uploads/new' },
+    });
+    tus.instances[0].options.onSuccess();
+    expect(wrapper.emitted('uploaded')).toEqual([['new']]);
+  });
+
+  it('does not resume or cancel a stored job that belongs to another tool', async () => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ [OTHER_FINGERPRINT]: { job_id: 'old', upload_url: '/api/uploads/old' } }),
+    );
+    jobReply = () => json(200, { job_id: 'old', tool_id: 'youtube_prep', state: 'uploading' });
+    const wrapper = await setup('audio_extract');
+    await choose(wrapper);
+    expect(fetchMock.mock.calls.some(([url]) => url === '/api/jobs/old/cancel')).toBe(false);
+    expect(posted()).toHaveLength(1);
+    expect(tus.instances[0].options.uploadUrl).toBe('/api/uploads/new');
+    expect(stored()[OTHER_FINGERPRINT].job_id).toBe('new');
   });
 
   it('starts fresh when the stored job is gone', async () => {

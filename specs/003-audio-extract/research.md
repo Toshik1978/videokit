@@ -30,11 +30,13 @@ Decisions for [plan.md](plan.md). Numbering is local to this feature (A1–A12);
 
 - **Decision**: `MediaService.extract_mp3(job_dir)` in core runs
   `ffmpeg -v error -y -i source.bin -map 0:<idx> -vn -sn -dn -map_metadata -1 -map_chapters -1
-  -c:a libmp3lame -b:a 192k [-ac 2] [-ar 48000] audio.mp3`.
+  -c:a libmp3lame -b:a 192k [-ac 2] [-ar 48000 | -ar 44100] audio.mp3`.
   `-ac 2` only when the chosen track has more than two channels (mono stays mono, stereo stays
   stereo). `-ar 48000` only when the source rate is above 48 kHz (MP3 does not support higher
-  rates; libmp3lame rejects them). Metadata and chapters are dropped so phone tags such as location
-  or device never reach the shared file.
+  rates; libmp3lame rejects them). `-ar 44100` only when the source rate is below 32 kHz: MPEG-2
+  and 2.5 layer III top out at 160 kbps, so libmp3lame would silently drop the bitrate, and
+  44.1 kHz keeps the promised 192 kbps. Metadata and chapters are dropped so phone tags such as
+  location or device never reach the shared file.
 - **Rationale**: Constitution assigns ffmpeg to core (`core` owns media processing); tools must not
   spawn ffmpeg. The Docker image's ffmpeg already encodes MP3 (YouTube Prep makes a 32 kbps MP3 for
   cloud transcription, R6).
@@ -81,11 +83,18 @@ Decisions for [plan.md](plan.md). Numbering is local to this feature (A1–A12);
 ## A7. Serving the download (FR-006)
 
 - **Decision**: Tool route `GET /api/tools/audio_extract/jobs/{job_id}/audio` returns a Starlette
-  `FileResponse` (`audio/mpeg`, `Content-Disposition: attachment` with `filename*` UTF-8 encoding,
-  which Starlette writes for non-ASCII names; HEAD and byte-range requests are supported by
-  Starlette 1.x). It uses the existing `JobAccess.get` (404 `job_not_found` for unknown, expired or
-  other-tool jobs) and `JobAccess.handle(id).dir`; `409 job_not_done` before `done`. No core
-  change is needed for serving.
+  `FileResponse` (`audio/mpeg`; HEAD and byte-range requests are supported by Starlette 1.x). The
+  route builds `Content-Disposition` itself: `attachment` with a quoted ASCII `filename`, plus
+  `filename*=UTF-8''…` (the whole name percent-encoded) when the name is non-ASCII or contains `%`
+  (some browsers decode `%XX` in a plain `filename`; all prefer `filename*`). For a non-ASCII name
+  the ASCII `filename` is a fallback: accents are transliterated (NFKD), every character outside a
+  conservative allowlist becomes `_` (NFKD maps fullwidth quotes, slashes and backslashes back to
+  ASCII, so they are replaced too), and it is `audio.mp3` when no letter or digit is left. The name
+  is the `download_name` stored in the job's `result.json` (derived again from the uploaded name
+  only when it is absent or unreadable), so Download and Share always agree. It uses the existing
+  `JobAccess.get` (404 `job_not_found` for unknown, expired or other-tool jobs) and
+  `JobAccess.handle(id).dir`; `409 job_not_done` before `done`. No core change is needed for
+  serving.
 - **Rationale**: Keeps file knowledge in the tool; core already exposes everything required.
 - **Alternatives considered**: a generic core `GET /api/jobs/{id}/files/{name}` (speculative; one
   tool needs it today).

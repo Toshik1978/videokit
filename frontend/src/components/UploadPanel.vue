@@ -81,6 +81,8 @@ interface StoredUpload {
 
 // Resume state is kept in our own localStorage entry (fingerprint -> job_id, upload_url);
 // tus-js-client's built-in fingerprint/url storage is disabled so there is a single source of truth.
+// The fingerprint starts with the tool id: the same file picked on another tool's page is a new job,
+// and that tool's saved upload stays untouched (its page may still resume it).
 function readStore(): Record<string, StoredUpload> {
   try {
     const parsed: unknown = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}');
@@ -109,7 +111,7 @@ function clearEntry(fingerprint: string): void {
 }
 
 function fingerprintOf(file: File): string {
-  return [file.name, file.size, file.lastModified, file.type].join('|');
+  return [props.toolId, file.name, file.size, file.lastModified, file.type].join('|');
 }
 
 let current: { upload: Upload; fingerprint: string; jobId: string } | null = null;
@@ -167,7 +169,11 @@ async function findResumable(fingerprint: string): Promise<StoredUpload | null> 
   const entry = readStore()[fingerprint];
   if (!entry) return null;
   try {
-    const job = await getJson<{ state: string }>(`/api/jobs/${encodeURIComponent(entry.job_id)}`);
+    const job = await getJson<{ tool_id?: string; state: string }>(
+      `/api/jobs/${encodeURIComponent(entry.job_id)}`,
+    );
+    // Another tool's job is never resumed (nor cancelled); the entry is replaced by a fresh job.
+    if (job.tool_id !== props.toolId) return null;
     if (job.state === 'uploading') return entry;
   } catch {
     // Job gone or unreachable: fall through and start fresh.

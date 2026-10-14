@@ -47,8 +47,9 @@ Order follows tool discovery (package name order).
 
 - `200` → the MP3 body. Headers: `Content-Type: audio/mpeg`,
   `Content-Disposition: attachment; filename="<ASCII fallback>"; filename*=UTF-8''<percent-encoded download_name>`
-  (plain `filename="…"` only when the name is ASCII), `Content-Length`, `Accept-Ranges: bytes`.
-  Byte-range requests return `206`.
+  (plain `filename="…"` only when the name is ASCII and has no `%`), `Content-Length`,
+  `Accept-Ranges: bytes`. The name is `result.download_name` from the job's `result.json`, so it
+  matches what Share uses. Byte-range requests return `206`.
 - `404 job_not_found` — unknown id, expired job, or a job of another tool.
 - `409 job_not_done` — the job is not `done` (including `failed`/`cancelled`).
 - `404 job_not_found` as well when `audio.mp3` is missing (purged between the checks).

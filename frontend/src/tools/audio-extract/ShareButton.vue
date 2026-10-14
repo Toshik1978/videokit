@@ -17,6 +17,7 @@ const supported =
   navigator.canShare({ files: [new File([], 'a.mp3', { type: MIME })] });
 
 const preparing = ref(false);
+const busy = ref(false); // covers both the fetch and the open share sheet
 const ready = ref(false);
 const error = ref('');
 let file: File | null = null; // cached for the page's lifetime only
@@ -33,6 +34,8 @@ async function fetchFile(): Promise<File> {
 }
 
 async function share(): Promise<void> {
+  if (busy.value) return;
+  busy.value = true;
   error.value = '';
   try {
     if (file === null) {
@@ -55,13 +58,15 @@ async function share(): Promise<void> {
       ready.value = false;
       error.value = errorMessage(err);
     }
+  } finally {
+    busy.value = false;
   }
 }
 </script>
 
 <template>
   <template v-if="supported">
-    <button type="button" class="share" data-test="share" :disabled="preparing" @click="share">
+    <button type="button" class="share" data-test="share" :disabled="busy" @click="share">
       {{ label }}
     </button>
     <p v-if="error" role="alert" class="error">{{ error }}</p>

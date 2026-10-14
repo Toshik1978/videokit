@@ -9,6 +9,7 @@ import warnings
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import pytest
 from fastapi import APIRouter
@@ -183,6 +184,9 @@ def test_full_flow_produces_a_free_mp3_named_after_the_video(client: TestClient,
             "attachment; filename=\"audio.mp3\"; filename*=UTF-8''%D0%9F%D0%BE%D0%B5%D0%B7%D0%B4%D0%BA%D0%B0.mp3",
         ),
         (None, 'attachment; filename="audio.mp3"'),
+        # `%XX` in a plain `filename` is decoded by some browsers: `filename*` carries the exact name.
+        ("50%41 off.mp4", "attachment; filename=\"50%41 off.mp3\"; filename*=UTF-8''50%2541%20off.mp3"),
+        ("100%.mp4", "attachment; filename=\"100%.mp3\"; filename*=UTF-8''100%25.mp3"),
     ],
 )
 def test_download_name_header(client: TestClient, sound_video: bytes, file_name: str | None, disposition: str) -> None:
@@ -270,6 +274,34 @@ def test_download_of_a_done_job_whose_mp3_is_gone_is_not_found(client: TestClien
     (store.job_dir(job_id) / "audio.mp3").unlink()
     assert _error(client, "GET", job_id) == (404, "job_not_found")
     assert _error(client, "HEAD", job_id)[0] == 404
+
+
+@pytest.mark.parametrize(
+    ("result_json", "expected"),
+    [
+        ('{"download_name": "Holiday \u00e9t\u00e9.mp3"}', "Holiday \u00e9t\u00e9.mp3"),
+        (None, "trip.mp3"),  # absent
+        ("{not json", "trip.mp3"),  # unreadable
+        ('{"download_name": 7}', "trip.mp3"),  # not a string
+        ('{"download_name": "a\\"b.mp3"}', "trip.mp3"),  # not a safe download name
+    ],
+)
+def test_download_name_comes_from_result_json(client: TestClient, result_json: str | None, expected: str) -> None:
+    """Download and Share use the same name: the route reads `download_name` from the job's `result.json`."""
+    store = _store(client)
+    job_id = _seed_done(store, b"ID3 not really an mp3")
+    if result_json is not None:
+        (store.job_dir(job_id) / "result.json").write_text(result_json, encoding="utf-8")
+    r = client.get(_url(job_id))
+    assert r.status_code == 200
+    expected_header = (
+        f'attachment; filename="{expected}"'
+        if expected.isascii()
+        else f"attachment; filename=\"Holiday ete.mp3\"; filename*=UTF-8''{quote(expected, safe='')}"
+    )
+    assert r.headers["content-disposition"] == expected_header
+    if result_json is not None and "Holiday" in result_json:
+        assert client.get(f"/api/jobs/{job_id}").json()["result"]["download_name"] == expected
 
 
 def test_download_before_done_is_rejected(client: TestClient, gate: threading.Event, sound_video: bytes) -> None:

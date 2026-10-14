@@ -1,9 +1,11 @@
 """Audio Extract HTTP routes, mounted at `/api/tools/audio_extract` (contracts/http-api.md, research A7)."""
 
 import asyncio
+import json
 import os
 import re
 import unicodedata
+from pathlib import Path
 from urllib.parse import quote
 
 from fastapi import APIRouter, Request
@@ -15,6 +17,7 @@ from videokit.tools.audio_extract.naming import download_name
 
 TOOL_ID = "audio_extract"
 MP3_FILE = "audio.mp3"
+RESULT_JSON = "result.json"
 _ASCII_FALLBACK = "audio.mp3"
 # Characters kept in the ASCII fallback; anything else (quotes, backslashes, slashes, `;`, `=`, ...) becomes `_`.
 _NOT_FALLBACK_SAFE = re.compile(r"[^A-Za-z0-9 ._()\[\],!&'+@#$%~-]")
@@ -40,15 +43,29 @@ def _ascii_fallback(name: str) -> str:
 
 
 def content_disposition(name: str) -> str:
-    """`attachment` with a plain `filename` for ASCII names, plus an RFC 5987 `filename*` for the others.
+    """`attachment` with a plain `filename`, plus an RFC 5987 `filename*` for non-ASCII names and names with `%`.
 
     `name` comes from `download_name`, which removes quotes, backslashes, slashes and control characters, so an
-    ASCII name is safe inside the quoted string as is; a non-ASCII name gets a sanitized ASCII fallback there and is
-    percent-encoded in full in `filename*`.
+    ASCII name is safe inside the quoted string as is; a non-ASCII name gets a sanitized ASCII fallback there. Some
+    browsers decode `%XX` in a plain `filename`, so a name with `%` also gets `filename*`, percent-encoded in full,
+    which browsers prefer.
     """
-    if name.isascii():
+    if name.isascii() and "%" not in name:
         return f'attachment; filename="{name}"'
-    return f"attachment; filename=\"{_ascii_fallback(name)}\"; filename*=UTF-8''{quote(name, safe='')}"
+    fallback = name if name.isascii() else _ascii_fallback(name)
+    return f"attachment; filename=\"{fallback}\"; filename*=UTF-8''{quote(name, safe='')}"
+
+
+def _stored_name(job_dir: Path, source_name: str | None) -> str:
+    """The `download_name` in the job's `result.json`, so Download and Share always agree; derived again from the
+    uploaded name only when the file is absent or unreadable or holds no safe download name."""
+    try:
+        name = json.loads((job_dir / RESULT_JSON).read_text(encoding="utf-8")).get("download_name")
+    except OSError, ValueError, AttributeError:
+        name = None
+    if isinstance(name, str) and download_name(name) == name:
+        return name
+    return download_name(source_name)
 
 
 @router.get("/jobs/{job_id}/audio")
@@ -61,12 +78,13 @@ async def audio(job_id: str, request: Request) -> FileResponse:
         raise _not_found()
     if job.state != "done":
         raise AppError("job_not_done", "This job is not finished yet, so there is nothing to download.", 409)
-    path = access.handle(job_id).dir / MP3_FILE
+    job_dir = access.handle(job_id).dir
+    path = job_dir / MP3_FILE
     try:
         stat = await asyncio.to_thread(os.stat, path)
     except FileNotFoundError:  # purged between the checks
         raise _not_found() from None
-    name = download_name(job.source_name)
+    name = await asyncio.to_thread(_stored_name, job_dir, job.source_name)
     return FileResponse(
         path,
         media_type="audio/mpeg",

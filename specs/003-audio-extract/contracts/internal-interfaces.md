@@ -26,7 +26,8 @@ class AudioTrack:
 
 def extract_mp3(self, job_dir: Path) -> AudioTrack:
     """Encode the source's main audio track (default-flagged, else first) to a 192 kbps CBR MP3:
-    mono stays mono, stereo stays stereo, more channels → stereo, > 48 kHz → 48 kHz, no metadata.
+    mono stays mono, stereo stays stereo, more channels → stereo, > 48 kHz → 48 kHz,
+    < 32 kHz → 44.1 kHz (keeps 192 kbps), no metadata.
     Deletes source.bin on success. Raises AppError: not_a_video | no_audio | extraction_failed."""
 ```
 

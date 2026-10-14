@@ -76,6 +76,41 @@ describe('ShareButton', () => {
     expect(wrapper.get('[data-test="share"]').text()).toBe(en.audioExtract.share);
   });
 
+  it('ignores a double tap while preparing: one fetch, one share', async () => {
+    stubNavigator(true);
+    let release!: (r: Response) => void;
+    fetchMock.mockReturnValueOnce(new Promise<Response>((r) => (release = r)));
+    const wrapper = mountButton();
+    const vm = wrapper.vm as unknown as { share: () => Promise<void> };
+    await wrapper.get('[data-test="share"]').trigger('click');
+    void vm.share();
+    release(new Response(new Blob(['x'])));
+    await flushPromises();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(share).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores a tap while the share sheet is open', async () => {
+    stubNavigator(true);
+    let close!: () => void;
+    share.mockReturnValueOnce(new Promise<void>((r) => (close = r)));
+    const wrapper = mountButton();
+    await wrapper.get('[data-test="share"]').trigger('click');
+    await flushPromises();
+    expect(share).toHaveBeenCalledTimes(1);
+    expect(wrapper.get('[data-test="share"]').attributes('disabled')).toBeDefined();
+    await (wrapper.vm as unknown as { share: () => Promise<void> }).share();
+    await flushPromises();
+    expect(share).toHaveBeenCalledTimes(1);
+    close();
+    await flushPromises();
+    expect(wrapper.get('[data-test="share"]').attributes('disabled')).toBeUndefined();
+    await wrapper.get('[data-test="share"]').trigger('click');
+    await flushPromises();
+    expect(share).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps the file on NotAllowedError and shares at once on the next tap', async () => {
     stubNavigator(true);
     share.mockRejectedValueOnce(domError('NotAllowedError'));

@@ -74,7 +74,8 @@ backend/src/videokit/
 backend/tests/             unit/, integration/, live/, fakes_transcribe.py, fakes_llm.py,
                            conftest.py (make_video fixture, autouse env isolation), e2e_app.py
 frontend/src/              App, router, i18n/{en.json,messages.ts}, api/client.ts, components/,
-                           pages/, tools/<kebab-id>/ (auto-discovered via import.meta.glob; youtube-prep, audio-extract)
+                           pages/, tools/<kebab-id>/ (auto-discovered via import.meta.glob;
+                           youtube-prep, audio-extract)
 Dockerfile, compose.yaml, scripts/{docker_smoke.sh,image_size_guard.sh,gpu_check.py,changelog.sh}
 .cliff.toml, CHANGELOG.md, CONTRIBUTING.md, docs/RELEASING.md, .github/scripts/*
 .github/workflows/{ci,commit-lint,release}.yml
@@ -105,7 +106,8 @@ Dockerfile, compose.yaml, scripts/{docker_smoke.sh,image_size_guard.sh,gpu_check
   the tool's own jobs, one worker loop per registered tool — so a slow tool never blocks another.
 - **Single-stage tools** go `extracting → done` (no transcribing/generating). Audio Extract encodes
   via `MediaService.extract_mp3` (main audio track: default-flagged, else first; 192 kbps CBR;
-  mono stays mono, >2 channels → stereo, >48 kHz → 48 kHz; metadata stripped; `no_audio` failure).
+  mono stays mono, >2 channels → stereo, >48 kHz → 48 kHz, <32 kHz → 44.1 kHz so 192 kbps holds;
+  metadata stripped; `no_audio` failure).
 - **`jobs.source_name`**: the original file name from `POST /api/jobs` `file_name`, sanitized,
   exposed to tools as `JobHandle.source_name`; never logged and never returned by the job API.
 - **Output language** = the language detected by transcription (`result.language =

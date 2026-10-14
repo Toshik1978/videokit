@@ -8,7 +8,7 @@ from videokit.core.registry import CoreContext, JobHandle
 from videokit.tools.audio_extract import routes
 from videokit.tools.audio_extract.naming import download_name
 
-RESULT_JSON = "result.json"
+RESULT_JSON = routes.RESULT_JSON
 BITRATE_KBPS = 192
 
 

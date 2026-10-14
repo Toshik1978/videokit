@@ -56,7 +56,8 @@ Upload a video and get its audio as an MP3, with no AI and no cost:
 
 - **Format**: MP3 at 192 kbps constant bitrate, from the video's main audio track (the one flagged
   as default, else the first). Mono stays mono, more than two channels become stereo, sample rates
-  above 48 kHz become 48 kHz. Metadata is stripped.
+  above 48 kHz become 48 kHz and rates below 32 kHz become 44.1 kHz (so the file keeps 192 kbps).
+  Metadata is stripped.
 - **Download**: the file is named after the video (`trip.mp4` becomes `trip.mp3`). The job page
   shows the duration and size.
 - **Share**: on phones and other browsers that can share files, a Share button hands the MP3 to
@@ -233,8 +234,9 @@ task format    # auto-format both stacks
   (`feat:`, `fix:`, `docs:`, `chore:` and so on).
 - Design documents live in [`specs/001-videokit-youtube-prep/`](specs/001-videokit-youtube-prep/)
   (the product), [`specs/002-packaging-releases/`](specs/002-packaging-releases/) (the slim image
-  and the release flow) and [`specs/003-audio-extract/`](specs/003-audio-extract/) (Audio Extract): `spec.md`, `plan.md`, `research.md`, `data-model.md`, `quickstart.md` and
-  the `contracts/`.
+  and the release flow) and [`specs/003-audio-extract/`](specs/003-audio-extract/) (Audio
+  Extract): `spec.md`, `plan.md`, `research.md`, `data-model.md`, `quickstart.md` and the
+  `contracts/`.
   The project principles are in
   [`.specify/memory/constitution.md`](.specify/memory/constitution.md).
 - Never commit personal data, real hostnames, or secrets. Use placeholders such as `example.com` and

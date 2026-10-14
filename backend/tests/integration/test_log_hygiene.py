@@ -1,10 +1,11 @@
 """Log hygiene (FR-016): a full fake run never logs transcript text, frame data, request bodies or API keys.
 
 The real app and worker run upload -> done -> regenerate with real ffmpeg extraction, a fake transcriber and a
-scripted LLM. Each chain starts with a provider whose error message echoes the secrets, so the fallback logging
-paths run too. Every record from every logger is captured at DEBUG level and checked for distinctive markers.
-An unhandled route error, a startup failure and a shutdown failure under a real uvicorn server log no traceback
-and no exception message (Constitution VI).
+scripted LLM, then an Audio Extract job and its download; the uploaded file name is never logged either. Each
+chain starts with a provider whose error message echoes the secrets, so the fallback logging paths run too.
+Every record from every logger is captured at DEBUG level and checked for distinctive markers. An unhandled route
+error, a startup failure and a shutdown failure under a real uvicorn server log no traceback and no exception
+message (Constitution VI).
 """
 
 import base64
@@ -143,11 +144,23 @@ def test_full_run_logs_no_transcript_frames_hints_or_keys(
         rejected = client.post(url, json={"section": "title", "hint": HINT_MARKER * 40})  # too long: logged as 422
         regenerated = client.post(url, json={"section": "title", "hint": HINT_MARKER})
 
+        audio_job = client.post(
+            "/api/jobs",
+            json={"tool_id": "audio_extract", "size": len(data), "file_name": f"{FILE_NAME_MARKER}.mov"},
+        ).json()["job_id"]
+        assert client.patch(f"/api/uploads/{audio_job}", content=data, headers=TUS_PATCH).status_code == 204
+        audio_body = _wait_done(client, audio_job)
+        download = client.get(f"/api/tools/audio_extract/jobs/{audio_job}/audio")
+
     assert rejected.status_code == 422
     assert regenerated.status_code == 200
     # The run really sent the markers and frames to the providers ...
     assert all(m in llm.requests[0].context_text for m in TRANSCRIPT_MARKERS)
     assert HINT_MARKER in llm.requests[1].turns[0].text
+    assert audio_body["state"] == "done"
+    assert audio_body["result"]["download_name"] == f"{FILE_NAME_MARKER}.mp3"
+    assert download.status_code == 200
+    assert FILE_NAME_MARKER in download.headers["content-disposition"]
     frames = [f.jpeg for f in llm.requests[0].frames]
     assert frames
     # ... and the fallback and validation paths logged something.

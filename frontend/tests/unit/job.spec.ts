@@ -209,6 +209,24 @@ describe('job status and polling', () => {
     wrapper.unmount();
   });
 
+  it("shows the expired message for another tool's job and stops polling", async () => {
+    jobReplies = [
+      () =>
+        json(200, {
+          ...job({ state: 'done', queue_position: null }),
+          tool_id: 'audio_extract',
+          result: { duration_s: 10, size_bytes: 1000, download_name: 'clip.mp3' },
+        }),
+    ];
+    stubFetch();
+    const wrapper = await mountPage();
+    expect(wrapper.text()).toContain(en.job.expired);
+    expect(wrapper.find('textarea').exists()).toBe(false);
+    await tick(10000);
+    expect(jobGets()).toBe(1);
+    wrapper.unmount();
+  });
+
   it('keeps polling after a transient error', async () => {
     jobReplies = [() => new Response('x', { status: 502 }), () => json(200, job())];
     stubFetch();
