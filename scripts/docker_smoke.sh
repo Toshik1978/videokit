@@ -6,6 +6,7 @@
 # a cache under the read-only home directory makes every local transcription job fail.
 # Also generate tiny clips in the codecs users upload (H.264, HEVC, VP9, AV1, MP3 audio) with the
 # image's own ffmpeg and run each through the app's media code (probe, audio and frame extraction).
+# Also encode a generated tone to MP3 (libmp3lame, 192k) and probe it, as Audio Extract does.
 # Then repeat the health/SPA checks with the container running as the invoking uid:gid and a
 # bind-mounted temp directory as /data (how Compose and `task docker:run` run it), and verify the
 # SQLite DB and caches were written there, owned by that uid.
@@ -63,6 +64,15 @@ with tempfile.TemporaryDirectory() as tmp:
             sys.exit(1)
 print("codecs ok")
 ' || { echo "the image cannot decode every common video codec" >&2; exit 1; }
+
+# Audio Extract encodes MP3 with libmp3lame at 192k: encode a generated tone and probe the result.
+docker run --rm --entrypoint sh "$image" -c '
+set -e
+dir="$(mktemp -d)"
+ffmpeg -v error -y -f lavfi -i sine=frequency=440:duration=2 -c:a libmp3lame -b:a 192k "$dir/tone.mp3"
+codec="$(ffprobe -v error -select_streams a:0 -show_entries stream=codec_name -of csv=p=0 "$dir/tone.mp3")"
+[ "$codec" = "mp3" ]
+' || { echo "the image cannot encode MP3 with libmp3lame at 192k" >&2; exit 1; }
 
 name_bind="${name}-bind"
 bind_dir="$(mktemp -d)"

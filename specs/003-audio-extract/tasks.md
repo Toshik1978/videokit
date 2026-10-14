@@ -122,10 +122,10 @@ phase: the project, toolchain and CI already exist.
 
 ## Phase 5: Polish & Cross-Cutting Concerns
 
-- [ ] T012 [P] Check MP3 encoding in the image smoke test in `scripts/docker_smoke.sh`
+- [x] T012 [P] Check MP3 encoding in the image smoke test in `scripts/docker_smoke.sh`
   - Inside the image, encode a generated `lavfi` tone to MP3 with `libmp3lame` at 192k and probe it (fails the smoke run if the encoder is missing).
   - Tests: `backend/tests/unit/test_docker_smoke.py` asserts the script contains the MP3 encode check.
-- [ ] T013 [P] Document the tool in `README.md` and `.claude/CLAUDE.md`
+- [x] T013 [P] Document the tool in `README.md` and `.claude/CLAUDE.md`
   - README: a short Audio Extract section (what it does, MP3 192 kbps, Share on phones, retention like YouTube Prep, no AI or cost).
   - CLAUDE.md: layout (`tools/audio_extract/`, `frontend/src/tools/audio-extract/`), and architecture notes: per-tool queue lanes, `extracting → done` for single-stage tools, `source_name` (never logged), `MediaService.extract_mp3`, specs list incl. `specs/003-audio-extract/`.
   - Verify: `task lint` (prettier/markdown) and `scripts/check_denylist.py` pass.

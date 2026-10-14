@@ -7,8 +7,8 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 VideoKit is an open-source, self-hosted web app that hosts small video tools. You run it as a
-single Docker container on your own machine, with or without a GPU. The first tool is
-**YouTube Prep**.
+single Docker container on your own machine, with or without a GPU. It has two tools:
+**YouTube Prep** and **Audio Extract**.
 
 ## About this project
 
@@ -46,9 +46,24 @@ Other features:
 - Per-section Regenerate with an optional hint. It reuses the already extracted transcript and
   frames, so it is quick and cheap.
 - Progress per stage (uploading, queued, extracting, transcribing, generating), a queue (one job at
-  a time), cancel, and a shareable job link that works while the job is retained.
+  a time per tool), cancel, and a shareable job link that works while the job is retained.
 - Pluggable transcription and text-generation providers, tried in the order you configure, with
   automatic fallback. The result footer shows the providers used, token usage and estimated cost.
+
+## Audio Extract
+
+Upload a video and get its audio as an MP3, with no AI and no cost:
+
+- **Format**: MP3 at 192 kbps constant bitrate, from the video's main audio track (the one flagged
+  as default, else the first). Mono stays mono, more than two channels become stereo, sample rates
+  above 48 kHz become 48 kHz. Metadata is stripped.
+- **Download**: the file is named after the video (`trip.mp4` becomes `trip.mp3`). The job page
+  shows the duration and size.
+- **Share**: on phones and other browsers that can share files, a Share button hands the MP3 to
+  other apps.
+- A video without an audio track fails with a clear message.
+- Same resumable upload, retention (`JOB_TTL_HOURS`), cancel and job link as YouTube Prep. Each
+  tool has its own queue, so an extraction never waits behind a YouTube Prep job.
 
 ## No authentication: protect it yourself
 
@@ -217,8 +232,8 @@ task format    # auto-format both stacks
 - Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/)
   (`feat:`, `fix:`, `docs:`, `chore:` and so on).
 - Design documents live in [`specs/001-videokit-youtube-prep/`](specs/001-videokit-youtube-prep/)
-  (the product) and [`specs/002-packaging-releases/`](specs/002-packaging-releases/) (the slim image
-  and the release flow): `spec.md`, `plan.md`, `research.md`, `data-model.md`, `quickstart.md` and
+  (the product), [`specs/002-packaging-releases/`](specs/002-packaging-releases/) (the slim image
+  and the release flow) and [`specs/003-audio-extract/`](specs/003-audio-extract/) (Audio Extract): `spec.md`, `plan.md`, `research.md`, `data-model.md`, `quickstart.md` and
   the `contracts/`.
   The project principles are in
   [`.specify/memory/constitution.md`](.specify/memory/constitution.md).

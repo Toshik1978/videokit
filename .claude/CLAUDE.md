@@ -1,12 +1,15 @@
 # VideoKit — guide for Claude
 
-Open-source, self-hosted toolbox of video tools served as one Docker container. First tool:
+Open-source, self-hosted toolbox of video tools served as one Docker container. Tools:
 **YouTube Prep** — upload a video, get cover titles, title/description, tags/hashtags and chapter
 timings (`0:00 "Arrival and lobby"`) in the video's spoken language, with per-section regenerate.
+**Audio Extract** — upload a video, download or share its audio as a 192 kbps MP3 named after the
+video (no AI, no cost).
 
 Specs are the source of truth: `specs/001-videokit-youtube-prep/` (`spec.md`, `plan.md`,
 `research.md` R1–R15, `data-model.md`, `contracts/`, `quickstart.md`, `tasks.md`) and
-`specs/002-packaging-releases/` (slim image, identity, release flow) under the
+`specs/002-packaging-releases/` (slim image, identity, release flow) and
+`specs/003-audio-extract/` (second tool, per-tool queue lanes) under the
 constitution `.specify/memory/constitution.md`.
 
 ## Non-negotiables
@@ -67,10 +70,11 @@ backend/src/videokit/
                            media (ffmpeg), pricing, providers, transcribe/{local_whisper,openai,chain},
                            llm/{anthropic,openai,chain}
   tools/youtube_prep/      TOOL, schema, prompt, rules, pipeline, routes (regenerate)
+  tools/audio_extract/     TOOL, naming (download name), routes (GET/HEAD .../jobs/{id}/audio)
 backend/tests/             unit/, integration/, live/, fakes_transcribe.py, fakes_llm.py,
                            conftest.py (make_video fixture, autouse env isolation), e2e_app.py
 frontend/src/              App, router, i18n/{en.json,messages.ts}, api/client.ts, components/,
-                           pages/, tools/<kebab-id>/ (auto-discovered via import.meta.glob)
+                           pages/, tools/<kebab-id>/ (auto-discovered via import.meta.glob; youtube-prep, audio-extract)
 Dockerfile, compose.yaml, scripts/{docker_smoke.sh,image_size_guard.sh,gpu_check.py,changelog.sh}
 .cliff.toml, CHANGELOG.md, CONTRIBUTING.md, docs/RELEASING.md, .github/scripts/*
 .github/workflows/{ci,commit-lint,release}.yml
@@ -97,6 +101,13 @@ Dockerfile, compose.yaml, scripts/{docker_smoke.sh,image_size_guard.sh,gpu_check
   validate → at most one repair call → readable failure. Chapters: first at 0:00, ≥ 3, gaps ≥ 10 s,
   ascending, last chapter ≥ 10 s before the end, no dashes/emojis/decorative symbols, never damage
   non-Latin scripts; `m:ss` below 1 h, `h:mm:ss` from 1 h. Videos < 30 s get no chapters + notice.
+- **Queue lanes**: one lane per tool — `JobStore.next_queued(tool_id)`, queue position counts only
+  the tool's own jobs, one worker loop per registered tool — so a slow tool never blocks another.
+- **Single-stage tools** go `extracting → done` (no transcribing/generating). Audio Extract encodes
+  via `MediaService.extract_mp3` (main audio track: default-flagged, else first; 192 kbps CBR;
+  mono stays mono, >2 channels → stereo, >48 kHz → 48 kHz; metadata stripped; `no_audio` failure).
+- **`jobs.source_name`**: the original file name from `POST /api/jobs` `file_name`, sanitized,
+  exposed to tools as `JobHandle.source_name`; never logged and never returned by the job API.
 - **Output language** = the language detected by transcription (`result.language =
   media.language`); no speech → English.
 - **Jobs**: SQLite (WAL) + `DATA_DIR/jobs/<id>/`. The state machine in `core/jobs.py` is enforced
