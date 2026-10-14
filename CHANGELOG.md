@@ -8,6 +8,33 @@ Versions follow [semver](https://semver.org). Commits follow
 
 ---
 
+## v0.2.0 — 2026-10-14
+
+VideoKit gets its second tool, Audio Extract: upload a video and download its main audio track as
+a 192 kbps MP3 named after the video, or on a phone share it straight to apps such as Telegram. It
+uses no AI provider and costs nothing. A video without sound ends with a clear "no audio" message.
+Each tool now has its own job queue, so an MP3 never waits behind a YouTube Prep job. No
+configuration changes are needed: the job database gains a column on first start. An upload that
+was interrupted before the upgrade will not resume; pick the file again.
+
+### Features
+
+- feat: add queue lanes, file names and MP3 encoding to the platform ([ec39e5c](https://github.com/toshik1978/videokit/commit/ec39e5c1fdc9a66c365bf11e25eb2cff99e1f66b))
+- feat: add the Audio Extract tool: upload a video, download or share its MP3 ([b41ad6c](https://github.com/toshik1978/videokit/commit/b41ad6ced4d7fc9a391d331d97cd8c5e48d94f2b))
+- feat: tell the user when a video has no audio ([aa4f42a](https://github.com/toshik1978/videokit/commit/aa4f42a021fde31fcfebd310fcbae1aebf81c2e7))
+- feat: show Audio Extract on the home page ([8962a3b](https://github.com/toshik1978/videokit/commit/8962a3bcb1913110dba42c6ba76e7cf400ead68e))
+
+### Bug Fixes
+
+- fix: keep 192 kbps for low-rate audio, neutral extracting labels and the audio.mp3 fallback ([8eca164](https://github.com/toshik1978/videokit/commit/8eca164b4a558722f5ec01a7f8e489876539d74e))
+- fix: resume uploads only on their own tool and tidy Audio Extract downloads ([d65a32c](https://github.com/toshik1978/videokit/commit/d65a32cba3f0f0cb1b558ef8b55f918ecf45e596))
+
+### Others
+
+- docs: document Audio Extract and check MP3 encoding in the image ([710e226](https://github.com/toshik1978/videokit/commit/710e2267cb7cdf542d24cff98e14e60b7c4ab17e))
+
+---
+
 ## v0.1.0 — 2026-10-11
 
 The first release of VideoKit, a self-hosted toolbox of video tools in one Docker container. Its
