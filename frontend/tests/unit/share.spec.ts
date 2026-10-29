@@ -1,9 +1,9 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import ShareButton from '@/components/ShareButton.vue';
 import { createI18nInstance } from '@/i18n';
 import en from '@/i18n/en.json';
-import ShareButton from '@/tools/audio-extract/ShareButton.vue';
 
 const URL_ = '/api/tools/audio_extract/jobs/j1/audio';
 
@@ -20,7 +20,7 @@ function stubNavigator(canShare: boolean | undefined) {
 
 function mountButton() {
   return mount(ShareButton, {
-    props: { url: URL_, fileName: 'trip.mp3' },
+    props: { fileUrl: URL_, fileName: 'trip.mp3', mimeType: 'audio/mpeg' },
     global: { plugins: [createI18nInstance()] },
   });
 }
@@ -52,7 +52,7 @@ describe('ShareButton', () => {
     stubNavigator(true);
     const wrapper = mountButton();
     const button = wrapper.get('[data-test="share"]');
-    expect(button.text()).toBe(en.audioExtract.share);
+    expect(button.text()).toBe(en.share.label);
     await button.trigger('click');
     await flushPromises();
     expect(fetchMock).toHaveBeenCalledWith(URL_);
@@ -69,11 +69,11 @@ describe('ShareButton', () => {
     fetchMock.mockReturnValueOnce(new Promise<Response>((r) => (release = r)));
     const wrapper = mountButton();
     await wrapper.get('[data-test="share"]').trigger('click');
-    expect(wrapper.get('[data-test="share"]').text()).toBe(en.audioExtract.sharePreparing);
+    expect(wrapper.get('[data-test="share"]').text()).toBe(en.share.preparing);
     expect(wrapper.get('[data-test="share"]').attributes('disabled')).toBeDefined();
     release(new Response(new Blob(['x'])));
     await flushPromises();
-    expect(wrapper.get('[data-test="share"]').text()).toBe(en.audioExtract.share);
+    expect(wrapper.get('[data-test="share"]').text()).toBe(en.share.label);
   });
 
   it('ignores a double tap while preparing: one fetch, one share', async () => {
@@ -117,13 +117,13 @@ describe('ShareButton', () => {
     const wrapper = mountButton();
     await wrapper.get('[data-test="share"]').trigger('click');
     await flushPromises();
-    expect(wrapper.get('[data-test="share"]').text()).toBe(en.audioExtract.shareReady);
+    expect(wrapper.get('[data-test="share"]').text()).toBe(en.share.ready);
     expect(wrapper.find('[role="alert"]').exists()).toBe(false);
     await wrapper.get('[data-test="share"]').trigger('click');
     await flushPromises();
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(share).toHaveBeenCalledTimes(2);
-    expect(wrapper.get('[data-test="share"]').text()).toBe(en.audioExtract.share);
+    expect(wrapper.get('[data-test="share"]').text()).toBe(en.share.label);
   });
 
   it('is silent when the sheet is dismissed', async () => {
@@ -133,7 +133,7 @@ describe('ShareButton', () => {
     await wrapper.get('[data-test="share"]').trigger('click');
     await flushPromises();
     expect(wrapper.find('[role="alert"]').exists()).toBe(false);
-    expect(wrapper.get('[data-test="share"]').text()).toBe(en.audioExtract.share);
+    expect(wrapper.get('[data-test="share"]').text()).toBe(en.share.label);
   });
 
   it('shows the generic message when the fetch fails', async () => {

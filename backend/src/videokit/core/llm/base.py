@@ -61,6 +61,7 @@ class Usage:
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0
     audio_minutes: float = 0.0
+    video_output_tokens: int = 0
 
     def __add__(self, other: Usage) -> Usage:
         return Usage(
@@ -69,6 +70,7 @@ class Usage:
             cache_read_tokens=self.cache_read_tokens + other.cache_read_tokens,
             cache_write_tokens=self.cache_write_tokens + other.cache_write_tokens,
             audio_minutes=self.audio_minutes + other.audio_minutes,
+            video_output_tokens=self.video_output_tokens + other.video_output_tokens,
         )
 
 

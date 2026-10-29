@@ -83,26 +83,36 @@ def create_app(
 
         def open_store() -> JobStore:
             store = JobStore(settings.data_dir, settings.job_ttl_hours, settings.max_upload_bytes)
-            recovered = store.recover_after_restart()
+            resumable = {tool_id for tool_id, tool in app.state.tools.items() if tool.resume_after_restart}
+            recovered = store.recover_after_restart(resumable)
             if recovered:
                 logger.info("Marked %d interrupted job(s) as failed after restart", recovered)
             return store
 
         if app.state.providers is None:
-            app.state.providers = providers_module.build(settings)
+            try:
+                app.state.providers = providers_module.build(settings)
+            except ConfigurationError as exc:
+                raise _fail(exc.problems) from None
         chains: Providers = app.state.providers
         problems = await asyncio.to_thread(_checked, chains)
         if problems:
             raise _fail(problems)
         app.state.store = await asyncio.to_thread(open_store)
-        ctx = Context(media=MediaService(settings), transcriber=chains.transcriber, llm=chains.llm, settings=settings)
+        ctx = Context(
+            media=MediaService(settings),
+            transcriber=chains.transcriber,
+            llm=chains.llm,
+            settings=settings,
+            video=chains.video,
+        )
         worker = app.state.worker = Worker(app.state.store, app.state.tools, ctx)
-        app.state.job_access = StoreJobAccess(app.state.store, ctx)
+        app.state.job_access = StoreJobAccess(app.state.store, ctx, worker)
         worker.start()
         # Uploads whose last byte was recorded before a stop but never completed: tus clients see them as done.
         for job_id in await asyncio.to_thread(app.state.store.finished_uploads):
             try:
-                await app.state.on_upload_complete(job_id)
+                await app.state.complete_inputs(job_id)
             except Exception as exc:  # never block startup on one upload
                 logger.error("Upload completion failed at startup (%s)", type(exc).__name__)
         purge_task = asyncio.create_task(run_purge_loop(app.state.store))
@@ -125,15 +135,18 @@ def create_app(
     app.state.settings = settings
     app.state.providers = providers
 
-    async def on_upload_complete(job_id: str) -> None:
-        await app.state.worker.on_upload_complete(job_id)
+    async def complete_inputs(job_id: str) -> None:
+        await app.state.worker.complete_inputs(job_id)
 
-    app.state.on_upload_complete = on_upload_complete
+    app.state.complete_inputs = complete_inputs
     app.add_middleware(uploads.TusResumableMiddleware)
     install_error_handlers(app)  # after all other middleware: its catch-all must wrap them
 
-    # Tools are mounted at creation (not in the lifespan) so their routes precede the SPA catch-all.
-    app.state.tools = discover_tools(tools_package)
+    # Tools are mounted at creation (not in the lifespan) so their routes precede the SPA catch-all. A tool that is
+    # not enabled by the settings is absent everywhere: no routes, no listing, no lane, not resumable (research V11).
+    app.state.tools = {
+        tool_id: tool for tool_id, tool in discover_tools(tools_package).items() if tool.enabled(settings)
+    }
     app.include_router(api.router)
     app.include_router(uploads.router, prefix="/api")
     for tool in app.state.tools.values():
@@ -157,7 +170,11 @@ def app_from_env() -> FastAPI:
     if problems:
         _fail(problems)
         raise SystemExit(1)
-    chains = providers_module.build(settings)
+    try:
+        chains = providers_module.build(settings)
+    except ConfigurationError as exc:
+        _fail(exc.problems)
+        raise SystemExit(1) from None
     problems = _checked(chains)
     if problems:
         _fail(problems)

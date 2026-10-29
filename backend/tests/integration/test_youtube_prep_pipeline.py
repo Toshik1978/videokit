@@ -190,6 +190,7 @@ async def test_happy_path_writes_the_result_and_records_the_job(
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "audio_minutes": 0.5,
+        "video_output_tokens": 0,
         "cost_usd": pytest.approx(expected_cost),  # local transcription is free
     }
 
@@ -547,7 +548,7 @@ def _app_client(tmp_path: Path, settings: Settings, llm: FakeLLM) -> Iterator[Te
 
 def _upload_and_wait(client: TestClient, video: Path) -> dict[str, Any]:
     data = video.read_bytes()
-    created = client.post("/api/jobs", json={"tool_id": "youtube_prep", "size": len(data)})
+    created = client.post("/api/tools/youtube_prep/jobs", json={"size": len(data)})
     assert created.status_code == 201
     job_id = created.json()["job_id"]
     assert client.patch(f"/api/uploads/{job_id}", content=data, headers=TUS_PATCH).status_code == 204

@@ -33,15 +33,18 @@ transient conditions, e.g. local model still downloading.)
 [{"id": "youtube_prep", "name": "YouTube Prep", "description": "Title, description, tags and chapters for a video."}]
 ```
 
-### `POST /api/jobs`
-Creates a job in `uploading` state and its upload resource.
-Request: `{"tool_id": "youtube_prep", "size": 1234567890, "file_name": "trip.mp4"}`
+### `POST /api/tools/{tool_id}/jobs` (youtube_prep, audio_extract)
+Creates a job in `uploading` state and its upload resource. Each video tool owns its creation route
+(004 research V1; it replaced the platform-wide `POST /api/jobs`), implemented over
+`JobAccess.create` by the shared helper `videokit.core.uploads.create_upload_job`.
+Request: `{"size": 1234567890, "file_name": "trip.mp4"}`
 - `file_name` is optional (string, at most 1024 characters; longer → `422 invalid_request`). Core keeps
   only its last path component (split on `/` and `\`), removes control characters, trims
   surrounding whitespace and cuts it to 255 characters; empty → none. It is stored for the tool's
   use, never logged and not echoed back by `GET /api/jobs/{job_id}`.
 - `201` → `{"job_id": "<id>", "upload_url": "/api/uploads/<id>"}`
-- `404 unknown_tool`, `413 file_too_large` (size > max, FR-004), `422 invalid_request`
+- `413 file_too_large` (size > max, FR-004), `422 invalid_request` (`size` missing, not an integer or
+  not positive)
 
 ### `GET /api/jobs/{job_id}`
 ```json

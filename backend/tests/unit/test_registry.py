@@ -14,27 +14,44 @@ def _tests_on_path(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.syspath_prepend(str(TESTS_DIR))
 
 
-def _make_package(root: Path, pkg: str, tools: dict[str, str]) -> None:
-    """Write package `pkg` with one tool subpackage per entry (sub name -> tool id)."""
+_MEMBERS = {
+    "concurrency": "    concurrency = 1",
+    "resume_after_restart": "    resume_after_restart = False",
+    "enabled": "    def enabled(self, settings):\n        return True",
+    "accept": "    def accept(self, job, ctx):\n        return None",
+}
+
+
+def _make_package(
+    root: Path, pkg: str, tools: dict[str, str], *, omit: str | None = None, override: dict[str, str] | None = None
+) -> None:
+    """Write package `pkg` with one tool subpackage per entry (sub name -> tool id).
+
+    `omit` leaves one of the new members out; `override` replaces members' source (class-body lines).
+    """
+    members = {**_MEMBERS, **(override or {})}
+    extra = "\n".join(src for name, src in members.items() if name != omit)
     (root / pkg).mkdir()
     (root / pkg / "__init__.py").write_text("")
     for sub, tool_id in tools.items():
         (root / pkg / sub).mkdir()
-        body = textwrap.dedent(
-            f"""
-            from fastapi import APIRouter
+        body = (
+            textwrap.dedent(
+                f"""
+                from fastapi import APIRouter
 
-            class T:
-                id = {tool_id!r}
-                name = "n"
-                description = "d"
-                router = APIRouter()
+                class T:
+                    id = {tool_id!r}
+                    name = "n"
+                    description = "d"
+                    router = APIRouter()
 
-                async def run(self, job, ctx):
-                    return None
-
-            TOOL = T()
-            """
+                    async def run(self, job, ctx):
+                        return None
+                """
+            )
+            + extra
+            + "\n\nTOOL = T()\n"
         )
         (root / pkg / sub / "__init__.py").write_text(body)
 
@@ -70,6 +87,54 @@ def test_object_that_is_not_a_tool_rejected(tmp_path: Path, monkeypatch: pytest.
     (tmp_path / "broken_pkg" / "x" / "__init__.py").write_text("TOOL = object()\n")
     with pytest.raises(RegistryError, match="Tool"):
         discover_tools("broken_pkg")
+
+
+@pytest.mark.parametrize("member", ["concurrency", "resume_after_restart", "enabled", "accept"])
+def test_tool_missing_a_member_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, member: str) -> None:
+    monkeypatch.syspath_prepend(str(tmp_path))
+    _make_package(tmp_path, "missing_pkg", {"x": "tool_x"}, omit=member)
+    with pytest.raises(RegistryError, match="Tool"):
+        discover_tools("missing_pkg")
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "True", "1.5", "'2'"])
+def test_invalid_concurrency_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, value: str) -> None:
+    monkeypatch.syspath_prepend(str(tmp_path))
+    _make_package(tmp_path, "conc_pkg", {"x": "tool_x"}, override={"concurrency": f"    concurrency = {value}"})
+    with pytest.raises(RegistryError, match="concurrency"):
+        discover_tools("conc_pkg")
+
+
+@pytest.mark.parametrize("value", ["1", "'yes'", "None"])
+def test_non_bool_resume_after_restart_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, value: str) -> None:
+    monkeypatch.syspath_prepend(str(tmp_path))
+    _make_package(
+        tmp_path,
+        "resume_pkg",
+        {"x": "tool_x"},
+        override={"resume_after_restart": f"    resume_after_restart = {value}"},
+    )
+    with pytest.raises(RegistryError, match="resume_after_restart"):
+        discover_tools("resume_pkg")
+
+
+def test_tool_with_valid_members_accepted(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.syspath_prepend(str(tmp_path))
+    _make_package(
+        tmp_path,
+        "ok_pkg",
+        {"x": "tool_x"},
+        override={"concurrency": "    concurrency = 3", "resume_after_restart": "    resume_after_restart = True"},
+    )
+    tool = discover_tools("ok_pkg")["tool_x"]
+    assert (tool.concurrency, tool.resume_after_restart) == (3, True)
+
+
+def test_shipped_tools_declare_the_lane_members() -> None:
+    for tool in discover_tools().values():
+        assert tool.concurrency == 1
+        assert tool.resume_after_restart is False
+        assert tool.enabled(None) is True  # type: ignore[arg-type]
 
 
 def test_job_cancelled_is_exception() -> None:

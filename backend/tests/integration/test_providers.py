@@ -116,6 +116,7 @@ def test_health_reports_each_provider_in_order_without_secrets(env: pytest.Monke
             {"name": "anthropic", "ready": True, "detail": "model=claude-opus-5-5"},
             {"name": "openai", "ready": True, "detail": "model=example-model"},
         ],
+        "video": [],
     }
     assert PLACEHOLDER not in text
 
@@ -140,6 +141,7 @@ def test_cloud_only_with_placeholder_keys_starts(env: pytest.MonkeyPatch) -> Non
     assert body["providers"] == {
         "transcription": [{"name": "openai", "ready": True, "detail": "model=whisper-1"}],
         "llm": [{"name": "anthropic", "ready": True, "detail": "model=claude-opus-5-5"}],
+        "video": [],
     }
     assert PLACEHOLDER not in text
 
@@ -292,7 +294,7 @@ def test_failing_primaries_fall_back_and_the_job_records_the_fallbacks(
 ) -> None:
     client, chains = fallback_client
     data = make_video(audio=True, colors=("red", "blue", "green"), segment_s=12.0).read_bytes()
-    created = client.post("/api/jobs", json={"tool_id": "youtube_prep", "size": len(data)})
+    created = client.post("/api/tools/youtube_prep/jobs", json={"size": len(data)})
     job_id = created.json()["job_id"]
     assert client.patch(f"/api/uploads/{job_id}", content=data, headers=TUS_PATCH).status_code == 204
 

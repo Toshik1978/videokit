@@ -12,6 +12,7 @@ from pydantic_settings.exceptions import SettingsError
 
 TRANSCRIBE_PROVIDER_NAMES = ("local", "openai")
 LLM_PROVIDER_NAMES = ("anthropic", "openai")
+VIDEO_PROVIDER_NAMES = ("omni",)
 MAX_FRAMES_RANGE = (1, 100)
 ANTHROPIC_EFFORTS = ("low", "medium", "high")
 WHISPER_DEVICES = ("auto", "cuda", "cpu")
@@ -38,10 +39,13 @@ class Settings(BaseSettings):
     anthropic_effort: str = "medium"
     openai_api_key: SecretStr | None = None
     openai_model: str | None = None
+    video_providers: Annotated[list[str], NoDecode] = []
+    gemini_api_key: SecretStr | None = None
+    omni_model: str = "gemini-omni-1.1-flash"
     pricing_overrides: dict[str, dict[str, float]] = {}
     log_level: str = "INFO"
 
-    @field_validator("transcribe_providers", "llm_providers", mode="before")
+    @field_validator("transcribe_providers", "llm_providers", "video_providers", mode="before")
     @classmethod
     def _split_csv(cls, value: Any) -> Any:
         if isinstance(value, str):
@@ -107,12 +111,17 @@ def validate(settings: Settings) -> list[str]:
         elif any(name not in allowed for name in names):
             problems.append(f"{var} contains an unknown provider (allowed: {', '.join(allowed)})")
 
+    if any(name not in VIDEO_PROVIDER_NAMES for name in settings.video_providers):  # empty is fine: tool hidden
+        problems.append(f"VIDEO_PROVIDERS contains an unknown provider (allowed: {', '.join(VIDEO_PROVIDER_NAMES)})")
+
     if "anthropic" in settings.llm_providers and not _has(settings.anthropic_api_key):
         problems.append("ANTHROPIC_API_KEY is required when 'anthropic' is listed in LLM_PROVIDERS")
     if ("openai" in settings.llm_providers or "openai" in settings.transcribe_providers) and not _has(
         settings.openai_api_key
     ):
         problems.append("OPENAI_API_KEY is required when 'openai' is listed in a providers variable")
+    if "omni" in settings.video_providers and not _has(settings.gemini_api_key):
+        problems.append("GEMINI_API_KEY is required when 'omni' is listed in VIDEO_PROVIDERS")
     if "openai" in settings.llm_providers and not (settings.openai_model or "").strip():
         problems.append("OPENAI_MODEL is required when 'openai' is listed in LLM_PROVIDERS")
 

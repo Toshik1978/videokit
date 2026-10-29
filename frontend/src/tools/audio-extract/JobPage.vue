@@ -6,9 +6,9 @@ import { useRoute } from 'vue-router';
 import { ApiError, getJson, postJson } from '@/api/client';
 import { isTerminal, type JobSummary } from '@/components/job';
 import JobStatus from '@/components/JobStatus.vue';
+import ShareButton from '@/components/ShareButton.vue';
 import { useMessages } from '@/i18n/messages';
 
-import ShareButton from './ShareButton.vue';
 import type { AudioExtractResult } from './types';
 
 const POLL_MS = 2000;
@@ -147,7 +147,11 @@ onBeforeUnmount(() => {
           >
             {{ t('audioExtract.download') }}
           </a>
-          <ShareButton :url="downloadUrl" :file-name="result.download_name" />
+          <ShareButton
+            :file-url="downloadUrl"
+            :file-name="result.download_name"
+            mime-type="audio/mpeg"
+          />
         </div>
       </section>
     </template>

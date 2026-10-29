@@ -17,6 +17,7 @@ def test_default_prices() -> None:
         "claude-opus-5": {"input": 5.0, "output": 25.0, "cache_read": 0.50, "cache_write": 6.25},
         "claude-opus-4-8": {"input": 5.0, "output": 25.0, "cache_read": 0.50, "cache_write": 6.25},
         "whisper-1": {"per_minute": 0.006},
+        "gemini-omni-1.1-flash": {"input": 1.50, "output": 9.00, "video_output": 17.50},
     }
 
 
@@ -94,3 +95,27 @@ def test_cloud_transcription_is_priced_per_minute_of_its_model() -> None:
 @pytest.mark.parametrize("model", ["unpriced-model", ""])
 def test_unpriced_cloud_transcription_has_unknown_cost(model: str) -> None:
     assert transcription_cost(_transcript("openai", model)) is None
+
+
+def test_video_output_tokens_are_priced_at_the_video_rate() -> None:
+    usage = Usage(input_tokens=2 * 1120, video_output_tokens=8 * 8688)  # 8 s at 1080p, two pictures
+    expected = (2 * 1120 * 1.50 + 8 * 8688 * 17.50) / 1_000_000
+    assert estimate(usage, "gemini-omni-1.1-flash") == pytest.approx(expected)
+    assert estimate(usage, "gemini-omni-1.1-flash") == pytest.approx(1.21968)
+
+
+def test_text_output_and_video_output_are_priced_separately() -> None:
+    usage = Usage(output_tokens=1_000_000, video_output_tokens=1_000_000)
+    assert estimate(usage, "gemini-omni-1.1-flash") == pytest.approx(9.0 + 17.5)
+
+
+def test_video_output_price_can_be_overridden_per_field() -> None:
+    overrides = {"gemini-omni-1.1-flash": {"video_output": 20.0}}
+    table = price_table(overrides)
+    assert table["gemini-omni-1.1-flash"] == {"input": 1.50, "output": 9.00, "video_output": 20.0}
+    assert DEFAULT_PRICES["gemini-omni-1.1-flash"]["video_output"] == 17.50  # defaults are not mutated
+    assert estimate(Usage(video_output_tokens=1_000_000), "gemini-omni-1.1-flash", overrides) == pytest.approx(20.0)
+
+
+def test_models_without_a_video_price_charge_nothing_for_video_tokens() -> None:
+    assert estimate(Usage(video_output_tokens=1_000_000), "claude-opus-5-5") == 0.0

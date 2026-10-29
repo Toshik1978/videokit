@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from videokit.core.llm.chain import LLMChain
     from videokit.core.media import MediaService
     from videokit.core.transcribe.chain import TranscriberChain
+    from videokit.core.videogen import VideoChain
 
 TOOL_ID_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 
@@ -72,6 +73,7 @@ class CoreContext(Protocol):
     media: MediaService
     transcriber: TranscriberChain  # the fallback chain, not a single provider
     llm: LLMChain  # the fallback chain
+    video: VideoChain | None  # the fallback chain; None when no video provider is configured
     settings: Settings
 
 
@@ -92,6 +94,29 @@ class JobAccess(Protocol):
         """
         ...
 
+    def create(self, tool_id: str, *, upload_length: int = 0, source_name: str | None = None) -> Job:
+        """A new job in `uploading`. With `upload_length > 0` its tus resource is `/api/uploads/<id>`.
+
+        Raises `AppError` 422 `invalid_request` for a negative length and 413 `file_too_large` above
+        `MAX_UPLOAD_GB`. With 0 the tool writes its inputs into `job_dir(id)` itself, then calls `complete`.
+        Blocking (SQLite): call it from a thread in async code if that matters.
+        """
+        ...
+
+    def job_dir(self, job_id: str) -> Path:
+        """`DATA_DIR/jobs/<id>/` (not created)."""
+        ...
+
+    async def complete(self, job_id: str) -> None:
+        """Inputs are complete: run the tool's `accept`, then queue the job (or fail it). Idempotent; the same
+        path the tus upload takes on its last byte."""
+        ...
+
+    async def discard(self, job_id: str) -> None:
+        """Delete the row and directory of a job still `uploading` whose inputs could not be written; a job
+        in any other state, or an unknown one, is left alone."""
+        ...
+
 
 def job_access(request: Request) -> JobAccess:
     """The running app's `JobAccess` (available once the app has started)."""
@@ -105,6 +130,19 @@ class Tool(Protocol):
     name: str
     description: str
     router: APIRouter
+    concurrency: int  # jobs of this tool that may run at once (>= 1)
+    resume_after_restart: bool  # False: waiting/running jobs fail with server_restarted; True: they continue
+
+    def enabled(self, settings: Settings) -> bool:
+        """Whether the tool is mounted, listed and given a lane."""
+        ...
+
+    def accept(self, job: JobHandle, ctx: CoreContext) -> None:
+        """Blocking. Called once when the job's inputs are complete.
+
+        Return to queue the job; raise `AppError(code, message)` to fail it.
+        """
+        ...
 
     async def run(self, job: JobHandle, ctx: CoreContext) -> None: ...
 
@@ -121,11 +159,18 @@ def discover_tools(package: str = "videokit.tools") -> dict[str, Tool]:
             continue
         tool = module.TOOL
         if not isinstance(tool, Tool):
-            raise RegistryError(f"{module.__name__}.TOOL is not a Tool (needs id, name, description, router, run)")
+            raise RegistryError(
+                f"{module.__name__}.TOOL is not a Tool (needs id, name, description, router, "
+                "concurrency, resume_after_restart, enabled, accept, run)"
+            )
         if not isinstance(tool.id, str) or not TOOL_ID_PATTERN.fullmatch(tool.id):
             raise RegistryError(
                 f"Invalid tool id {tool.id!r} in {module.__name__}; must match {TOOL_ID_PATTERN.pattern}"
             )
+        if not isinstance(tool.concurrency, int) or isinstance(tool.concurrency, bool) or tool.concurrency < 1:
+            raise RegistryError(f"Invalid concurrency {tool.concurrency!r} in {module.__name__}; must be an int >= 1")
+        if not isinstance(tool.resume_after_restart, bool):
+            raise RegistryError(f"resume_after_restart in {module.__name__} must be a bool")
         if tool.id in tools:
             raise RegistryError(f"Duplicate tool id {tool.id!r} in {module.__name__}")
         tools[tool.id] = tool

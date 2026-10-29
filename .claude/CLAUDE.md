@@ -103,7 +103,8 @@ Dockerfile, compose.yaml, scripts/{docker_smoke.sh,image_size_guard.sh,gpu_check
   ascending, last chapter ≥ 10 s before the end, no dashes/emojis/decorative symbols, never damage
   non-Latin scripts; `m:ss` below 1 h, `h:mm:ss` from 1 h. Videos < 30 s get no chapters + notice.
 - **Queue lanes**: one lane per tool — `JobStore.next_queued(tool_id)`, queue position counts only
-  the tool's own jobs, one worker loop per registered tool — so a slow tool never blocks another.
+  the tool's own jobs, one worker lane per registered tool with `tool.concurrency` slots (each claims the oldest queued
+  job not in `Worker._current`, under the worker lock) — so a slow tool never blocks another.
 - **Single-stage tools** go `extracting → done` (no transcribing/generating). Audio Extract encodes
   via `MediaService.extract_mp3` (main audio track: default-flagged, else first; 192 kbps CBR;
   mono stays mono, >2 channels → stereo, >48 kHz → 48 kHz, <32 kHz → 44.1 kHz so 192 kbps holds;

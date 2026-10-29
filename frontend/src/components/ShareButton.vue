@@ -4,9 +4,7 @@ import { useI18n } from 'vue-i18n';
 
 import { useMessages } from '@/i18n/messages';
 
-const props = defineProps<{ url: string; fileName: string }>();
-
-const MIME = 'audio/mpeg';
+const props = defineProps<{ fileUrl: string; fileName: string; mimeType: string }>();
 
 const { t } = useI18n();
 const { errorMessage } = useMessages();
@@ -14,7 +12,7 @@ const { errorMessage } = useMessages();
 const supported =
   typeof navigator !== 'undefined' &&
   typeof navigator.canShare === 'function' &&
-  navigator.canShare({ files: [new File([], 'a.mp3', { type: MIME })] });
+  navigator.canShare({ files: [new File([], props.fileName, { type: props.mimeType })] });
 
 const preparing = ref(false);
 const busy = ref(false); // covers both the fetch and the open share sheet
@@ -23,14 +21,14 @@ const error = ref('');
 let file: File | null = null; // cached for the page's lifetime only
 
 const label = computed(() => {
-  if (preparing.value) return t('audioExtract.sharePreparing');
-  return ready.value ? t('audioExtract.shareReady') : t('audioExtract.share');
+  if (preparing.value) return t('share.preparing');
+  return ready.value ? t('share.ready') : t('share.label');
 });
 
 async function fetchFile(): Promise<File> {
-  const response = await fetch(props.url);
+  const response = await fetch(props.fileUrl);
   if (!response.ok) throw new Error('fetch failed');
-  return new File([await response.blob()], props.fileName, { type: MIME });
+  return new File([await response.blob()], props.fileName, { type: props.mimeType });
 }
 
 async function share(): Promise<void> {

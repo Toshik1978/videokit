@@ -18,6 +18,13 @@ dependencies = [
     # GPU matrix math for ctranslate2 (CUDA 12); the only GPU library it loads — see
     # specs/002-packaging-releases/research.md R2.
     "nvidia-cublas-cu12; sys_platform == 'linux'",
+    # HEIC decoding behind MediaService.normalize_picture (tiled phone photos); specs/004-video-generation/research.md V7.
+    "pillow-heif>=1.8.1",
+    # Gemini Omni video generation (Interactions API); >=2.28 is the first release that knows the model.
+    # No extras: `local-tokenizer` pulls in torch. specs/004-video-generation/research.md V2.
+    "google-genai>=2.28",
+    # FastAPI's form parser for the multipart picture upload; specs/004-video-generation/research.md V14.
+    "python-multipart",
 ]
 
 [dependency-groups]

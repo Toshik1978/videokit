@@ -15,9 +15,9 @@ from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from videokit.core import uploads
-from videokit.core import worker as worker_module
 from videokit.core.config import Settings
 from videokit.core.jobs import JobState, JobStore
+from videokit.core.media import MediaService
 from videokit.main import create_app
 
 MiB = 1024 * 1024
@@ -42,7 +42,7 @@ def client(tmp_path: Path, completed: list[str]) -> Iterator[TestClient]:
     async def on_complete(job_id: str) -> None:
         completed.append(job_id)
 
-    app.state.on_upload_complete = on_complete
+    app.state.complete_inputs = on_complete
     with TestClient(app) as c:
         yield c
 
@@ -218,7 +218,7 @@ def test_finished_uploads_are_completed_at_startup(tmp_path: Path) -> None:
         if len(completed) == 1:
             raise OSError("probe crashed")  # a failing completion must not stop the server from starting
 
-    app.state.on_upload_complete = on_complete
+    app.state.complete_inputs = on_complete
     with TestClient(app) as c:
         assert completed == [finished]
         assert c.get("/api/health").status_code == 200
@@ -233,11 +233,11 @@ def test_expired_finished_upload_is_not_queued_at_startup(tmp_path: Path, monkey
     old.set_upload_offset(job_id, 4)
     probed: list[Path] = []
 
-    def spy_probe(path: Path) -> None:
-        probed.append(path)
+    def spy_probe(self: MediaService, job_dir: Path) -> None:
+        probed.append(job_dir)
         raise AssertionError("an expired upload must not be probed")
 
-    monkeypatch.setattr(worker_module, "probe", spy_probe)
+    monkeypatch.setattr(MediaService, "probe_source", spy_probe)
     monkeypatch.setattr("videokit.main.run_purge_loop", _never_purge)
 
     app = create_app(settings, tools_package="videokit.tools", static_dir=tmp_path / "static")

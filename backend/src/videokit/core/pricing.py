@@ -1,7 +1,7 @@
 """Cost estimation (research R11, FR-032).
 
-Token prices are $ per million tokens (``input``, ``output``, ``cache_read``, ``cache_write``); transcription is
-priced per audio minute (``per_minute``). ``PRICING_OVERRIDES`` is merged per model and per field.
+Token prices are $ per million tokens (``input``, ``output``, ``cache_read``, ``cache_write``, ``video_output``);
+transcription is priced per audio minute (``per_minute``). ``PRICING_OVERRIDES`` is merged per model and per field.
 """
 
 from collections.abc import Mapping
@@ -20,6 +20,8 @@ DEFAULT_PRICES: PriceTable = {
     "claude-opus-5": {"input": 5.0, "output": 25.0, "cache_read": 0.50, "cache_write": 6.25},
     "claude-opus-4-8": {"input": 5.0, "output": 25.0, "cache_read": 0.50, "cache_write": 6.25},
     "whisper-1": {"per_minute": 0.006},
+    # Verified against the official Gemini API pricing page (research V8): video output is billed per token too.
+    "gemini-omni-1.1-flash": {"input": 1.50, "output": 9.00, "video_output": 17.50},
 }
 
 
@@ -41,6 +43,7 @@ def estimate(usage: Usage, model: str, overrides: Mapping[str, Mapping[str, floa
         + usage.output_tokens * prices.get("output", 0.0)
         + usage.cache_read_tokens * prices.get("cache_read", 0.0)
         + usage.cache_write_tokens * prices.get("cache_write", 0.0)
+        + usage.video_output_tokens * prices.get("video_output", 0.0)
     ) / 1_000_000
     return round(tokens + usage.audio_minutes * prices.get("per_minute", 0.0), 6)
 

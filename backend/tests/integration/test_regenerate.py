@@ -256,6 +256,7 @@ def test_usage_accumulates_including_cache_tokens(
         "cache_read_tokens": 900,
         "cache_write_tokens": 0,
         "audio_minutes": 0.5,
+        "video_output_tokens": 0,
         "cost_usd": pytest.approx(
             (pricing.estimate(GEN_USAGE, MODEL) or 0) + (pricing.estimate(regen_usage, MODEL) or 0)
         ),

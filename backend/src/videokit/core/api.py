@@ -2,12 +2,10 @@
 
 import asyncio
 import json
-import re
 from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Request
-from pydantic import BaseModel, Field, StrictInt
 
 from videokit.core import providers, uploads
 from videokit.core.config import Settings
@@ -79,39 +77,6 @@ async def config(request: Request) -> dict[str, int]:
 async def list_tools(request: Request) -> list[dict[str, str]]:
     tools: dict[str, Tool] = request.app.state.tools
     return [{"id": t.id, "name": t.name, "description": t.description} for t in tools.values()]
-
-
-_CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f-\x9f]")
-
-
-def _clean_file_name(name: str | None) -> str | None:
-    """Last path component only, no control characters, trimmed, at most 255 characters; empty becomes None."""
-    if name is None:
-        return None
-    last = re.split(r"[/\\]", name)[-1]
-    return _CONTROL_CHARS.sub("", last).strip()[:255] or None
-
-
-class CreateJobRequest(BaseModel):
-    tool_id: str
-    size: StrictInt
-    file_name: str | None = Field(default=None, max_length=1024)
-
-
-@router.post("/jobs", status_code=201)
-async def create_job(body: CreateJobRequest, request: Request) -> dict[str, str]:
-    settings: Settings = request.app.state.settings
-    tools: dict[str, Tool] = request.app.state.tools
-    store: JobStore = request.app.state.store
-    if body.size <= 0:
-        raise AppError("invalid_request", "The file size must be a positive number of bytes.", 422)
-    if body.tool_id not in tools:
-        raise AppError("unknown_tool", "This tool does not exist.", 404)
-    if body.size > settings.max_upload_bytes:
-        limit_gb = settings.max_upload_bytes / 1024**3
-        raise AppError("file_too_large", f"The file is larger than the {limit_gb:g} GB limit.", 413)
-    job = await asyncio.to_thread(store.create, body.tool_id, body.size, _clean_file_name(body.file_name))
-    return {"job_id": job.id, "upload_url": f"/api/uploads/{job.id}"}
 
 
 @router.get("/jobs/{job_id}")

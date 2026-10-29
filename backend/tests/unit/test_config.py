@@ -32,6 +32,9 @@ def test_defaults() -> None:
     assert s.openai_model is None
     assert s.pricing_overrides == {}
     assert s.log_level == "INFO"
+    assert s.video_providers == []
+    assert s.gemini_api_key is None
+    assert s.omni_model == "gemini-omni-1.1-flash"
 
 
 def test_env_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -46,6 +49,18 @@ def test_env_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
     assert s.pricing_overrides == {"m": {"input": 4.0, "output": 20.0}}
 
 
+def test_video_env_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("VIDEO_PROVIDERS", " omni ")
+    monkeypatch.setenv("GEMINI_API_KEY", "gm-secret-value")
+    monkeypatch.setenv("OMNI_MODEL", "gemini-omni-next")
+    s = Settings()
+    assert s.video_providers == ["omni"]
+    assert s.gemini_api_key is not None
+    assert s.gemini_api_key.get_secret_value() == "gm-secret-value"
+    assert s.omni_model == "gemini-omni-next"
+    assert "gm-secret-value" not in repr(s)
+
+
 def test_valid_settings_have_no_problems(ok_env: None) -> None:
     assert validate(Settings()) == []
 
@@ -57,6 +72,31 @@ def test_unknown_providers(ok_env: None, monkeypatch: pytest.MonkeyPatch) -> Non
     assert len(problems) == 2
     assert any("TRANSCRIBE_PROVIDERS" in p for p in problems)
     assert any("LLM_PROVIDERS" in p for p in problems)
+
+
+def test_video_is_optional_and_empty_means_no_problem(ok_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("VIDEO_PROVIDERS", "")
+    assert Settings().video_providers == []
+    assert validate(Settings()) == []
+
+
+def test_unknown_video_provider(ok_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("VIDEO_PROVIDERS", "bogus")
+    assert validate(Settings()) == ["VIDEO_PROVIDERS contains an unknown provider (allowed: omni)"]
+
+
+def test_omni_requires_the_gemini_key(ok_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("VIDEO_PROVIDERS", "omni")
+    assert validate(Settings()) == ["GEMINI_API_KEY is required when 'omni' is listed in VIDEO_PROVIDERS"]
+    monkeypatch.setenv("GEMINI_API_KEY", "   ")
+    assert len(validate(Settings())) == 1
+    monkeypatch.setenv("GEMINI_API_KEY", "gm-secret-value")
+    assert validate(Settings()) == []
+
+
+def test_gemini_key_is_not_required_when_omni_is_not_listed(ok_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GEMINI_API_KEY", "")
+    assert validate(Settings()) == []
 
 
 def test_missing_anthropic_key(ok_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -158,7 +198,11 @@ def test_messages_never_contain_secret_values(ok_env: None, monkeypatch: pytest.
     monkeypatch.setenv("MAX_FRAMES", "999")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-other-secret")
     monkeypatch.setenv("LLM_PROVIDERS", "openai")
+    monkeypatch.setenv("VIDEO_PROVIDERS", "omni,bogus-video")
+    monkeypatch.setenv("GEMINI_API_KEY", "gm-secret-value")
     text = "\n".join(validate(Settings()))
+    assert "gm-secret-value" not in text
+    assert "bogus-video" not in text
     assert "sk-secret-value" not in text
     assert "sk-other-secret" not in text
     assert "bogus" not in text
@@ -219,3 +263,6 @@ def test_polluted_host_environment_does_not_leak_into_tests() -> None:
     assert s.transcribe_providers == ["local"]
     assert s.llm_providers == ["anthropic"]
     assert s.openai_transcribe_model == "whisper-1"
+    assert s.video_providers == []
+    assert s.gemini_api_key is None
+    assert s.omni_model == "gemini-omni-1.1-flash"

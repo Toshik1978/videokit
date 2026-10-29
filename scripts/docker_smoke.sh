@@ -10,10 +10,15 @@
 # Then repeat the health/SPA checks with the container running as the invoking uid:gid and a
 # bind-mounted temp directory as /data (how Compose and `task docker:run` run it), and verify the
 # SQLite DB and caches were written there, owned by that uid.
+# Also (Video Generation) decode a HEIC sample generated during the run through MediaService.normalize_picture
+# (ffmpeg has no HEIF muxer, so backend/tests/heic_sample.py assembles the sample, mounted read-only) and remux a
+# generated H.264 + AAC clip to a silent MP4 with MediaService.finalize_clip (research V6, V7). The HEIC samples
+# are a single image and a 2x2 tile grid (how phones store photos): the grid must come out as the whole picture.
 # Usage: scripts/docker_smoke.sh [image]   (default: videokit:ci)
 set -euo pipefail
 
 image="${1:-videokit:ci}"
+tests_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../backend/tests" && pwd)"
 name="videokit-smoke-$$"
 timeout_s="${SMOKE_TIMEOUT:-120}"
 
@@ -64,6 +69,49 @@ with tempfile.TemporaryDirectory() as tmp:
             sys.exit(1)
 print("codecs ok")
 ' || { echo "the image cannot decode every common video codec" >&2; exit 1; }
+
+# Video Generation: normalize a HEIC picture to JPEG and finalize an H.264 + AAC clip to a silent MP4.
+docker run --rm -v "$tests_dir:/tests:ro" --entrypoint python "$image" -c '
+import subprocess, sys, tempfile
+from pathlib import Path
+
+sys.path.insert(0, "/tests")
+from fakes_videogen import write_clip
+from heic_sample import write_heic
+
+from videokit.core.config import Settings
+from videokit.core.media import MediaService
+
+media = MediaService(Settings(_env_file=None))
+
+
+def streams(path, entries="codec_type,codec_name"):
+    cmd = ["ffprobe", "-v", "error", "-show_entries", f"stream={entries}", "-of", "csv=p=0", str(path)]
+    return subprocess.run(cmd, check=True, capture_output=True, text=True).stdout.split()
+
+
+with tempfile.TemporaryDirectory() as tmp:
+    job_dir = Path(tmp)
+    for name, size, grid in (("heic", (64, 48), (1, 1)), ("heic-grid", (128, 96), (2, 2))):
+        try:
+            write_heic(job_dir / f"{name}.heic", *size, grid=grid)
+            media.normalize_picture(job_dir / f"{name}.heic", job_dir / f"{name}.jpg")
+            assert streams(job_dir / f"{name}.jpg") == ["mjpeg,video"]
+            assert streams(job_dir / f"{name}.jpg", "width,height") == [f"{size[0]},{size[1]}"]
+        except Exception as exc:
+            # The exception type only: its message may carry ffmpeg output or paths.
+            print(f"picture check failed: {name} ({type(exc).__name__})", file=sys.stderr)
+            sys.exit(1)
+    try:
+        write_clip(job_dir / "raw.mp4")
+        clip = media.finalize_clip(job_dir / "raw.mp4", job_dir)
+        assert streams(job_dir / clip.file) == ["h264,video"]
+        assert clip.thumbnail and (job_dir / clip.thumbnail).stat().st_size > 0 and not (job_dir / "raw.mp4").exists()
+    except Exception as exc:
+        print(f"clip check failed: h264-aac ({type(exc).__name__})", file=sys.stderr)
+        sys.exit(1)
+print("pictures and clips ok")
+' || { echo "the image cannot normalize a HEIC picture or finalize a clip" >&2; exit 1; }
 
 # Audio Extract encodes MP3 with libmp3lame at 192k: encode a generated tone and probe the result.
 docker run --rm --entrypoint sh "$image" -c '

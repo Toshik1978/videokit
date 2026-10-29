@@ -15,6 +15,7 @@ import socket
 import threading
 import time
 from collections.abc import Callable, Iterator
+from collections.abc import Set as AbstractSet
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
@@ -133,8 +134,8 @@ def test_full_run_logs_no_transcript_frames_hints_or_keys(
 
     with TestClient(create_app(settings, providers, static_dir=tmp_path / "static")) as client:
         created = client.post(
-            "/api/jobs",
-            json={"tool_id": "youtube_prep", "size": len(data), "file_name": f"{FILE_NAME_MARKER}.mp4"},
+            "/api/tools/youtube_prep/jobs",
+            json={"size": len(data), "file_name": f"{FILE_NAME_MARKER}.mp4"},
         )
         job_id = created.json()["job_id"]
         assert client.patch(f"/api/uploads/{job_id}", content=data, headers=TUS_PATCH).status_code == 204
@@ -145,8 +146,8 @@ def test_full_run_logs_no_transcript_frames_hints_or_keys(
         regenerated = client.post(url, json={"section": "title", "hint": HINT_MARKER})
 
         audio_job = client.post(
-            "/api/jobs",
-            json={"tool_id": "audio_extract", "size": len(data), "file_name": f"{FILE_NAME_MARKER}.mov"},
+            "/api/tools/audio_extract/jobs",
+            json={"size": len(data), "file_name": f"{FILE_NAME_MARKER}.mov"},
         ).json()["job_id"]
         assert client.patch(f"/api/uploads/{audio_job}", content=data, headers=TUS_PATCH).status_code == 204
         audio_body = _wait_done(client, audio_job)
@@ -257,7 +258,7 @@ def test_startup_failure_under_uvicorn_logs_no_traceback_or_message(
 ) -> None:
     secret = f"recovery failed near {TRANSCRIPT_MARKERS[0]} with key {ANTHROPIC_KEY}"
 
-    def broken_recover(self: JobStore) -> int:
+    def broken_recover(self: JobStore, resumable: AbstractSet[str]) -> int:
         raise RuntimeError(secret)
 
     monkeypatch.setattr(JobStore, "recover_after_restart", broken_recover)

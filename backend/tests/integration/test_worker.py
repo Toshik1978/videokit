@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
@@ -37,18 +37,37 @@ MakeVideo = Callable[..., Path]
 class ScriptedTool:
     """Walks the three stages, checking for cancellation at each boundary.
 
-    Clearing ``gate`` holds every run inside stage ``hold_at`` until it is set again; ``error`` is raised
-    inside stage ``fail_at``.
+    Clearing ``gate`` holds every run inside stage ``hold_at`` until it is set again; with ``per_job_gates`` set,
+    each run also waits there on its own event in ``job_gates`` (so a test can release one run at a time);
+    ``error`` is raised inside stage ``fail_at``.
     """
 
     name = "Scripted"
     description = "A tool driven by the test."
-    router = APIRouter()
+    concurrency = 1
+    resume_after_restart = False
+
+    def enabled(self, settings: Settings) -> bool:
+        return True
+
+    def accept(self, job: JobHandle, ctx: CoreContext) -> None:
+        self.accepted.append(job.id)
+        if self.accept_error is not None:
+            raise self.accept_error
+        if self.probes:
+            job.record(duration_s=ctx.media.probe_source(job.dir).duration_s)
 
     def __init__(self, tool_id: str = "scripted") -> None:
         self.id = tool_id
+        self.router = APIRouter()
+        self.router.add_api_route("/jobs", self._create, methods=["POST"], status_code=201)
+        self.accepted: list[str] = []
+        self.accept_error: Exception | None = None
+        self.probes = True
         self.gate = threading.Event()
         self.gate.set()
+        self.per_job_gates = False
+        self.job_gates: dict[str, threading.Event] = {}
         self.hold_at = "extracting"
         self.fail_at = "transcribing"
         self.error: Exception | None = None
@@ -58,6 +77,9 @@ class ScriptedTool:
         self.contexts: list[CoreContext] = []
         self.running = 0
         self.max_running = 0
+
+    async def _create(self, body: uploads.CreateUploadRequest, request: Request) -> dict[str, str]:
+        return await uploads.create_upload_job(request, self.id, body)
 
     async def run(self, job: JobHandle, ctx: CoreContext) -> None:
         self.runs.append(job.id)
@@ -74,8 +96,11 @@ class ScriptedTool:
                 self.stages.append((job.id, stage))
                 if stage == self.hold_at:
                     await asyncio.to_thread(self.gate.wait, 10)
+                    if self.per_job_gates:
+                        await asyncio.to_thread(self.job_gates.setdefault(job.id, threading.Event()).wait, 10)
                 if stage == self.fail_at and self.error is not None:
                     raise self.error
+            job.dir.mkdir(parents=True, exist_ok=True)  # a job without an upload has no directory yet
             (job.dir / "result.json").write_text('{"title": "ok"}', encoding="utf-8")
         finally:
             self.running -= 1
@@ -84,6 +109,13 @@ class ScriptedTool:
 @pytest.fixture
 def tool() -> ScriptedTool:
     return ScriptedTool()
+
+
+@pytest.fixture
+def wide_tool(tool: ScriptedTool) -> ScriptedTool:
+    """The scripted tool with three slots; request it before ``client``, which starts the lanes."""
+    tool.concurrency = 3
+    return tool
 
 
 @pytest.fixture
@@ -115,6 +147,8 @@ def client(
     monkeypatch.setattr(worker_module, "POLL_INTERVAL_S", 60.0)
     app = create_app(settings, providers, tools_package="videokit.tools", static_dir=tmp_path / "static")
     app.state.tools = {tool.id: tool, other.id: other}
+    for t in (tool, other):  # mounted after creation: the real tools' routes are the only ones mounted by then
+        app.include_router(t.router, prefix=f"/api/tools/{t.id}")
     with TestClient(app) as c:
         try:
             yield c
@@ -158,7 +192,7 @@ def _wait_state(client: TestClient, job_id: str, state: JobState) -> Job:
 
 
 def _create(client: TestClient, size: int, tool_id: str = "scripted") -> str:
-    r = client.post("/api/jobs", json={"tool_id": tool_id, "size": size})
+    r = client.post(f"/api/tools/{tool_id}/jobs", json={"size": size})
     assert r.status_code == 201
     return str(r.json()["job_id"])
 
@@ -228,7 +262,7 @@ def test_upload_completion_is_idempotent(client: TestClient, tool: ScriptedTool,
     store.set_upload_offset(job.id, len(video))
 
     async def complete_twice() -> None:
-        await asyncio.gather(worker.on_upload_complete(job.id), worker.on_upload_complete(job.id))
+        await asyncio.gather(worker.complete_inputs(job.id), worker.complete_inputs(job.id))
 
     client.portal.call(complete_twice)  # type: ignore[union-attr]
     _wait_state(client, job.id, JobState.DONE)
@@ -237,7 +271,7 @@ def test_upload_completion_is_idempotent(client: TestClient, tool: ScriptedTool,
     bad_id = _upload(client, b"not a video" * 10)
     _wait_state(client, bad_id, JobState.FAILED)
     for job_id in (job.id, bad_id, "unknown-job"):
-        client.portal.call(worker.on_upload_complete, job_id)  # type: ignore[union-attr]
+        client.portal.call(worker.complete_inputs, job_id)  # type: ignore[union-attr]
     assert _job(client, job.id).state is JobState.DONE
     assert _job(client, bad_id).failure_reason == NOT_A_VIDEO
     assert tool.runs == [job.id]
@@ -249,8 +283,42 @@ def test_upload_completion_is_idempotent(client: TestClient, tool: ScriptedTool,
 def test_incomplete_upload_is_not_queued(client: TestClient, video: bytes) -> None:
     job_id = _create(client, len(video))
     assert _patch(client, job_id, video[:100]) == 204
-    client.portal.call(_worker(client).on_upload_complete, job_id)  # type: ignore[union-attr]
+    client.portal.call(_worker(client).complete_inputs, job_id)  # type: ignore[union-attr]
     assert _job(client, job_id).state is JobState.UPLOADING
+
+
+def test_accepting_tool_queues_the_job(client: TestClient, tool: ScriptedTool, video: bytes) -> None:
+    job_id = _upload(client, video)
+    _wait_state(client, job_id, JobState.DONE)
+    assert tool.accepted == [job_id]
+
+
+def test_accept_error_fails_the_job_with_its_message_and_code(client: TestClient, tool: ScriptedTool) -> None:
+    tool.accept_error = AppError("too_long", "That file is too long.", 400)
+    job_id = _upload(client, b"x" * 100)
+    failed = _wait_state(client, job_id, JobState.FAILED)
+    assert (failed.failure_reason, failed.failure_code) == ("That file is too long.", "too_long")
+    assert not (_store(client).job_dir(job_id) / "source.bin").exists()
+    assert tool.runs == []
+
+
+def test_repeated_completion_asks_the_tool_only_while_uploading(
+    client: TestClient, tool: ScriptedTool, video: bytes
+) -> None:
+    job_id = _upload(client, video)
+    _wait_state(client, job_id, JobState.DONE)
+    client.portal.call(_worker(client).complete_inputs, job_id)  # type: ignore[union-attr]
+    assert tool.accepted == [job_id]
+    assert tool.runs == [job_id]
+
+
+def test_zero_length_job_completes_without_any_upload(client: TestClient, tool: ScriptedTool) -> None:
+    tool.probes = False
+    job = _store(client).create("scripted", 0)
+    client.portal.call(_worker(client).complete_inputs, job.id)  # type: ignore[union-attr]
+    _wait_state(client, job.id, JobState.DONE)
+    assert tool.accepted == [job.id]
+    assert tool.runs == [job.id]
 
 
 # --- queue ------------------------------------------------------------------------------------------------------
@@ -317,6 +385,137 @@ def test_each_lane_runs_its_own_jobs_one_at_a_time(
         _wait_state(client, job_id, JobState.DONE)
     assert (tool.runs, other.runs) == ([a1, a2, a3], [b1, b2])
     assert (tool.max_running, other.max_running) == (1, 1)
+
+
+def _running(tool: ScriptedTool) -> int:
+    return tool.running
+
+
+def test_a_lane_runs_up_to_concurrency_jobs_at_once(wide_tool: ScriptedTool, client: TestClient, video: bytes) -> None:
+    tool = wide_tool
+    tool.gate.clear()
+    jobs = [_upload(client, video) for _ in range(3)]
+    for job_id in jobs:
+        _wait_state(client, job_id, JobState.EXTRACTING)
+    _wait(lambda: _running(tool) == 3)
+    fourth = _upload(client, video)
+    assert _job(client, fourth).state is JobState.QUEUED
+    assert _position(client, fourth) == 1
+    assert client.get("/api/health").json()["queue_length"] == 1
+    assert _worker(client)._current == set(jobs)
+
+    tool.gate.set()
+    for job_id in (*jobs, fourth):
+        _wait_state(client, job_id, JobState.DONE)
+    assert sorted(tool.runs) == sorted([*jobs, fourth])
+    assert len(set(tool.runs)) == 4  # no job ran twice
+    assert tool.max_running == 3
+    assert _worker(client)._current == set()
+
+
+def test_a_waiting_job_starts_as_soon_as_one_slot_frees(
+    wide_tool: ScriptedTool, client: TestClient, video: bytes
+) -> None:
+    tool = wide_tool
+    tool.per_job_gates = True
+    jobs = [_upload(client, video) for _ in range(3)]
+    for job_id in jobs:
+        _wait_state(client, job_id, JobState.EXTRACTING)
+    _wait(lambda: set(tool.job_gates) == set(jobs))
+    fourth, fifth = _upload(client, video), _upload(client, video)
+    assert (_position(client, fourth), _position(client, fifth)) == (1, 2)
+    assert (_job(client, fourth).state, _job(client, fifth).state) == (JobState.QUEUED, JobState.QUEUED)
+
+    tool.job_gates[jobs[0]].set()  # exactly one of the three finishes
+    _wait_state(client, jobs[0], JobState.DONE)
+    _wait_state(client, fourth, JobState.EXTRACTING)  # its slot is refilled at once, in FIFO order
+    assert _job(client, fifth).state is JobState.QUEUED  # only one slot was freed
+    assert _position(client, fifth) == 1
+    assert [_job(client, j).state for j in jobs[1:]] == [JobState.EXTRACTING] * 2  # the others are still running
+    assert tool.running == 3
+
+    tool.job_gates[jobs[1]].set()  # the next free slot goes to the fifth
+    _wait_state(client, fifth, JobState.EXTRACTING)
+    assert _job(client, jobs[2]).state is JobState.EXTRACTING
+    assert tool.max_running == 3
+
+    _wait(lambda: set(tool.job_gates) == {*jobs, fourth, fifth})
+    for gate in tool.job_gates.values():
+        gate.set()
+    for job_id in (*jobs, fourth, fifth):
+        _wait_state(client, job_id, JobState.DONE)
+    assert tool.runs[3:] == [fourth, fifth]  # claimed in FIFO order; each started after a slot freed
+    assert sorted(tool.runs) == sorted([*jobs, fourth, fifth])
+
+
+def test_a_job_queued_while_slots_are_idle_is_taken_by_exactly_one(
+    wide_tool: ScriptedTool, client: TestClient, video: bytes
+) -> None:
+    tool = wide_tool
+    job_ids = [_upload(client, video) for _ in range(6)]
+    for job_id in job_ids:
+        _wait_state(client, job_id, JobState.DONE)
+    assert sorted(tool.runs) == sorted(job_ids)
+    assert len(tool.runs) == 6
+
+
+def test_a_slot_that_errors_on_one_job_does_not_stall_the_lane(
+    wide_tool: ScriptedTool, client: TestClient, video: bytes, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tool, store, worker = wide_tool, _store(client), _worker(client)
+    broken = _create(client, len(video))
+    original_get = store.get
+    raised: list[str] = []
+
+    def get(job_id: str) -> Job | None:
+        job = original_get(job_id)
+        if job_id == broken and not raised and job is not None and job.state is JobState.QUEUED:
+            raised.append(job_id)  # the slot that claimed it fails reading it
+            raise RuntimeError("database hiccup")
+        return job
+
+    monkeypatch.setattr(store, "get", get)
+    assert _patch(client, broken, video) == 204
+    _wait(lambda: bool(raised))
+    _wait(lambda: broken not in worker._current)  # the crashed claim is released
+    healthy = _upload(client, video)
+    _wait_state(client, healthy, JobState.DONE)
+    _wait_state(client, broken, JobState.DONE)  # picked up again by a slot on the next wake-up
+    assert sorted(tool.runs) == sorted([healthy, broken])
+    assert worker._current == set()
+
+
+def test_cancel_marks_only_the_running_job_among_concurrent_ones(
+    wide_tool: ScriptedTool, client: TestClient, video: bytes
+) -> None:
+    tool = wide_tool
+    tool.gate.clear()
+    jobs = [_upload(client, video) for _ in range(3)]
+    for job_id in jobs:
+        _wait_state(client, job_id, JobState.EXTRACTING)
+    waiting = _upload(client, video)
+    status, body = _cancel(client, waiting)  # not claimed by any slot: cancelled at once
+    assert (status, body["state"]) == (202, "cancelled")
+    status, body = _cancel(client, jobs[1])  # running: flagged, stops at the next stage boundary
+    assert (status, body["state"]) == (202, "extracting")
+    tool.gate.set()
+    _wait_state(client, jobs[1], JobState.CANCELLED)
+    _wait_state(client, jobs[0], JobState.DONE)
+    _wait_state(client, jobs[2], JobState.DONE)
+
+
+def test_worker_starts_concurrency_slots_per_lane(
+    tmp_path: Path, settings: Settings, providers: Providers, wide_tool: ScriptedTool, other: ScriptedTool
+) -> None:
+    app = create_app(settings, providers, tools_package="videokit.tools", static_dir=tmp_path / "static")
+    app.state.tools = {wide_tool.id: wide_tool, other.id: other}
+    with TestClient(app) as c:
+        worker = _worker(c)
+        slots = list(worker._tasks)
+        assert len(slots) == 3 + 1
+        assert not any(task.done() for task in slots)
+    assert all(task.cancelled() for task in slots)
+    assert worker._tasks == [] and worker._wakes == []
 
 
 # --- cancellation -----------------------------------------------------------------------------------------------
@@ -585,7 +784,7 @@ def test_upload_of_an_unknown_tool_fails_with_internal_error(client: TestClient,
     source.parent.mkdir(parents=True)
     source.write_bytes(video)
     store.set_upload_offset(job.id, len(video))
-    client.portal.call(_worker(client).on_upload_complete, job.id)  # type: ignore[union-attr]
+    client.portal.call(_worker(client).complete_inputs, job.id)  # type: ignore[union-attr]
     failed = _job(client, job.id)
     assert (failed.state, failed.failure_reason, failed.failure_code) == (
         JobState.FAILED,
@@ -619,11 +818,94 @@ def test_restart_recovery_fails_interrupted_jobs(
     assert not source.exists()  # FR-014: a failed job's source is deleted
 
 
+def _restart_app(tmp_path: Path, settings: Settings, providers: Providers, *tools: ScriptedTool) -> Any:
+    app = create_app(settings, providers, tools_package="videokit.tools", static_dir=tmp_path / "static")
+    app.state.tools = {t.id: t for t in tools}
+    return app
+
+
+def _left_running(store: JobStore, tool_id: str, *states: JobState) -> str:
+    """A job a stopped server left in the given running state, with its source video on disk."""
+    job = store.create(tool_id, 10)
+    store.set_upload_offset(job.id, 10)
+    store.set_state(job.id, JobState.QUEUED)
+    for state in states:
+        store.set_state(job.id, state)
+    source = store.job_dir(job.id) / "source.bin"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_bytes(b"0123456789")
+    return job.id
+
+
+def test_a_resumable_job_left_generating_is_rerun_once_before_queued_jobs(
+    tmp_path: Path, settings: Settings, providers: Providers, tool: ScriptedTool, other: ScriptedTool
+) -> None:
+    tool.resume_after_restart = True
+    tool.stage_names = ("generating",)
+    settings.data_dir.mkdir(parents=True)
+    store = JobStore(settings.data_dir, settings.job_ttl_hours, settings.max_upload_bytes)
+    waiting = _left_running(store, "scripted")  # queued first, so FIFO alone would run it first
+    interrupted = _left_running(store, "scripted", JobState.GENERATING)
+    lost = _left_running(store, "other", JobState.EXTRACTING)  # a tool that does not resume
+
+    with TestClient(_restart_app(tmp_path, settings, providers, tool, other)) as c:
+        _wait_state(c, interrupted, JobState.DONE)
+        _wait_state(c, waiting, JobState.DONE)
+        lost_job = _job(c, lost)
+
+    assert tool.runs == [interrupted, waiting]  # re-run exactly once, ahead of the queued job
+    assert (store.job_dir(interrupted) / "source.bin").exists()  # recovery kept the resumable job's files
+    assert (lost_job.state, lost_job.failure_code) == (JobState.FAILED, "server_restarted")
+    assert other.runs == []
+
+
+def test_every_interrupted_job_of_a_resumable_tool_is_rerun_across_its_slots(
+    tmp_path: Path, settings: Settings, providers: Providers, tool: ScriptedTool, other: ScriptedTool
+) -> None:
+    tool.resume_after_restart = True
+    tool.concurrency = 2
+    tool.stage_names = ("generating",)
+    settings.data_dir.mkdir(parents=True)
+    store = JobStore(settings.data_dir, settings.job_ttl_hours, settings.max_upload_bytes)
+    first = _left_running(store, "scripted", JobState.GENERATING)
+    second = _left_running(store, "scripted", JobState.GENERATING)
+
+    with TestClient(_restart_app(tmp_path, settings, providers, tool, other)) as c:
+        _wait_state(c, first, JobState.DONE)
+        _wait_state(c, second, JobState.DONE)
+
+    assert sorted(tool.runs) == sorted([first, second])  # none run twice
+
+
+def test_an_interrupted_job_can_be_cancelled_while_waiting_for_its_rerun(
+    tmp_path: Path, settings: Settings, providers: Providers, tool: ScriptedTool, other: ScriptedTool
+) -> None:
+    tool.resume_after_restart = True
+    tool.stage_names = ("generating",)
+    tool.hold_at = "generating"
+    tool.gate.clear()  # the first re-run holds the only slot
+    settings.data_dir.mkdir(parents=True)
+    store = JobStore(settings.data_dir, settings.job_ttl_hours, settings.max_upload_bytes)
+    running = _left_running(store, "scripted", JobState.GENERATING)
+    behind = _left_running(store, "scripted", JobState.GENERATING)
+
+    with TestClient(_restart_app(tmp_path, settings, providers, tool, other)) as c:
+        _wait(lambda: tool.runs == [running])
+        assert _cancel(c, behind)[0] == 202  # flagged: it stops when its re-run starts
+        tool.gate.set()
+        _wait_state(c, running, JobState.DONE)
+        _wait_state(c, behind, JobState.CANCELLED)
+
+    assert tool.runs == [running]
+
+
 def test_worker_runs_one_loop_per_tool_and_stop_cancels_every_loop(
     tmp_path: Path, settings: Settings, providers: Providers, tool: ScriptedTool, other: ScriptedTool
 ) -> None:
     app = create_app(settings, providers, tools_package="videokit.tools", static_dir=tmp_path / "static")
     app.state.tools = {tool.id: tool, other.id: other}
+    for t in (tool, other):  # mounted after creation: the real tools' routes are the only ones mounted by then
+        app.include_router(t.router, prefix=f"/api/tools/{t.id}")
     with TestClient(app) as c:
         worker = _worker(c)
         loops = list(worker._tasks)

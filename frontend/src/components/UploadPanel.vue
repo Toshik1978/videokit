@@ -233,11 +233,10 @@ async function onChange(event: Event): Promise<void> {
       return;
     }
     if (!entry) {
-      const job = await postJson<{ job_id: string; upload_url: string }>('/api/jobs', {
-        tool_id: props.toolId,
-        size: file.size,
-        file_name: file.name,
-      });
+      const job = await postJson<{ job_id: string; upload_url: string }>(
+        `/api/tools/${encodeURIComponent(props.toolId)}/jobs`,
+        { size: file.size, file_name: file.name },
+      );
       if (attempt.cancelled) {
         await cancelJob(job.job_id);
         return;

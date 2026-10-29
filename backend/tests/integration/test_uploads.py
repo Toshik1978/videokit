@@ -23,17 +23,33 @@ def tools_pkg(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
     (pkg / "demo" / "__init__.py").write_text(
         textwrap.dedent(
             """
-            from fastapi import APIRouter
+            from fastapi import APIRouter, Request
+
+            from videokit.core import uploads
+
+            router = APIRouter()
+
+            @router.post("/jobs", status_code=201)
+            async def create(body: uploads.CreateUploadRequest, request: Request) -> dict[str, str]:
+                return await uploads.create_upload_job(request, "demo_tool", body)
 
             class T:
                 id = "demo_tool"
                 name = "Demo"
                 description = "Demo."
-                router = APIRouter()
+                concurrency = 1
+                resume_after_restart = False
+
+                def enabled(self, settings):
+                    return True
+
+                def accept(self, job, ctx):
+                    return None
 
                 async def run(self, job, ctx):
                     return None
 
+            T.router = router
             TOOL = T()
             """
         )
@@ -55,7 +71,7 @@ def client(tmp_path: Path, tools_pkg: str, completed: list[str]) -> Iterator[Tes
     async def on_complete(job_id: str) -> None:
         completed.append(job_id)
 
-    app.state.on_upload_complete = on_complete
+    app.state.complete_inputs = on_complete
     with TestClient(app) as c:
         yield c
 
@@ -66,50 +82,9 @@ def _store(client: TestClient) -> JobStore:
 
 
 def _create(client: TestClient, size: int = 10) -> str:
-    r = client.post("/api/jobs", json={"tool_id": "demo_tool", "size": size})
+    r = client.post("/api/tools/demo_tool/jobs", json={"size": size})
     assert r.status_code == 201
     return str(r.json()["job_id"])
-
-
-def test_create_job(client: TestClient) -> None:
-    r = client.post("/api/jobs", json={"tool_id": "demo_tool", "size": 10})
-    assert r.status_code == 201
-    body = r.json()
-    assert body["upload_url"] == f"/api/uploads/{body['job_id']}"
-    job = _store(client).get(body["job_id"])
-    assert job is not None
-    assert job.state is JobState.UPLOADING
-    assert job.upload_length == 10
-
-
-def test_create_job_unknown_tool(client: TestClient) -> None:
-    r = client.post("/api/jobs", json={"tool_id": "nope", "size": 10})
-    assert r.status_code == 404
-    assert r.json()["error"]["code"] == "unknown_tool"
-
-
-def test_create_job_too_large(client: TestClient) -> None:
-    r = client.post("/api/jobs", json={"tool_id": "demo_tool", "size": 1024**3 + 1})
-    assert r.status_code == 413
-    assert r.json()["error"]["code"] == "file_too_large"
-
-
-@pytest.mark.parametrize(
-    "payload",
-    [
-        {},
-        {"tool_id": "demo_tool"},
-        {"tool_id": "demo_tool", "size": 0},
-        {"tool_id": "demo_tool", "size": -5},
-        {"tool_id": "demo_tool", "size": "big"},
-        {"tool_id": "demo_tool", "size": 1.5},
-        {"tool_id": 3, "size": 5},
-    ],
-)
-def test_create_job_invalid(client: TestClient, payload: dict[str, object]) -> None:
-    r = client.post("/api/jobs", json=payload)
-    assert r.status_code == 422
-    assert r.json()["error"]["code"] == "invalid_request"
 
 
 def test_options(client: TestClient) -> None:

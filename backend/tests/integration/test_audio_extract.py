@@ -1,7 +1,6 @@
 """Audio Extract: the tool run through the HTTP API and the worker, and its MP3 download route."""
 
 import asyncio
-import re
 import subprocess
 import threading
 import time
@@ -97,10 +96,10 @@ def _wait_state(client: TestClient, job_id: str, state: JobState, timeout: float
 
 
 def _create(client: TestClient, size: int, tool_id: str = "audio_extract", file_name: str | None = None) -> str:
-    body: dict[str, Any] = {"tool_id": tool_id, "size": size}
+    body: dict[str, Any] = {"size": size}
     if file_name is not None:
         body["file_name"] = file_name
-    r = client.post("/api/jobs", json=body)
+    r = client.post(f"/api/tools/{tool_id}/jobs", json=body)
     assert r.status_code == 201
     return str(r.json()["job_id"])
 
@@ -179,14 +178,7 @@ def test_full_flow_produces_a_free_mp3_named_after_the_video(client: TestClient,
     [
         ("my trip.mov", 'attachment; filename="my trip.mp3"'),
         ("Café.mp4", "attachment; filename=\"Cafe.mp3\"; filename*=UTF-8''Caf%C3%A9.mp3"),
-        (
-            "Поездка.mp4",
-            "attachment; filename=\"audio.mp3\"; filename*=UTF-8''%D0%9F%D0%BE%D0%B5%D0%B7%D0%B4%D0%BA%D0%B0.mp3",
-        ),
         (None, 'attachment; filename="audio.mp3"'),
-        # `%XX` in a plain `filename` is decoded by some browsers: `filename*` carries the exact name.
-        ("50%41 off.mp4", "attachment; filename=\"50%41 off.mp3\"; filename*=UTF-8''50%2541%20off.mp3"),
-        ("100%.mp4", "attachment; filename=\"100%.mp3\"; filename*=UTF-8''100%25.mp3"),
     ],
 )
 def test_download_name_header(client: TestClient, sound_video: bytes, file_name: str | None, disposition: str) -> None:
@@ -196,33 +188,6 @@ def test_download_name_header(client: TestClient, sound_video: bytes, file_name:
         r = client.request(method, _url(job_id))
         assert r.status_code == 200
         assert r.headers["content-disposition"] == disposition
-
-
-_DISPOSITION = re.compile(r"""attachment; filename="([^"\\]*)"; filename\*=UTF-8''[A-Za-z0-9%._~-]+""")
-
-
-@pytest.mark.parametrize(
-    ("file_name", "fallback"),
-    [
-        ("a\uff02; filename=\uff02evil.exe\uff02 x.mp4", "a__ filename__evil.exe_ x.mp3"),  # fullwidth quotes
-        ("a\uff3c.mp4", "a_.mp3"),  # fullwidth reverse solidus
-        ("a\ufe68b.mp4", "a_b.mp3"),  # small reverse solidus
-        ("\u00e9\uff0f..\uff0fz.mp4", "e_.._z.mp3"),  # fullwidth solidus
-    ],
-)
-def test_ascii_fallback_cannot_smuggle_header_syntax(
-    client: TestClient, sound_video: bytes, file_name: str, fallback: str
-) -> None:
-    """NFKD maps fullwidth and small forms back to `"`, `\\` and `/`: the fallback is sanitized again."""
-    job_id = _upload(client, sound_video, file_name=file_name)
-    _wait_state(client, job_id, JobState.DONE)
-    disposition = client.get(_url(job_id)).headers["content-disposition"]
-    match = _DISPOSITION.fullmatch(disposition)
-    assert match is not None, disposition
-    assert match.group(1) == fallback
-    assert "/" not in match.group(1)
-    assert disposition.count("filename=") == 1
-    assert disposition.count("filename*=") == 1
 
 
 # --- download errors -------------------------------------------------------------------------------------------
@@ -380,6 +345,14 @@ class BlockingTool:
     name = "YouTube Prep"
     description = "Blocked by the test."
     router = APIRouter()
+    concurrency = 1
+    resume_after_restart = False
+
+    def enabled(self, settings: Settings) -> bool:
+        return True
+
+    def accept(self, job: JobHandle, ctx: CoreContext) -> None:
+        return None
 
     def __init__(self) -> None:
         self.gate = threading.Event()

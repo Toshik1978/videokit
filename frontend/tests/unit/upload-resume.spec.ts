@@ -37,6 +37,7 @@ vi.mock('tus-js-client', () => ({
 const STORAGE_KEY = 'videokit.uploads';
 const CONFIG = { max_upload_bytes: 1000, upload_chunk_bytes: 256, job_ttl_hours: 24 };
 const FINGERPRINT = 'youtube_prep|clip.mp4|500|1700000000000|video/mp4';
+const TOOL_JOBS = /^\/api\/tools\/[a-z_]+\/jobs$/;
 const OTHER_FINGERPRINT = 'audio_extract|clip.mp4|500|1700000000000|video/mp4';
 
 function json(status: number, body: unknown): Response {
@@ -52,7 +53,7 @@ let fetchMock: ReturnType<typeof vi.fn>;
 function stubFetch() {
   fetchMock = vi.fn((url: string, init?: RequestInit) => {
     if (url === '/api/config') return Promise.resolve(json(200, CONFIG));
-    if (url === '/api/jobs' && init?.method === 'POST') {
+    if (String(url).match(TOOL_JOBS) && init?.method === 'POST') {
       return Promise.resolve(json(201, { job_id: 'new', upload_url: '/api/uploads/new' }));
     }
     if (url === '/api/jobs/new/cancel') return Promise.resolve(json(202, {}));
@@ -63,7 +64,9 @@ function stubFetch() {
 }
 
 const posted = () =>
-  fetchMock.mock.calls.filter(([url, init]) => url === '/api/jobs' && init?.method === 'POST');
+  fetchMock.mock.calls.filter(
+    ([url, init]) => String(url).match(TOOL_JOBS) && init?.method === 'POST',
+  );
 const stored = () => JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}');
 
 async function setup(toolId = 'youtube_prep') {
@@ -137,7 +140,8 @@ describe('resumable uploads', () => {
       false,
     );
     expect(posted()).toHaveLength(1);
-    expect(JSON.parse(posted()[0][1].body as string).tool_id).toBe('audio_extract');
+    expect(posted()[0][0]).toBe('/api/tools/audio_extract/jobs');
+    expect(JSON.parse(posted()[0][1].body as string)).not.toHaveProperty('tool_id');
     expect(tus.instances[0].options.uploadUrl).toBe('/api/uploads/new');
     expect(stored()).toEqual({
       [FINGERPRINT]: { job_id: 'old', upload_url: '/api/uploads/old' },
@@ -233,7 +237,7 @@ describe('resumable uploads', () => {
       i?: RequestInit,
     ) => Promise<Response>;
     fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
-      if (url === '/api/jobs' && init?.method === 'POST') await gate;
+      if (String(url).match(TOOL_JOBS) && init?.method === 'POST') await gate;
       return base(url, init);
     });
     const wrapper = await setup();

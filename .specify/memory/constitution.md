@@ -1,15 +1,18 @@
 <!--
 Sync Impact Report
-Version change: 1.3.0 -> 1.4.0 (MINOR: materially expanded guidance)
-Modified principles: I. Open-Source Hygiene (the repository's CI badge gist address MAY appear in
-  links and configuration, next to the repository addresses)
-Modified sections: none
+Version change: 1.4.0 -> 1.5.0 (MINOR: materially expanded guidance)
+Modified principles: IV. Provider Abstraction with Fallback (video generation providers join the
+  LLM and transcription providers behind provider interfaces)
+Modified sections: Technology & Operational Constraints (adds video generation: Google Gemini Omni
+  via the official `google-genai` SDK)
 Added sections: none
 Removed sections: none
 Templates checked: .specify/templates/plan-template.md, spec-template.md, tasks-template.md,
   checklist-template.md, constitution-template.md (no changes needed)
 Follow-up TODOs: none
-Previous amendment: 1.2.0 -> 1.3.0 (MINOR) made the `chore(release): vX.Y.Z` changelog commit
+Previous amendment: 1.3.0 -> 1.4.0 (MINOR) let the repository's CI badge gist address appear in
+  links and configuration (Principle I).
+Earlier amendment: 1.2.0 -> 1.3.0 (MINOR) made the `chore(release): vX.Y.Z` changelog commit
   the single change the author may push directly to main (Development Workflow).
 Earlier amendment: 1.1.0 -> 1.2.0 (MINOR) changed Principle I (author-name and
   repository-address exceptions) and Technology & Operational Constraints (single slim image,
@@ -74,8 +77,9 @@ Rationale: the first tool must not shape the platform so tightly that the second
 
 External AI capabilities are pluggable and degrade gracefully.
 
-- LLM providers (Anthropic, OpenAI) and transcription providers (local Whisper, OpenAI) MUST sit
-  behind provider interfaces. Tools never import a vendor SDK directly.
+- LLM providers (Anthropic, OpenAI), transcription providers (local Whisper, OpenAI) and video
+  generation providers (Google Gemini Omni) MUST sit behind provider interfaces. Tools never
+  import a vendor SDK directly.
 - Providers are configured as an ordered list (primary, then fallbacks). On a provider failure the
   next one is tried; the provider actually used is recorded with the job.
 - A GPU MUST be optional: the app MUST run on CPU-only hosts and in cloud-only mode.
@@ -121,6 +125,7 @@ Rationale: one honest boundary beats a half-built auth system.
 - Media: ffmpeg/ffprobe invoked as subprocesses.
 - Transcription: local `faster-whisper` (CUDA when available, else CPU) and OpenAI transcription.
 - LLM: Anthropic (default) and OpenAI, via their official SDKs.
+- Video generation: Google Gemini Omni via the official `google-genai` SDK.
 - Packaging: one multi-stage Dockerfile building a single image for CPU and GPU hosts on a slim
   Python base that carries only the GPU libraries the transcription engine loads; an example
   `compose.yaml` that runs the published image with GPU access enabled by default.
@@ -155,4 +160,4 @@ that states the rationale and updates the version:
 Every plan MUST include a Constitution Check; any deviation MUST be recorded with justification in
 the plan's Complexity Tracking. Reviewers verify compliance on every pull request.
 
-**Version**: 1.4.0 | **Ratified**: 2026-10-11 | **Last Amended**: 2026-10-11
+**Version**: 1.5.0 | **Ratified**: 2026-10-11 | **Last Amended**: 2026-10-29

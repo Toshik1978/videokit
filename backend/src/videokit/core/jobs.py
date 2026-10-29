@@ -7,6 +7,7 @@ import secrets
 import sqlite3
 import time
 from collections.abc import Callable, Iterator
+from collections.abc import Set as AbstractSet
 from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import StrEnum
@@ -36,7 +37,7 @@ class JobState(StrEnum):
 S = JobState
 TRANSITIONS: dict[JobState, set[JobState]] = {
     S.UPLOADING: {S.QUEUED, S.CANCELLED, S.FAILED},
-    S.QUEUED: {S.EXTRACTING, S.CANCELLED, S.FAILED},
+    S.QUEUED: {S.EXTRACTING, S.GENERATING, S.CANCELLED, S.FAILED},
     S.EXTRACTING: {S.TRANSCRIBING, S.DONE, S.CANCELLED, S.FAILED},
     S.TRANSCRIBING: {S.GENERATING, S.CANCELLED, S.FAILED},
     S.GENERATING: {S.DONE, S.CANCELLED, S.FAILED},
@@ -95,7 +96,7 @@ def _job_from_row(row: sqlite3.Row) -> Job:
         language=row["language"],
         no_speech=bool(row["no_speech"]),
         providers=json.loads(row["providers"]),
-        usage=json.loads(row["usage"]),
+        usage={"video_output_tokens": 0, **json.loads(row["usage"])},  # rows from before video generation lack it
         source_name=row["source_name"],
     )
 
@@ -107,6 +108,7 @@ def _empty_usage() -> dict[str, Any]:
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "audio_minutes": 0.0,
+        "video_output_tokens": 0,
         "cost_usd": 0.0,
     }
 
@@ -157,7 +159,8 @@ class JobStore:
         return self._data_dir / "jobs" / job_id
 
     def create(self, tool_id: str, upload_length: int, source_name: str | None = None) -> Job:
-        if not 0 < upload_length <= self._max_upload_bytes:
+        # 0 is a job whose tool takes no resumable upload; otherwise 0 < length <= max.
+        if not 0 <= upload_length <= self._max_upload_bytes:
             raise ValueError("upload_length out of range")
         now = self._clock()
         job_id = secrets.token_urlsafe(16)
@@ -256,17 +259,23 @@ class JobStore:
                 )
             return self._load(conn, job_id)
 
-    def next_queued(self, tool_id: str) -> str | None:
-        """Id of the job of this tool that has waited longest in its lane (FIFO by `queued_at`), or None."""
+    def next_queued(self, tool_id: str, exclude: AbstractSet[str] = frozenset()) -> str | None:
+        """Id of the job of this tool that has waited longest in its lane (FIFO by `queued_at`), or None.
+
+        `exclude` holds ids to pass over: the jobs the lane's other slots have already claimed but not yet moved
+        out of `queued`.
+        """
         conn = db.connect(self._db_path)
         try:
-            row = conn.execute(
-                "SELECT id FROM jobs WHERE state = 'queued' AND tool_id = ? ORDER BY queued_at, rowid LIMIT 1",
-                (tool_id,),
-            ).fetchone()
+            rows = conn.execute(
+                "SELECT id FROM jobs WHERE state = 'queued' AND tool_id = ? ORDER BY queued_at, rowid", (tool_id,)
+            )
+            for row in rows:  # at most len(exclude) + 1 rows are read
+                if row["id"] not in exclude:
+                    return str(row["id"])
         finally:
             conn.close()
-        return None if row is None else str(row["id"])
+        return None
 
     def queue_position(self, job_id: str) -> int:
         """1 + number of queued jobs of the same tool ahead of this one; 0 when the job is not queued."""
@@ -314,6 +323,7 @@ class JobStore:
         cache_read_tokens: int = 0,
         cache_write_tokens: int = 0,
         audio_minutes: float = 0.0,
+        video_output_tokens: int = 0,
         cost_usd: float | None = 0.0,
     ) -> Job:
         """Atomically add to the job's usage totals. An unknown cost (None) makes the total cost unknown."""
@@ -324,6 +334,7 @@ class JobStore:
             usage["cache_read_tokens"] += cache_read_tokens
             usage["cache_write_tokens"] += cache_write_tokens
             usage["audio_minutes"] += audio_minutes
+            usage["video_output_tokens"] += video_output_tokens
             usage["cost_usd"] = None if usage["cost_usd"] is None or cost_usd is None else usage["cost_usd"] + cost_usd
             conn.execute(
                 "UPDATE jobs SET usage = ?, updated_at = ? WHERE id = ?", (json.dumps(usage), self._clock(), job_id)
@@ -382,14 +393,34 @@ class JobStore:
             )
             return cur.rowcount > 0
 
-    def recover_after_restart(self) -> int:
-        """Fail every job that was waiting or running when the server stopped and delete its source video
-        (FR-019, FR-014); returns how many."""
-        with self._tx() as conn:
+    def interrupted(self, tool_id: str) -> list[str]:
+        """Ids of the tool's jobs found mid-run (past `queued`, not finished), oldest first. After a restart these
+        are the jobs of a resumable tool that its lane must run again (research V3)."""
+        running = [s.value for s in RUNNING_STATES if s is not S.QUEUED]
+        conn = db.connect(self._db_path)
+        try:
             rows = conn.execute(
-                f"SELECT * FROM jobs WHERE state IN ({','.join('?' * len(RUNNING_STATES))})",
-                [s.value for s in RUNNING_STATES],
+                f"SELECT id FROM jobs WHERE tool_id = ? AND state IN ({','.join('?' * len(running))})"
+                " ORDER BY queued_at, rowid",
+                [tool_id, *running],
             ).fetchall()
+        finally:
+            conn.close()
+        return [str(row["id"]) for row in rows]
+
+    def recover_after_restart(self, resumable: AbstractSet[str] = frozenset()) -> int:
+        """Fail every job that was waiting or running when the server stopped and delete its source video
+        (FR-019, FR-014); returns how many. Jobs of the tools in `resumable` keep their state and files: their
+        lanes carry on (research V3)."""
+        with self._tx() as conn:
+            rows = [
+                row
+                for row in conn.execute(
+                    f"SELECT * FROM jobs WHERE state IN ({','.join('?' * len(RUNNING_STATES))})",
+                    [s.value for s in RUNNING_STATES],
+                ).fetchall()
+                if row["tool_id"] not in resumable
+            ]
             for row in rows:
                 self._transition(conn, _job_from_row(row), S.FAILED, RESTART_FAILURE_REASON, RESTART_FAILURE_CODE)
         for row in rows:

@@ -59,7 +59,12 @@ def test_usage_adds_up() -> None:
         input_tokens=10, output_tokens=20, cache_read_tokens=30, cache_write_tokens=40, audio_minutes=1.5
     )
     assert total == Usage(11, 22, 33, 44, 1.5)
-    assert Usage() == Usage(0, 0, 0, 0, 0.0)
+    assert Usage() == Usage(0, 0, 0, 0, 0.0, 0)
+
+
+def test_usage_adds_up_video_output_tokens() -> None:
+    total = Usage(video_output_tokens=5792) + Usage(input_tokens=1120, video_output_tokens=8688)
+    assert total == Usage(input_tokens=1120, video_output_tokens=14480)
 
 
 def test_response_model_comes_from_provider() -> None:

@@ -6,13 +6,16 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from PIL import Image
 
 from videokit.core import media as media_module
 from videokit.core.config import Settings
 from videokit.core.errors import AppError
-from videokit.core.media import AudioTrack, MediaArtifacts, MediaService, probe
+from videokit.core.media import AudioTrack, Clip, MediaArtifacts, MediaService, probe
 
 MakeVideo = Callable[..., Path]
+MakePicture = Callable[..., Path]
+MakeClip = Callable[..., Path]
 pytestmark = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")
 
 
@@ -86,6 +89,21 @@ def test_probe_duration_and_audio(make_video: MakeVideo) -> None:
 def test_probe_rejects_non_video(make_non_video: Callable[[], Path]) -> None:
     with pytest.raises(AppError) as exc:
         probe(make_non_video())
+    assert exc.value.code == "not_a_video"
+
+
+def test_probe_source_probes_the_job_source(tmp_path: Path, make_video: MakeVideo) -> None:
+    job_dir = _job_dir(tmp_path, make_video("a.mp4", audio=True))
+    info = MediaService(_settings(tmp_path)).probe_source(job_dir)
+    assert info.has_audio is True
+    assert info.duration_s == pytest.approx(6.0, abs=0.3)
+    assert (job_dir / "source.bin").exists()  # probing leaves the source in place
+
+
+def test_probe_source_rejects_a_text_file(tmp_path: Path, make_non_video: Callable[[], Path]) -> None:
+    job_dir = _job_dir(tmp_path, make_non_video())
+    with pytest.raises(AppError) as exc:
+        MediaService(_settings(tmp_path)).probe_source(job_dir)
     assert exc.value.code == "not_a_video"
 
 
@@ -354,3 +372,190 @@ def test_extract_mp3_ffmpeg_failure_is_extraction_failed(
     with pytest.raises(AppError) as exc:
         MediaService(_settings(tmp_path)).extract_mp3(job)
     assert (exc.value.code, exc.value.status) == ("extraction_failed", 500)
+
+
+def _ffprobe(path: Path, entries: str) -> dict[str, Any]:
+    out = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", entries, "-of", "json", str(path)],
+        check=True, capture_output=True, text=True,
+    )  # fmt: skip
+    info: dict[str, Any] = json.loads(out.stdout)
+    return info
+
+
+def _normalize(tmp_path: Path, src: Path) -> Path:
+    out = tmp_path / "pictures" / "1.jpg"
+    out.parent.mkdir()
+    MediaService(_settings(tmp_path)).normalize_picture(src, out)
+    return out
+
+
+def _size(path: Path) -> tuple[int, int]:
+    stream = _ffprobe(path, "stream=width,height")["streams"][0]
+    return stream["width"], stream["height"]
+
+
+@pytest.mark.parametrize("fmt", ["png", "jpeg", "webp", "heic"])
+def test_normalize_picture_writes_a_jpeg(tmp_path: Path, make_picture: MakePicture, fmt: str) -> None:
+    out = _normalize(tmp_path, make_picture(fmt, 64, 48))
+    assert _ffprobe(out, "stream=codec_name")["streams"][0]["codec_name"] == "mjpeg"
+    assert out.read_bytes()[:2] == b"\xff\xd8"
+    assert _size(out) == (64, 48)
+
+
+@pytest.mark.parametrize(("w", "h", "expected"), [(4000, 3000, (2048, 1536)), (3000, 4000, (1536, 2048))])
+def test_normalize_picture_limits_the_long_side_to_2048(
+    tmp_path: Path, make_picture: MakePicture, w: int, h: int, expected: tuple[int, int]
+) -> None:
+    assert _size(_normalize(tmp_path, make_picture("png", w, h))) == expected
+
+
+def test_normalize_picture_never_upscales(tmp_path: Path, make_picture: MakePicture) -> None:
+    assert _size(_normalize(tmp_path, make_picture("png", 2048, 100))) == (2048, 100)
+
+
+def _tile_centers(path: Path, cols: int, rows: int) -> list[tuple[int, ...]]:
+    """The RGB at the centre of each cell of a ``cols`` x ``rows`` split of the picture, row by row."""
+    with Image.open(path) as image:
+        rgb = image.convert("RGB")
+        cw, ch = rgb.width // cols, rgb.height // rows
+        return [rgb.getpixel((cw * (i % cols) + cw // 2, ch * (i // cols) + ch // 2)) for i in range(cols * rows)]  # type: ignore[misc]
+
+
+@pytest.mark.parametrize(("grid", "size"), [((2, 1), (128, 48)), ((2, 2), (128, 96)), ((3, 1), (192, 48))])
+def test_normalize_picture_composes_a_tiled_heic_into_the_whole_picture(
+    tmp_path: Path, make_picture: MakePicture, grid: tuple[int, int], size: tuple[int, int]
+) -> None:
+    out = _normalize(tmp_path, make_picture("heic", *size, grid=grid))
+    assert _size(out) == size
+    red, blue, green, yellow = ((255, 0, 0), (0, 0, 255), (0, 128, 0), (255, 255, 0))
+    expected = [red, blue, green, yellow][: grid[0] * grid[1]]
+    for got, want in zip(_tile_centers(out, *grid), expected, strict=True):
+        assert all(abs(g - w) < 60 for g, w in zip(got, want, strict=True)), (got, want)
+
+
+def test_normalize_picture_limits_a_large_tiled_heic_to_2048(tmp_path: Path, make_picture: MakePicture) -> None:
+    assert _size(_normalize(tmp_path, make_picture("heic", 4096, 1536, grid=(8, 3)))) == (2048, 768)
+
+
+def test_normalize_picture_of_a_tiled_heic_has_no_metadata(tmp_path: Path, make_picture: MakePicture) -> None:
+    out = _normalize(tmp_path, make_picture("heic", 128, 48, grid=(2, 1)))
+    assert b"Exif" not in out.read_bytes()
+    assert _ffprobe(out, "format_tags").get("format", {}).get("tags") is None
+
+
+def test_normalize_picture_rejects_a_truncated_heic(tmp_path: Path, make_picture: MakePicture) -> None:
+    src = make_picture("heic", 128, 48, grid=(2, 1))
+    src.write_bytes(src.read_bytes()[:150])
+    out = tmp_path / "1.jpg"
+    with pytest.raises(AppError) as exc:
+        MediaService(_settings(tmp_path)).normalize_picture(src, out)
+    assert (exc.value.code, exc.value.status) == ("invalid_picture", 422)
+    assert not out.exists()
+
+
+def test_normalize_picture_strips_exif_gps(tmp_path: Path, make_picture: MakePicture) -> None:
+    src = make_picture("jpeg", 64, 48, exif_gps=True)
+    assert b"Exif\0\0" in src.read_bytes()
+    out = _normalize(tmp_path, src)
+    assert b"Exif" not in out.read_bytes()
+    assert _ffprobe(out, "format_tags").get("format", {}).get("tags") is None
+
+
+def test_normalize_picture_rejects_a_text_file(tmp_path: Path, make_non_video: Callable[[], Path]) -> None:
+    out = tmp_path / "1.jpg"
+    with pytest.raises(AppError) as exc:
+        MediaService(_settings(tmp_path)).normalize_picture(make_non_video(), out)
+    assert (exc.value.code, exc.value.status) == ("invalid_picture", 422)
+    assert not out.exists()
+
+
+def _finalize(tmp_path: Path, raw: Path) -> tuple[Clip, Path]:
+    job = tmp_path / "jobs" / "vid"
+    job.mkdir(parents=True)
+    shutil.move(raw, job / "raw.mp4")
+    return MediaService(_settings(tmp_path)).finalize_clip(job / "raw.mp4", job), job
+
+
+def _top_level_boxes(path: Path) -> list[str]:
+    data = path.read_bytes()
+    boxes, at = [], 0
+    while at + 8 <= len(data):
+        size = int.from_bytes(data[at : at + 4], "big")
+        boxes.append(data[at + 4 : at + 8].decode("latin-1"))
+        at += size or len(data)
+    return boxes
+
+
+def test_finalize_clip_removes_audio_and_metadata_and_keeps_h264(tmp_path: Path, make_clip: MakeClip) -> None:
+    clip, job = _finalize(tmp_path, make_clip("h264", with_audio=True, title="secret-title"))
+    out = job / "clip.mp4"
+    streams = _ffprobe(out, "stream=codec_type,codec_name")["streams"]
+    assert [(s["codec_type"], s["codec_name"]) for s in streams] == [("video", "h264")]
+    assert b"secret-title" not in out.read_bytes()
+    assert _ffprobe(out, "format_tags")["format"].get("tags", {}).get("title") is None
+    assert not (job / "raw.mp4").exists()
+    assert clip.file == "clip.mp4"
+
+
+def test_finalize_clip_is_faststart(tmp_path: Path, make_clip: MakeClip) -> None:
+    _, job = _finalize(tmp_path, make_clip())
+    boxes = _top_level_boxes(job / "clip.mp4")
+    assert boxes.index("moov") < boxes.index("mdat")
+
+
+def test_finalize_clip_reports_the_probed_values(tmp_path: Path, make_clip: MakeClip) -> None:
+    clip, job = _finalize(tmp_path, make_clip(duration_s=2.0, size="320x240"))
+    assert (clip.width, clip.height) == (320, 240)
+    assert clip.duration_s == pytest.approx(2.0, abs=0.2)
+    assert clip.size_bytes == (job / "clip.mp4").stat().st_size
+
+
+def test_finalize_clip_writes_a_thumbnail_within_480px(tmp_path: Path, make_clip: MakeClip) -> None:
+    clip, job = _finalize(tmp_path, make_clip(size="1280x720"))
+    assert clip.thumbnail == "thumbnail.jpg"
+    assert _size(job / "thumbnail.jpg") == (480, 270)
+    assert _ffprobe(job / "thumbnail.jpg", "stream=codec_name")["streams"][0]["codec_name"] == "mjpeg"
+
+
+def test_finalize_clip_thumbnail_does_not_upscale(tmp_path: Path, make_clip: MakeClip) -> None:
+    _, job = _finalize(tmp_path, make_clip(size="160x120"))
+    assert _size(job / "thumbnail.jpg") == (160, 120)
+
+
+def test_finalize_clip_shorter_than_half_a_second_still_gets_a_thumbnail(tmp_path: Path, make_clip: MakeClip) -> None:
+    _, job = _finalize(tmp_path, make_clip(duration_s=0.3))
+    assert (job / "thumbnail.jpg").stat().st_size > 0
+
+
+def test_finalize_clip_reencodes_hevc_to_h264(tmp_path: Path, make_clip: MakeClip) -> None:
+    _, job = _finalize(tmp_path, make_clip("hevc", with_audio=True))
+    streams = _ffprobe(job / "clip.mp4", "stream=codec_type,codec_name")["streams"]
+    assert [(s["codec_type"], s["codec_name"]) for s in streams] == [("video", "h264")]
+
+
+def test_finalize_clip_without_audio_input(tmp_path: Path, make_clip: MakeClip) -> None:
+    _, job = _finalize(tmp_path, make_clip(with_audio=False))
+    assert [s["codec_type"] for s in _ffprobe(job / "clip.mp4", "stream=codec_type")["streams"]] == ["video"]
+
+
+def test_finalize_clip_of_a_text_file_is_video_failed(tmp_path: Path, make_non_video: Callable[[], Path]) -> None:
+    with pytest.raises(AppError) as exc:
+        _finalize(tmp_path, make_non_video())
+    assert (exc.value.code, exc.value.status) == ("video_failed", 502)
+
+
+def test_finalize_clip_ffmpeg_failure_is_video_failed(
+    tmp_path: Path, make_clip: MakeClip, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    real_run = media_module._run
+
+    def failing(cmd: list[str]) -> Any:
+        if cmd[0] == "ffmpeg":
+            raise subprocess.CalledProcessError(1, cmd)
+        return real_run(cmd)
+
+    monkeypatch.setattr(media_module, "_run", failing)
+    with pytest.raises(AppError) as exc:
+        _finalize(tmp_path, make_clip())
+    assert (exc.value.code, exc.value.status) == ("video_failed", 502)

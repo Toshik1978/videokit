@@ -6,6 +6,7 @@ from typing import Any
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
+from videokit.core import uploads
 from videokit.core.errors import AppError
 from videokit.core.registry import JobAccess, JobNotFound, job_access
 from videokit.tools.youtube_prep import pipeline
@@ -28,6 +29,12 @@ class RegenerateRequest(BaseModel):
 
 def _not_found() -> AppError:
     return AppError("job_not_found", "This job was not found. It may have expired.", 404)
+
+
+@router.post("/jobs", status_code=201)
+async def create_job(body: uploads.CreateUploadRequest, request: Request) -> dict[str, str]:
+    """Create a job and its tus upload (the client then sends the video to the returned `upload_url`)."""
+    return await uploads.create_upload_job(request, TOOL_ID, body)
 
 
 def _regenerate(access: JobAccess, job_id: str, section: str, hint: str | None) -> dict[str, Any]:

@@ -1,3 +1,4 @@
+import json
 import sqlite3
 import threading
 from itertools import count
@@ -100,6 +101,7 @@ def test_create_defaults(store: JobStore) -> None:
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "audio_minutes": 0.0,
+        "video_output_tokens": 0,
         "cost_usd": 0.0,
     }
     assert store.get(job.id) == job
@@ -113,7 +115,13 @@ def test_create_rejects_bad_length(store: JobStore) -> None:
     with pytest.raises(ValueError):
         store.create("t", 1001)
     with pytest.raises(ValueError):
-        store.create("t", 0)
+        store.create("t", -1)
+
+
+def test_create_accepts_zero_length_for_tools_without_an_upload(store: JobStore) -> None:
+    job = store.create("t", 0)
+    assert (job.state, job.upload_length, job.upload_offset) == (JobState.UPLOADING, 0, 0)
+    assert store.finished_uploads() == [job.id]
 
 
 def test_get_missing_is_none_and_set_state_missing_raises(store: JobStore) -> None:
@@ -180,7 +188,7 @@ def test_single_stage_job_may_finish_after_extracting(store: JobStore) -> None:
 def test_transition_table_matches_state_machine() -> None:
     S = JobState
     assert TRANSITIONS[S.UPLOADING] == {S.QUEUED, S.CANCELLED, S.FAILED}
-    assert TRANSITIONS[S.QUEUED] == {S.EXTRACTING, S.CANCELLED, S.FAILED}
+    assert TRANSITIONS[S.QUEUED] == {S.EXTRACTING, S.GENERATING, S.CANCELLED, S.FAILED}
     assert TRANSITIONS[S.EXTRACTING] == {S.TRANSCRIBING, S.DONE, S.CANCELLED, S.FAILED}
     assert TRANSITIONS[S.TRANSCRIBING] == {S.GENERATING, S.CANCELLED, S.FAILED}
     assert TRANSITIONS[S.GENERATING] == {S.DONE, S.CANCELLED, S.FAILED}
@@ -278,6 +286,27 @@ def test_next_queued_takes_only_jobs_of_its_own_lane(store: JobStore) -> None:
     assert (store.next_queued("a"), store.next_queued("b")) == (a2.id, None)
 
 
+def test_next_queued_skips_excluded_ids(store: JobStore) -> None:
+    first, second, third = queue(store), queue(store), queue(store)
+    assert store.next_queued("youtube_prep", exclude=frozenset()) == first.id
+    assert store.next_queued("youtube_prep", exclude={first.id}) == second.id
+    assert store.next_queued("youtube_prep", exclude={first.id, second.id}) == third.id
+    assert store.next_queued("youtube_prep", exclude={first.id, second.id, third.id}) is None
+    assert store.next_queued("youtube_prep", exclude={"unknown-id"}) == first.id  # ids not queued are ignored
+
+
+def test_next_queued_exclusion_does_not_leak_into_other_lanes(store: JobStore) -> None:
+    a1, b1 = queue(store, tool_id="a"), queue(store, tool_id="b")
+    assert store.next_queued("b", exclude={a1.id}) == b1.id
+    assert store.next_queued("a", exclude={a1.id}) is None
+
+
+def test_next_queued_handles_many_excluded_ids(store: JobStore) -> None:
+    jobs = [queue(store) for _ in range(5)]
+    assert store.next_queued("youtube_prep", exclude={j.id for j in jobs[:4]}) == jobs[4].id
+    assert store.next_queued("youtube_prep", exclude={f"id-{n}" for n in range(2000)}) == jobs[0].id
+
+
 def test_cancel_uploading_or_idle_queued_is_immediate(store: JobStore) -> None:
     uploading = store.create("t", 10)
     assert store.cancel(uploading.id).state is JobState.CANCELLED
@@ -354,9 +383,44 @@ def test_add_usage_accumulates(store: JobStore) -> None:
         "cache_read_tokens": 5,
         "cache_write_tokens": 7,
         "audio_minutes": 1.5,
+        "video_output_tokens": 0,
         "cost_usd": 0.75,
     }
     assert store.get(job.id) == updated
+
+
+def test_add_usage_sums_video_output_tokens(store: JobStore) -> None:
+    job = store.create("t", 10)
+    store.add_usage(job.id, video_output_tokens=5792, cost_usd=0.1)
+    updated = store.add_usage(job.id, input_tokens=1120, video_output_tokens=8688, cost_usd=0.2)
+    assert updated.usage["video_output_tokens"] == 14480
+    assert updated.usage["input_tokens"] == 1120
+
+
+def test_usage_of_a_row_stored_before_video_tokens_reads_zero(tmp_path: Path) -> None:
+    path = tmp_path / "videokit.db"
+    old = JobStore(tmp_path, ttl_hours=24, max_upload_bytes=1000)
+    job = old.create("t", 10)
+    legacy = {
+        "input_tokens": 7,
+        "output_tokens": 3,
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "audio_minutes": 0.0,
+        "cost_usd": 0.5,
+    }
+    conn = sqlite3.connect(path)
+    conn.execute("UPDATE jobs SET usage = ? WHERE id = ?", (json.dumps(legacy), job.id))
+    conn.commit()
+    conn.close()
+
+    store = JobStore(tmp_path, ttl_hours=24, max_upload_bytes=1000)
+    got = store.get(job.id)
+    assert got is not None
+    assert got.usage == {**legacy, "video_output_tokens": 0}
+    updated = store.add_usage(job.id, video_output_tokens=100, cost_usd=0.25)
+    assert updated.usage["video_output_tokens"] == 100
+    assert updated.usage["input_tokens"] == 7
 
 
 def test_add_usage_unknown_cost_is_sticky_null(store: JobStore) -> None:
@@ -444,6 +508,54 @@ def test_recover_after_restart(store: JobStore) -> None:
     assert store.recover_after_restart() == 0
 
 
+def test_recovery_keeps_the_jobs_of_resumable_tools(store: JobStore) -> None:
+    kept: dict[str, Job] = {}
+    failed: dict[str, Job] = {}
+    for tool_id, bucket in (("resumes", kept), ("restarts", failed)):
+        uploading = store.create(tool_id, 10)
+        queued = queue(store, tool_id=tool_id)
+        generating = queue(store, tool_id=tool_id)
+        advance(store, generating.id, JobState.GENERATING)
+        for name, job in (("uploading", uploading), ("queued", queued), ("generating", generating)):
+            source = store.job_dir(job.id) / "source.bin"
+            source.parent.mkdir(parents=True)
+            source.write_bytes(b"x")
+            bucket[name] = job
+
+    assert store.recover_after_restart({"resumes"}) == 2  # the other tool's queued and generating jobs
+
+    states = {"uploading": JobState.UPLOADING, "queued": JobState.QUEUED, "generating": JobState.GENERATING}
+    for name, state in states.items():
+        got = store.get(kept[name].id)
+        assert got is not None
+        assert (got.state, got.failure_reason, got.failure_code) == (state, None, None)
+        assert (store.job_dir(kept[name].id) / "source.bin").exists()
+    assert store.get(failed["uploading"].id).state is JobState.UPLOADING  # type: ignore[union-attr]
+    for name in ("queued", "generating"):
+        got = store.get(failed[name].id)
+        assert got is not None
+        assert (got.state, got.failure_code) == (JobState.FAILED, "server_restarted")
+        assert not (store.job_dir(failed[name].id) / "source.bin").exists()
+
+
+def test_interrupted_lists_running_jobs_of_one_tool_oldest_first(store: JobStore) -> None:
+    uploading = store.create("t", 10)
+    queued = queue(store, tool_id="t")
+    first = queue(store, tool_id="t")
+    advance(store, first.id, JobState.GENERATING)
+    second = queue(store, tool_id="t")
+    advance(store, second.id, JobState.EXTRACTING)
+    other = queue(store, tool_id="u")
+    advance(store, other.id, JobState.GENERATING)
+    done = queue(store, tool_id="t")
+    advance(store, done.id, JobState.GENERATING, JobState.DONE)
+
+    assert store.interrupted("t") == [first.id, second.id]
+    assert uploading.id not in store.interrupted("t")
+    assert queued.id not in store.interrupted("t")
+    assert store.interrupted("nobody") == []
+
+
 def test_state_survives_new_store_instance(store: JobStore, tmp_path: Path) -> None:
     job = queue(store)
     other = JobStore(tmp_path, ttl_hours=24, max_upload_bytes=1000)
@@ -500,3 +612,17 @@ def test_worker_job_handle_reads_source_name(store: JobStore) -> None:
     store.delete(job.id)
     with pytest.raises(JobNotFound):
         WorkerJobHandle(store, job.id).source_name  # noqa: B018
+
+
+def test_worker_job_handle_add_usage_stores_video_output_tokens(store: JobStore) -> None:
+    from videokit.core.llm import Usage
+    from videokit.core.worker import WorkerJobHandle
+
+    job = store.create("t", 10)
+    handle = WorkerJobHandle(store, job.id)
+    handle.add_usage(Usage(input_tokens=1120, video_output_tokens=8688), 0.15)
+    handle.add_usage(Usage(video_output_tokens=5792), 0.10)
+    got = store.get(job.id)
+    assert got is not None
+    assert (got.usage["input_tokens"], got.usage["video_output_tokens"]) == (1120, 14480)
+    assert got.usage["cost_usd"] == pytest.approx(0.25)

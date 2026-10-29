@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 
+from videokit.core.config import Settings
 from videokit.core.registry import CoreContext, JobHandle
 from videokit.tools.audio_extract import routes
 from videokit.tools.audio_extract.naming import download_name
@@ -35,6 +36,15 @@ class AudioExtractTool:
     name = "Audio Extract"
     description = "Get a video's audio as an MP3."
     router = routes.router
+    concurrency = 1
+    resume_after_restart = False
+
+    def enabled(self, settings: Settings) -> bool:
+        return True
+
+    def accept(self, job: JobHandle, ctx: CoreContext) -> None:
+        """Inputs are complete: check the upload is a playable video and record its duration."""
+        job.record(duration_s=ctx.media.probe_source(job.dir).duration_s)
 
     async def run(self, job: JobHandle, ctx: CoreContext) -> None:
         await asyncio.to_thread(_run, job, ctx)

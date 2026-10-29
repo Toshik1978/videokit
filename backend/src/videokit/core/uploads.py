@@ -1,16 +1,19 @@
 """tus 1.0.0 core resumable uploads (see contracts/http-api.md)."""
 
 import asyncio
+import re
 import shutil
 from collections.abc import Awaitable, Callable, MutableMapping
 from pathlib import Path
 from typing import Any, BinaryIO
 
 from fastapi import APIRouter, Depends, Request, Response
+from pydantic import BaseModel, Field, StrictInt
 from starlette.requests import ClientDisconnect
 
 from videokit.core.errors import AppError
 from videokit.core.jobs import SOURCE_FILE, InvalidTransition, Job, JobNotFound, JobState, JobStore
+from videokit.core.registry import job_access
 
 UPLOAD_CHUNK_BYTES = 50_000_000  # 50 MB per-PATCH cap; also advertised by /api/config
 WRITE_BYTES = 1024 * 1024  # body bytes gathered before each disk write and offset update
@@ -45,6 +48,35 @@ class TusResumableMiddleware:
 def _require_tus_version(request: Request) -> None:
     if request.headers.get("tus-resumable") != TUS_VERSION:
         raise AppError("unsupported_tus_version", "Unsupported upload protocol version.", 412)
+
+
+_CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+
+
+def _clean_file_name(name: str | None) -> str | None:
+    """Last path component only, no control characters, trimmed, at most 255 characters; empty becomes None."""
+    if name is None:
+        return None
+    last = re.split(r"[/\\]", name)[-1]
+    return _CONTROL_CHARS.sub("", last).strip()[:255] or None
+
+
+class CreateUploadRequest(BaseModel):
+    """Body of a video tool's `POST /api/tools/<id>/jobs`."""
+
+    size: StrictInt
+    file_name: str | None = Field(default=None, max_length=1024)
+
+
+async def create_upload_job(request: Request, tool_id: str, body: CreateUploadRequest) -> dict[str, str]:
+    """Create a job for `tool_id` whose video the client uploads with tus; the payload of the tool's 201."""
+    if body.size <= 0:
+        raise AppError("invalid_request", "The file size must be a positive number of bytes.", 422)
+    access = job_access(request)
+    job = await asyncio.to_thread(
+        lambda: access.create(tool_id, upload_length=body.size, source_name=_clean_file_name(body.file_name))
+    )
+    return {"job_id": job.id, "upload_url": f"/api/uploads/{job.id}"}
 
 
 router = APIRouter(prefix="/uploads")
@@ -197,5 +229,5 @@ async def _patch(job_id: str, offset: int, request: Request) -> Response:
         raise _not_found() from None
     if new_offset == job.upload_length:  # also on a repeated PATCH, to retry a completion that never ran (idempotent)
         await asyncio.to_thread(_uploading_job, store, job_id)  # expired while receiving: 404, do not queue
-        await request.app.state.on_upload_complete(job_id)
+        await request.app.state.complete_inputs(job_id)
     return Response(status_code=204, headers={"Upload-Offset": str(new_offset)})

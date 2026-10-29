@@ -103,14 +103,14 @@ describe('upload page', () => {
   it('creates the job, uploads with tus using uploadUrl and chunk size, shows progress, navigates', async () => {
     const fetchMock = stubFetch({
       '/api/config': () => json(200, CONFIG),
-      '/api/jobs': () => json(201, { job_id: 'j1', upload_url: '/api/uploads/j1' }),
+      '/api/tools/youtube_prep/jobs': () =>
+        json(201, { job_id: 'j1', upload_url: '/api/uploads/j1' }),
     });
     const { wrapper, router } = await setup();
     const file = await choose(wrapper, 500);
 
-    const post = fetchMock.mock.calls.find(([url]) => url === '/api/jobs');
+    const post = fetchMock.mock.calls.find(([url]) => url === '/api/tools/youtube_prep/jobs');
     expect(JSON.parse((post![1] as RequestInit).body as string)).toEqual({
-      tool_id: 'youtube_prep',
       size: 500,
       file_name: 'clip.mp4',
     });
@@ -137,7 +137,8 @@ describe('upload page', () => {
   it('shows the limit message when the server answers 413', async () => {
     stubFetch({
       '/api/config': () => json(200, CONFIG),
-      '/api/jobs': () => json(413, { error: { code: 'file_too_large', message: 'Too big.' } }),
+      '/api/tools/youtube_prep/jobs': () =>
+        json(413, { error: { code: 'file_too_large', message: 'Too big.' } }),
     });
     const { wrapper } = await setup();
     await choose(wrapper, 500);
@@ -148,7 +149,8 @@ describe('upload page', () => {
   it('shows the generic message for http_error failures', async () => {
     stubFetch({
       '/api/config': () => json(200, CONFIG),
-      '/api/jobs': () => new Response('oops', { status: 502, statusText: 'Bad Gateway' }),
+      '/api/tools/youtube_prep/jobs': () =>
+        new Response('oops', { status: 502, statusText: 'Bad Gateway' }),
     });
     const { wrapper } = await setup();
     await choose(wrapper, 500);
@@ -160,7 +162,8 @@ describe('upload page', () => {
     async (code) => {
       stubFetch({
         '/api/config': () => json(200, CONFIG),
-        '/api/jobs': () => json(400, { error: { code, message: 'Raw server text.' } }),
+        '/api/tools/youtube_prep/jobs': () =>
+          json(400, { error: { code, message: 'Raw server text.' } }),
       });
       const { wrapper } = await setup();
       await choose(wrapper, 500);
@@ -171,7 +174,8 @@ describe('upload page', () => {
   it('shows the generic message for an unknown error code', async () => {
     stubFetch({
       '/api/config': () => json(200, CONFIG),
-      '/api/jobs': () => json(400, { error: { code: 'brand_new_code', message: 'Raw text.' } }),
+      '/api/tools/youtube_prep/jobs': () =>
+        json(400, { error: { code: 'brand_new_code', message: 'Raw text.' } }),
     });
     const { wrapper } = await setup();
     await choose(wrapper, 500);
@@ -204,7 +208,7 @@ describe('upload page', () => {
   it('clears the file input so the same file can be re-selected after a failure', async () => {
     stubFetch({
       '/api/config': () => json(200, CONFIG),
-      '/api/jobs': () => json(500, {}),
+      '/api/tools/youtube_prep/jobs': () => json(500, {}),
     });
     const { wrapper } = await setup();
     const writes: string[] = [];
@@ -223,7 +227,8 @@ describe('upload page', () => {
   it('shows an error when the tus upload fails and allows choosing again', async () => {
     stubFetch({
       '/api/config': () => json(200, CONFIG),
-      '/api/jobs': () => json(201, { job_id: 'j1', upload_url: '/api/uploads/j1' }),
+      '/api/tools/youtube_prep/jobs': () =>
+        json(201, { job_id: 'j1', upload_url: '/api/uploads/j1' }),
     });
     const { wrapper } = await setup();
     await choose(wrapper, 500);
@@ -236,7 +241,8 @@ describe('upload page', () => {
   it('shows the catalog message for a coded tus upload error', async () => {
     stubFetch({
       '/api/config': () => json(200, CONFIG),
-      '/api/jobs': () => json(201, { job_id: 'j1', upload_url: '/api/uploads/j1' }),
+      '/api/tools/youtube_prep/jobs': () =>
+        json(201, { job_id: 'j1', upload_url: '/api/uploads/j1' }),
     });
     const { wrapper } = await setup();
     await choose(wrapper, 500);
@@ -255,7 +261,8 @@ describe('upload page', () => {
   it('shows the upload-failed message for a tus error without a known code', async () => {
     stubFetch({
       '/api/config': () => json(200, CONFIG),
-      '/api/jobs': () => json(201, { job_id: 'j1', upload_url: '/api/uploads/j1' }),
+      '/api/tools/youtube_prep/jobs': () =>
+        json(201, { job_id: 'j1', upload_url: '/api/uploads/j1' }),
     });
     const { wrapper } = await setup();
     await choose(wrapper, 500);

@@ -39,6 +39,10 @@ class JobAccess(Protocol):
     ctx: CoreContext                             # same context the worker hands to `run`
     def get(self, job_id: str) -> Job | None: ...      # read-only snapshot: state, tool_id, providers, usage
     def handle(self, job_id: str) -> JobHandle: ...    # .dir, .record(...), .add_usage(...) on an existing job
+    def create(self, tool_id: str, *, upload_length: int = 0, source_name: str | None = None) -> Job: ...
+    def job_dir(self, job_id: str) -> Path: ...
+    async def complete(self, job_id: str) -> None: ...  # inputs complete: tool.accept, then queue (idempotent)
+    async def discard(self, job_id: str) -> None: ...   # drop a job still `uploading` (row and directory)
 
 def job_access(request: Request) -> JobAccess: ...     # from `videokit.core.registry`
 ```
@@ -46,6 +50,10 @@ def job_access(request: Request) -> JobAccess: ...     # from `videokit.core.reg
 - For tool routes that act on an existing job outside the worker (e.g. YouTube Prep regenerate): look
   up the job (404 if unknown or of another tool, state checks), read and write files in its directory,
   record providers and add usage so the job's accumulated `usage` stays complete.
+- Job creation belongs to the tools: a video tool's `POST /api/tools/<id>/jobs` calls
+  `videokit.core.uploads.create_upload_job(request, tool_id, body)`, which creates the job through
+  `JobAccess.create` (size limits: `413 file_too_large`, `422 invalid_request`) and returns the tus
+  upload URL. The last tus byte reaches `JobAccess.complete`'s path (`Worker.complete_inputs`).
 - Routes never touch the job store directly. `JobHandle` methods raise `JobNotFound` (re-exported by
   `videokit.core.registry`) if the job was purged meanwhile.
 
