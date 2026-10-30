@@ -211,8 +211,11 @@ goes to an OpenAI-compatible transcription API, which is either OpenAI's or a se
 - **Self-hosted:** also set `OPENAI_TRANSCRIBE_URL` to your server's base URL including the API
   prefix, and `OPENAI_TRANSCRIBE_MODEL` to a model the server serves. Any OpenAI-compatible server
   works, for example [speaches](https://github.com/speaches-ai/speaches); the server may use a GPU,
-  VideoKit does not need one. An address whose host is `api.openai.com` counts as OpenAI's API.
-  Without a server key no key is sent.
+  VideoKit does not need one. An `https://` address whose host is `api.openai.com` counts as
+  OpenAI's API; `http://api.openai.com` is refused at startup, because the OpenAI key is never sent
+  over plain HTTP. Without a server key no key is sent.
+- Each transcription request may take up to 30 minutes. That is enough for a long video on a
+  reasonably fast server (for example one with a GPU); on a CPU-only server, long videos may time out.
 
 Example for a server running on the Docker host, listening on port 8000:
 

@@ -88,6 +88,28 @@ def test_chain_raises_all_providers_failed() -> None:
     assert info.value.stage == "transcription"
 
 
+def test_chain_logs_the_error_type_and_its_cause_type_only(caplog: pytest.LogCaptureFixture) -> None:
+    try:
+        raise ConnectionError("http://whisper.example.com secret")
+    except ConnectionError as cause:
+        wrapped = ProviderError("transcription failed")
+        wrapped.__cause__ = cause
+    chain = TranscriberChain(
+        [
+            FakeTranscriber(name="openai", error=wrapped),
+            FakeTranscriber(name="other", error=OSError("disk secret")),
+            FakeTranscriber(name="fake"),
+        ]
+    )
+    with caplog.at_level("WARNING", logger="videokit"):
+        chain.transcribe(AUDIO)
+    messages = [r.getMessage() for r in caplog.records]
+    assert messages == [
+        "Transcription provider openai failed (ProviderError: ConnectionError)",
+        "Transcription provider other failed (OSError)",
+    ]
+
+
 def test_chain_requires_providers_and_reports_status() -> None:
     with pytest.raises(ValueError):
         TranscriberChain([])

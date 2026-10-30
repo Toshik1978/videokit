@@ -295,12 +295,31 @@ def test_is_openai_api() -> None:
     assert config.is_openai_api("https://api.openai.com/v1")
     assert not config.is_openai_api("http://whisper.example.com:8000/v1")
     assert not config.is_openai_api("https://api.openai.com.example.com/v1")
+    assert config.is_openai_api("HTTPS://API.OpenAI.com/v1")
+    assert not config.is_openai_api("http://api.openai.com/v1")  # plain HTTP is never OpenAI's API
+
+
+def test_openai_api_over_plain_http_is_refused(ok_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TRANSCRIBE_PROVIDERS", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-llm-secret")
+    monkeypatch.setenv("OPENAI_TRANSCRIBE_URL", "http://api.openai.com/v1")
+    problems = validate(Settings())
+    assert problems == ["OPENAI_TRANSCRIBE_URL must use https:// for OpenAI's API"]
+
+
+@pytest.mark.parametrize("url", ["http://", "https://", "http://[bad", "http://:8000/v1", "https:///v1"])
+def test_transcribe_url_without_a_host_is_refused(ok_env: None, monkeypatch: pytest.MonkeyPatch, url: str) -> None:
+    monkeypatch.setenv("TRANSCRIBE_PROVIDERS", "openai")
+    monkeypatch.setenv("OPENAI_TRANSCRIBE_URL", url)
+    assert validate(Settings()) == ["OPENAI_TRANSCRIBE_URL must name a host, e.g. http://whisper.example.com:8000/v1"]
 
 
 def test_transcribe_url_must_be_http(ok_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OPENAI_TRANSCRIBE_URL", "ftp://secret-host.example.com")
     problems = validate(Settings())
-    assert "OPENAI_TRANSCRIBE_URL must start with http:// or https://" in problems
+    assert [p for p in problems if "OPENAI_TRANSCRIBE_URL" in p] == [
+        "OPENAI_TRANSCRIBE_URL must start with http:// or https://"
+    ]
     assert not any("secret-host" in p for p in problems)
 
 
@@ -340,5 +359,8 @@ def test_llm_openai_key_message_is_separate(ok_env: None, monkeypatch: pytest.Mo
 def test_malformed_transcribe_url_is_a_config_error_not_a_crash(ok_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
     assert not config.is_openai_api("http://[bad")
     monkeypatch.setenv("TRANSCRIBE_PROVIDERS", "openai")
-    monkeypatch.setenv("OPENAI_TRANSCRIBE_URL", "http://[bad")
-    assert validate(Settings()) == []
+    monkeypatch.setenv("OPENAI_TRANSCRIBE_URL", "http://[bad-secret-host")
+    problems = validate(Settings())
+    assert len(problems) == 1
+    assert problems[0].startswith("OPENAI_TRANSCRIBE_URL must name a host")
+    assert "bad-secret-host" not in problems[0]

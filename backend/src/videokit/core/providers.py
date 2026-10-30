@@ -46,7 +46,7 @@ def build(settings: Settings) -> Providers:
 def status(providers: Providers) -> ProviderStatusView:
     """Each provider's current `check()`, in chain order: the `providers` object of `/api/health`.
 
-    Checks make no paid calls; the local transcriber reports its model loading state, so this is live.
+    Checks are cheap (no paid calls, no model loading), so this runs on every health request.
     """
 
     def entries(chain: TranscriberChain | LLMChain | VideoChain | None) -> list[dict[str, Any]]:

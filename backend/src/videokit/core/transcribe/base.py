@@ -50,8 +50,8 @@ class Transcript:
     segments: list[Segment]
     audio_minutes: float
     no_speech: bool
-    provider: str  # name of the provider that produced it, e.g. "local"
-    model: str = ""  # the model that produced it, e.g. "whisper-1" (prices cloud transcription)
+    provider: str  # name of the provider that produced it, e.g. "openai"
+    model: str = ""  # the model that produced it, e.g. "whisper-1" (prices OpenAI's API)
     self_hosted: bool = False  # produced by a self-hosted OpenAI-compatible server (free of charge)
 
 

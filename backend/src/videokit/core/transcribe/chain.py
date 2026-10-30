@@ -29,6 +29,8 @@ class TranscriberChain:
             try:
                 return provider.transcribe(audio)
             except Exception as exc:  # any provider failure means: try the next one
-                # Log the error type only: messages may echo request details.
-                logger.warning("Transcription provider %s failed (%s)", provider.name, type(exc).__name__)
+                # Log error types only (the wrapper and its cause): messages may echo addresses, keys or text.
+                cause = exc.__cause__
+                kind = type(exc).__name__ + (f": {type(cause).__name__}" if cause is not None else "")
+                logger.warning("Transcription provider %s failed (%s)", provider.name, kind)
         raise AllProvidersFailed("transcription")

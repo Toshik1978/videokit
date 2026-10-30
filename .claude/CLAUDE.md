@@ -152,7 +152,7 @@ Dockerfile, compose.yaml, scripts/{docker_smoke.sh,image_size_guard.sh,changelog
   server English as primary UI text. Mobile-first: no horizontal scroll at 360 px, touch targets
   ≥ 44×44 px (checked by the e2e suite).
 - **Costs**: `core/pricing.py` (+ `PRICING_OVERRIDES`). Job cost is the sum of known parts; self-hosted
-  transcription (`OPENAI_TRANSCRIBE_URL` set) is free; Omni video output is billed per token (`video_output`: 5792 tokens/s at 720p,
+  transcription (a non-OpenAI `OPENAI_TRANSCRIBE_URL`) is free; Omni video output is billed per token (`video_output`: 5792 tokens/s at 720p,
   8688 at 1080p); unknown model → `cost_usd: null`. Verify prices against Anthropic's
   official pricing page before changing them.
 

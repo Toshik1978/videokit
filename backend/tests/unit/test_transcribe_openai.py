@@ -14,6 +14,8 @@ from videokit.core.transcribe import AudioFiles, ProviderError, ProviderStatus, 
 from videokit.core.transcribe import openai as openai_module
 from videokit.core.transcribe.openai import OpenAITranscriber
 
+TIMEOUT = openai.Timeout(1800, connect=10)  # long reads for slow servers, but an unreachable host fails fast
+
 
 def _settings(**overrides: Any) -> Settings:
     values: dict[str, Any] = {"openai_api_key": SecretStr("test-key")}
@@ -52,7 +54,7 @@ def test_check_requires_api_key() -> None:
     ok = OpenAITranscriber(_settings()).check()
     assert ok.ready is True
     assert ok.detail == "model=whisper-1"
-    missing = ProviderStatus(ready=False, detail="missing OPENAI_API_KEY")
+    missing = ProviderStatus(ready=False, detail="missing OPENAI_API_KEY or OPENAI_TRANSCRIBE_API_KEY")
     assert OpenAITranscriber(_settings(openai_api_key=None)).check() == missing
     assert OpenAITranscriber(_settings(openai_api_key=SecretStr("  "))).check() == missing
 
@@ -169,7 +171,7 @@ def test_lazy_client_uses_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     assert created == []
     first = transcriber._sdk()
     assert transcriber._sdk() is first
-    assert created == [{"api_key": "test-key", "timeout": 1800}]
+    assert created == [{"api_key": "test-key", "base_url": "https://api.openai.com/v1", "timeout": TIMEOUT}]
 
 
 def _created(monkeypatch: pytest.MonkeyPatch, **overrides: Any) -> dict[str, Any]:
@@ -184,9 +186,18 @@ def _created(monkeypatch: pytest.MonkeyPatch, **overrides: Any) -> dict[str, Any
     return created[0]
 
 
+def test_openai_base_url_env_never_redirects_the_openai_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENAI_BASE_URL", "http://stt.example.com:8000/v1")
+    transcriber = OpenAITranscriber(_settings())
+    client = transcriber._sdk()
+    assert str(client.base_url) == "https://api.openai.com/v1/"
+    assert client.timeout == TIMEOUT
+    assert transcriber.check().detail == "model=whisper-1"  # still OpenAI's API, still priced
+
+
 def test_client_for_openai_prefers_transcribe_key(monkeypatch: pytest.MonkeyPatch) -> None:
     kwargs = _created(monkeypatch, openai_transcribe_api_key=SecretStr("t-key"))
-    assert kwargs == {"api_key": "t-key", "timeout": 1800}
+    assert kwargs == {"api_key": "t-key", "base_url": "https://api.openai.com/v1", "timeout": TIMEOUT}
 
 
 def test_client_for_openai_address_uses_openai_key(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -198,7 +209,7 @@ def test_client_for_openai_address_uses_openai_key(monkeypatch: pytest.MonkeyPat
 def test_client_for_self_hosted_never_gets_openai_key(monkeypatch: pytest.MonkeyPatch) -> None:
     kwargs = _created(monkeypatch, openai_transcribe_url="http://stt.example.com:8000/v1")
     assert kwargs["base_url"] == "http://stt.example.com:8000/v1"
-    assert kwargs["timeout"] == 1800
+    assert kwargs["timeout"] == TIMEOUT
     assert kwargs["api_key"] != "test-key"
     assert kwargs["api_key"]  # a fixed placeholder: the SDK refuses an empty key
 
@@ -232,7 +243,8 @@ def test_check_self_hosted_needs_no_key_and_hides_address() -> None:
 
 def test_check_openai_address_without_key_is_missing() -> None:
     settings = _settings(openai_api_key=None, openai_transcribe_url="https://api.openai.com/v1")
-    assert OpenAITranscriber(settings).check() == ProviderStatus(ready=False, detail="missing OPENAI_API_KEY")
+    missing = ProviderStatus(ready=False, detail="missing OPENAI_API_KEY or OPENAI_TRANSCRIBE_API_KEY")
+    assert OpenAITranscriber(settings).check() == missing
 
 
 def test_check_openai_accepts_transcribe_key_only() -> None:

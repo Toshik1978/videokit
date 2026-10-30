@@ -1,4 +1,4 @@
-"""OpenAI cloud transcription (research R8): `whisper-1` with `verbose_json` and segment timestamps."""
+"""Transcription through OpenAI's API or a self-hosted OpenAI-compatible server (`verbose_json`, segment times)."""
 
 import math
 import subprocess
@@ -13,7 +13,9 @@ from videokit.core.config import Settings, is_openai_api
 from videokit.core.transcribe.base import AudioFiles, ProviderError, ProviderStatus, Segment, Transcript
 
 MAX_UPLOAD_BYTES = 24 * 1024 * 1024  # the API rejects uploads above 25 MB
+OPENAI_API_URL = "https://api.openai.com/v1"  # always explicit: the SDK would otherwise read OPENAI_BASE_URL
 REQUEST_TIMEOUT_S = 1800  # a long upload on a slow or busy server must not be cut off at the SDK default
+CONNECT_TIMEOUT_S = 10  # an unreachable address fails fast instead of holding the lane for the read timeout
 SELF_HOSTED_PLACEHOLDER_KEY = "not-needed"  # the SDK refuses an empty key; servers without auth ignore it
 CHUNK_FILL = 0.9  # chunks are planned at 90 % of the limit to absorb bitrate variation
 
@@ -184,7 +186,7 @@ class OpenAITranscriber:
         if self._self_hosted:
             return ProviderStatus(ready=True, detail=f"model={self.model}, self-hosted")
         if not (self._transcribe_key or self._openai_key):
-            return ProviderStatus(ready=False, detail="missing OPENAI_API_KEY")
+            return ProviderStatus(ready=False, detail="missing OPENAI_API_KEY or OPENAI_TRANSCRIBE_API_KEY")
         return ProviderStatus(ready=True, detail=f"model={self.model}")
 
     def _sdk(self) -> openai.OpenAI:
@@ -194,11 +196,11 @@ class OpenAITranscriber:
                     key = self._transcribe_key or SELF_HOSTED_PLACEHOLDER_KEY
                 else:
                     key = self._transcribe_key or self._openai_key or ""
-                # SDK default retries handle 429/5xx
-                if self._url:
-                    self._client = openai.OpenAI(api_key=key, base_url=self._url, timeout=REQUEST_TIMEOUT_S)
-                else:
-                    self._client = openai.OpenAI(api_key=key, timeout=REQUEST_TIMEOUT_S)
+                self._client = openai.OpenAI(  # SDK default retries handle connection errors, 429 and 5xx
+                    api_key=key,
+                    base_url=self._url or OPENAI_API_URL,
+                    timeout=openai.Timeout(REQUEST_TIMEOUT_S, connect=CONNECT_TIMEOUT_S),
+                )
             return self._client
 
     def _upload(self, path: Path) -> tuple[list[Segment], float, str | None]:

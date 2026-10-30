@@ -76,15 +76,26 @@ def load_settings() -> Settings:
     raise ConfigurationError([f"{name.upper()} has an invalid value" for name in fields])
 
 
+OPENAI_API_HOST = "api.openai.com"
+
+
+def _host(url: str) -> str | None:
+    """The lower-case host of ``url``, or ``None`` when it has none or cannot be parsed."""
+    try:
+        return urlparse(url).hostname or None
+    except ValueError:  # malformed address: reported by validate(), never a crash
+        return None
+
+
 def is_openai_api(url: str | None) -> bool:
-    """True when the transcription address is OpenAI's own API: empty, or host `api.openai.com`."""
+    """True when the transcription address is OpenAI's own API: empty, or `https://` with host `api.openai.com`.
+
+    Plain `http://api.openai.com` is not OpenAI's API (the key is never sent over HTTP); validate() refuses it.
+    """
     if not url or not url.strip():
         return True
-    try:
-        host = urlparse(url.strip()).hostname
-    except ValueError:  # malformed address: reported by validate(), never a crash
-        return False
-    return (host or "").lower() == "api.openai.com"
+    text = url.strip()
+    return text.lower().startswith("https://") and _host(text) == OPENAI_API_HOST
 
 
 def _has(secret: SecretStr | None) -> bool:
@@ -129,6 +140,10 @@ def validate(settings: Settings) -> list[str]:
     url = (settings.openai_transcribe_url or "").strip()
     if url and not url.lower().startswith(("http://", "https://")):
         problems.append("OPENAI_TRANSCRIBE_URL must start with http:// or https://")
+    elif url and _host(url) is None:
+        problems.append("OPENAI_TRANSCRIBE_URL must name a host, e.g. http://whisper.example.com:8000/v1")
+    elif url and _host(url) == OPENAI_API_HOST and not is_openai_api(url):
+        problems.append("OPENAI_TRANSCRIBE_URL must use https:// for OpenAI's API")
     if (
         "openai" in settings.transcribe_providers
         and is_openai_api(url)

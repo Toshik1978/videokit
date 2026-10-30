@@ -241,7 +241,7 @@ def test_self_hosted_transcription_logs_and_exposes_no_address_key_or_server_mes
 
     assert job["state"] == "done"
     log = "\n".join(captured.lines)
-    assert "Transcription provider openai failed (ProviderError)" in log
+    assert "Transcription provider openai failed (ProviderError: APIConnectionError)" in log
     exposed = log + health.text + str(job)
     leaks = [s for s in (SERVER_URL, SERVER_KEY, OPENAI_KEY, "whisper.example.com") if s in exposed]
     assert leaks == [], f"address or keys exposed: {leaks}"
