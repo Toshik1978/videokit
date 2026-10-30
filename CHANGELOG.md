@@ -8,6 +8,36 @@ Versions follow [semver](https://semver.org). Commits follow
 
 ---
 
+## v0.4.0 — 2026-10-30
+
+Breaking change: VideoKit no longer runs Whisper itself. Transcription goes to OpenAI or to any
+OpenAI-compatible speech-to-text server you already run, such as speaches: set
+`TRANSCRIBE_PROVIDERS=openai` and, for your own server, `OPENAI_TRANSCRIBE_URL` and
+`OPENAI_TRANSCRIBE_MODEL`. Transcription through your own server costs nothing, and your OpenAI key
+is never sent to it. The image is CPU-only and about a quarter of its former size, and it needs no
+GPU, no `--gpus` flag and no model cache. An install still set up for 0.3
+(`TRANSCRIBE_PROVIDERS=local`) refuses to start with a message saying what to change. Follow
+[Upgrading from 0.3](README.md#upgrading-from-03) before you update. Also fixed: an
+`OPENAI_BASE_URL`, `ANTHROPIC_BASE_URL` or `GOOGLE_GEMINI_BASE_URL` set in the environment can no
+longer send an API key to another host.
+
+### Features
+
+- feat: transcribe through a self-hosted OpenAI-compatible server ([e54adf8](https://github.com/toshik1978/videokit/commit/e54adf8c69f7345dc66b0e84acfdf456f883fe9a))
+- feat!: remove in-process Whisper for a smaller, GPU-free image ([74a6899](https://github.com/toshik1978/videokit/commit/74a6899e4210649bbd158c9e449a36dd4e6fdf3b))
+- feat: explain the upgrade from 0.3 at startup and in the README ([e81c3f4](https://github.com/toshik1978/videokit/commit/e81c3f4dde4ff679fb9feeaa94f801eef37b30be))
+
+### Bug Fixes
+
+- fix: harden transcription address handling and failure logs ([f9df31f](https://github.com/toshik1978/videokit/commit/f9df31fce88830468dc1bc60c98155270feda61d))
+- fix: never let SDK base-URL env vars redirect provider keys ([fedc7cf](https://github.com/toshik1978/videokit/commit/fedc7cf28d66e39eecebe1c91e5091f1e441b90b))
+
+### Others
+
+- docs: drop the model cache from the compose data comment ([375ce23](https://github.com/toshik1978/videokit/commit/375ce23a731cdc685487f2a6f4e9900a0fd7576a))
+
+---
+
 ## v0.3.0 — 2026-10-30
 
 VideoKit gets its third tool, Video Generation: write a prompt, optionally add up to seven pictures
