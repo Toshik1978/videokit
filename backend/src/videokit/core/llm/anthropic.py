@@ -38,6 +38,12 @@ def _jpeg(data: bytes) -> BetaImageBlockParam:
     return {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": encoded}}
 
 
+def _message(role: Literal["user", "assistant"], blocks: list[BetaContentBlockParam]) -> BetaMessageParam:
+    if role == "user":
+        return {"role": "user", "content": blocks}
+    return {"role": "assistant", "content": blocks}
+
+
 def build_messages(req: GenerationRequest) -> list[BetaMessageParam]:
     """Stable prefix (transcript, then each frame after its ``[frame m:ss]`` label) with a cache breakpoint on its
     last block, followed by the per-call turns. Consecutive turns of one role share a message."""
@@ -55,12 +61,12 @@ def build_messages(req: GenerationRequest) -> list[BetaMessageParam]:
     role: Literal["user", "assistant"] = "user"
     for turn in req.turns:
         if turn.role != role and blocks:
-            messages.append({"role": role, "content": blocks})
+            messages.append(_message(role, blocks))
             blocks = []
         role = turn.role
         blocks.append(_text(turn.text))
     if blocks:
-        messages.append({"role": role, "content": blocks})
+        messages.append(_message(role, blocks))
     return messages
 
 
