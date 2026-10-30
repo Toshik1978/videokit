@@ -38,3 +38,8 @@ def test_user_volume_port_env_and_restart_unchanged() -> None:
     assert service["ports"] == ["8000:8000"]
     assert service["env_file"] == ".env"
     assert service["restart"] == "unless-stopped"
+
+
+def test_data_comment_names_no_model_cache() -> None:
+    text = COMPOSE.read_text(encoding="utf-8").lower()
+    assert "model cache" not in text

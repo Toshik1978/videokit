@@ -120,7 +120,7 @@ at the lowered limit, and an import check proving `faster_whisper`, `ctranslate2
 
 ## Phase 4: Polish & Cross-Cutting Concerns
 
-- [ ] T016 Run the quickstart validation (quickstart.md §1, §2, §5) and fix what fails
+- [x] T016 Run the quickstart validation (quickstart.md §1, §2, §5) and fix what fails
   - `task lint`, `task test`, `task e2e`, image build + smoke + size guard, upgrade-path startup check; `gitleaks detect --redact` and the denylist check stay clean.
 
 ---
@@ -142,3 +142,7 @@ at the lowered limit, and an import check proving `faster_whisper`, `ctranslate2
 
 - **MVP**: Phase 1 alone lets a 0.3.x install switch to a self-hosted server by configuration.
 - **Release**: Phases 1–4 together ship as the breaking v0.4.0 (`task changelog TAG=v0.4.0`, then tag).
+
+## Phase 5: Convergence
+
+- [x] T017 Remove the stale "model caches" wording from the `compose.yaml` data-volume comment and assert it in `backend/tests/unit/test_compose.py` per FR-009 (partial)

@@ -5,7 +5,7 @@ services:
     env_file: .env
     ports:
       - "8000:8000"
-    # Runtime data (SQLite DB, jobs, model caches) lives in the gitignored ./.data directory.
+    # Runtime data (SQLite DB, jobs) lives in the gitignored ./.data directory.
     volumes:
       - ./.data:/data
     # Run as the host user so the bind-mounted ./.data is writable. Set PUID/PGID in .env to the
