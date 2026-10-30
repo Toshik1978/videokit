@@ -20,13 +20,18 @@ GPU, no `--gpus` flag and no model cache. An install still set up for 0.3
 [Upgrading from 0.3](README.md#upgrading-from-03) before you update. Also fixed: an
 `OPENAI_BASE_URL`, `ANTHROPIC_BASE_URL` or `GOOGLE_GEMINI_BASE_URL` set in the environment can no
 longer send an API key to another host. Dependencies are up to date, including the Anthropic SDK 2.x
-and a certifi CA bundle without the compromised emSign root (PYSEC-2026-4320).
+and a certifi CA bundle without the compromised emSign root (PYSEC-2026-4320). New in YouTube Prep: pick
+the output language on the upload page ("Same as the speech" stays the default, and the device
+remembers the choice); a video without speech now uses the browser's language instead of always
+English.
 
 ### Features
 
 - feat: transcribe through a self-hosted OpenAI-compatible server ([e54adf8](https://github.com/toshik1978/videokit/commit/e54adf8c69f7345dc66b0e84acfdf456f883fe9a))
 - feat!: remove in-process Whisper for a smaller, GPU-free image ([74a6899](https://github.com/toshik1978/videokit/commit/74a6899e4210649bbd158c9e449a36dd4e6fdf3b))
 - feat: explain the upgrade from 0.3 at startup and in the README ([e81c3f4](https://github.com/toshik1978/videokit/commit/e81c3f4dde4ff679fb9feeaa94f801eef37b30be))
+- feat: choose the YouTube Prep output language ([56844c9](https://github.com/toshik1978/videokit/commit/56844c9b2acdae969173c7c249a1171c377c51a6))
+- feat: use the browser language for silent YouTube Prep videos ([fb1440d](https://github.com/toshik1978/videokit/commit/fb1440d0789d5490e322ad2ac348394aca598280))
 
 ### Bug Fixes
 
@@ -34,6 +39,7 @@ and a certifi CA bundle without the compromised emSign root (PYSEC-2026-4320).
 - fix: never let SDK base-URL env vars redirect provider keys ([fedc7cf](https://github.com/toshik1978/videokit/commit/fedc7cf28d66e39eecebe1c91e5091f1e441b90b))
 - fix: build role-specific Anthropic messages for SDK 2.x types ([8b88b6f](https://github.com/toshik1978/videokit/commit/8b88b6fe938267d2aaafa60b450f9249869aad36))
 - fix(deps): bump certifi to 2026.10.23 for PYSEC-2026-4320 ([8b24082](https://github.com/toshik1978/videokit/commit/8b240825467d2884718038d0bdd5c6778ae63414))
+- fix: address the YouTube Prep output-language final review ([2f0408f](https://github.com/toshik1978/videokit/commit/2f0408f5314c0a0faec4c4668640e1ec120502dd))
 
 ### Others
 
