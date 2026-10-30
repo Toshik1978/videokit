@@ -24,6 +24,7 @@ from videokit.core.llm.base import (
     format_timestamp,
 )
 
+OPENAI_API_URL = "https://api.openai.com/v1"  # always explicit: the SDK would otherwise read OPENAI_BASE_URL
 SCHEMA_NAME = "structured_output"  # required by `text.format`; the schema itself is supplied by the caller
 
 
@@ -115,7 +116,7 @@ class OpenAIProvider:
         with self._lock:
             if self._client is None:
                 key = self._api_key.get_secret_value() if self._api_key is not None else None
-                self._client = openai.OpenAI(api_key=key)  # SDK default retries handle 429/5xx
+                self._client = openai.OpenAI(api_key=key, base_url=OPENAI_API_URL)  # SDK default retries handle 429/5xx
             return self._client
 
     def request_params(self, req: GenerationRequest) -> dict[str, Any]:

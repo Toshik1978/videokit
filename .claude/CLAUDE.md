@@ -178,6 +178,10 @@ Dockerfile, compose.yaml, scripts/{docker_smoke.sh,image_size_guard.sh,changelog
   before `docker compose up`, or Docker creates it as root. The smoke test checks both runs.
 - Backend tests are isolated from the developer's shell env by an autouse fixture (except `live`
   tests). Don't rely on exported provider keys in default tests.
+- Every vendor SDK client is built with an explicit base URL (`OPENAI_API_URL`, `ANTHROPIC_API_URL`,
+  `GEMINI_API_URL`, or the configured `OPENAI_TRANSCRIBE_URL`): the SDKs otherwise read
+  `OPENAI_BASE_URL` / `ANTHROPIC_BASE_URL` / `GOOGLE_GEMINI_BASE_URL` from the environment and would
+  send the API key wherever those point.
 - gitleaks false positives are handled with narrow, `condition = "AND"` path+exact-regex
   allowlists in `.gitleaks.toml` — never broad path allowlists.
 - Dependabot keeps deps current (monthly; actions on moving `@vN` tags). Lockfiles are committed

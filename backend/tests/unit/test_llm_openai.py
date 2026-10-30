@@ -241,5 +241,11 @@ def test_lazy_client_uses_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     provider = OpenAIProvider(Settings(openai_api_key=SecretStr("test-key"), openai_model="m"))
     assert created == []
     assert provider._sdk() is provider._sdk()
-    assert created == [{"api_key": "test-key"}]
+    assert created == [{"api_key": "test-key", "base_url": "https://api.openai.com/v1"}]
     assert openai_module.SCHEMA_NAME == "structured_output"
+
+
+def test_openai_base_url_env_never_redirects_the_llm_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENAI_BASE_URL", "http://llm.example.com:8000/v1")
+    provider = OpenAIProvider(Settings(openai_api_key=SecretStr("test-key"), openai_model="m"))
+    assert str(provider._sdk().base_url) == "https://api.openai.com/v1/"

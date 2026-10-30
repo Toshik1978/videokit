@@ -789,3 +789,10 @@ def test_logs_carry_exception_types_only(caplog: pytest.LogCaptureFixture, tmp_p
     assert str(exc.value) == ""  # the provider message is never carried (research V10)
     for marker in ("SECRET-PROVIDER-TEXT", "MARKER-PROMPT", KEY, _b64(JPEG_1)):
         assert marker not in caplog.text
+
+
+def test_gemini_base_url_env_never_redirects_the_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GOOGLE_GEMINI_BASE_URL", "http://video.example.com:8000/")
+    provider = OmniProvider(_settings())
+    for client in (provider._sdk(), provider._creator()):
+        assert client._api_client._http_options.base_url == "https://generativelanguage.googleapis.com/"

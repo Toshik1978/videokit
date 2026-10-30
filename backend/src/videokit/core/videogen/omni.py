@@ -37,6 +37,8 @@ from videokit.core.videogen.base import (
 
 logger = logging.getLogger("videokit")
 
+# always explicit: the SDK would otherwise read GOOGLE_GEMINI_BASE_URL
+GEMINI_API_URL = "https://generativelanguage.googleapis.com/"
 CAPABILITIES = Capabilities(
     durations_s=[5, 6, 7, 8, 9, 10],
     max_pictures=7,
@@ -228,7 +230,9 @@ class OmniProvider:
 
     def _build(self, http_options: genai_types.HttpOptions | None) -> genai.Client:
         key = self._api_key.get_secret_value() if self._api_key is not None else None
-        return genai.Client(api_key=key, http_options=http_options)
+        options = (http_options or genai_types.HttpOptions()).model_copy()
+        options.base_url = options.base_url or GEMINI_API_URL
+        return genai.Client(api_key=key, http_options=options)
 
     def _sdk(self) -> genai.Client:
         """For ``get``, ``cancel`` and ``delete``: idempotent, so the SDK's default retries on 429/5xx are welcome."""

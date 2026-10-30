@@ -24,6 +24,7 @@ from videokit.core.llm.base import (
     format_timestamp,
 )
 
+ANTHROPIC_API_URL = "https://api.anthropic.com"  # always explicit: the SDK would otherwise read ANTHROPIC_BASE_URL
 MAX_TOKENS = 64000  # streaming request: room for adaptive thinking plus the JSON output
 REFUSAL_FALLBACK_BETA = "server-side-fallback-2026-07-01"  # pairs with fallbacks="default"
 
@@ -94,7 +95,8 @@ class AnthropicProvider:
         with self._lock:
             if self._client is None:
                 key = self._api_key.get_secret_value() if self._api_key is not None else None
-                self._client = anthropic.Anthropic(api_key=key)  # SDK default retries handle 429/5xx
+                # SDK default retries handle 429/5xx
+                self._client = anthropic.Anthropic(api_key=key, base_url=ANTHROPIC_API_URL)
             return self._client
 
     def request_params(self, req: GenerationRequest) -> dict[str, Any]:

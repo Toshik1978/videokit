@@ -288,4 +288,10 @@ def test_anthropic_builds_sdk_client_lazily(monkeypatch: pytest.MonkeyPatch) -> 
     provider.generate(_request())
     provider.generate(_request())
 
-    factory.assert_called_once_with(api_key="sk-test")
+    factory.assert_called_once_with(api_key="sk-test", base_url="https://api.anthropic.com")
+
+
+def test_anthropic_base_url_env_never_redirects_the_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "http://llm.example.com:8000")
+    provider = AnthropicProvider(Settings(anthropic_api_key=SecretStr("sk-test")))
+    assert str(provider._sdk().base_url) == "https://api.anthropic.com"
