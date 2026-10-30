@@ -6,7 +6,7 @@ III).
 ## `tools/youtube_prep/languages.py` (new)
 
 ```python
-LANGUAGES: dict[str, str]  # ISO 639-1 code -> English name, the 58 entries of research L2
+LANGUAGES: dict[str, str]  # ISO 639-1 code -> English name, the 61 entries of research L2
 AUTO = "auto"
 LANGUAGE_JSON = "language.json"
 
@@ -50,7 +50,7 @@ def instruction(code: str) -> str: ...
 - `tools/youtube-prep/language.ts` (new):
   - `endonym(code)` uses `Intl.DisplayNames` and falls back to the code.
   - `loadChoice(supported)` and `saveChoice(value)` use `localStorage`, wrapped in try/catch.
-  - `browserLanguage()` returns `navigator.language`.
+  - `browserLanguage()` returns the lower-cased base subtag of `navigator.language` (`pt-BR` -> `pt`), or `undefined` when the browser reports none.
 - `tools/youtube-prep/YouTubePrepPage.vue`: fetches `/options`, shows a labelled `<select>`
   ("Same as the speech" first, then endonyms sorted), saves on change, and passes
   `{language, fallback_language}` as `createFields`.

@@ -37,6 +37,10 @@ Request:
 
 It is the language the output is written in (data-model.md), not necessarily the detected one.
 
+Field note: the job's own top-level `language` in `GET /api/jobs/{id}` stays the language detected by
+transcription, so with a picked language it can differ from `result.language` (the output). Clients
+should read `result.language` for the output language.
+
 ## Unchanged
 
 `POST /api/tools/youtube_prep/jobs/{id}/regenerate` has the same request and responses; it writes

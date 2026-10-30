@@ -6,7 +6,11 @@ import { useI18n } from 'vue-i18n';
 import { ApiError, getJson, postJson } from '@/api/client';
 import { useMessages } from '@/i18n/messages';
 
-const props = defineProps<{ toolId: string; createFields?: Record<string, unknown> }>();
+const props = defineProps<{
+  toolId: string;
+  createFields?: Record<string, unknown>;
+  disabled?: boolean;
+}>();
 const emit = defineEmits<{ uploaded: [jobId: string] }>();
 
 interface AppConfig {
@@ -259,7 +263,12 @@ async function onChange(event: Event): Promise<void> {
   <div class="upload-panel">
     <label class="file-label">
       <span>{{ t('upload.choose') }}</span>
-      <input type="file" accept="video/*" :disabled="busy || !config" @change="onChange" />
+      <input
+        type="file"
+        accept="video/*"
+        :disabled="busy || !config || props.disabled"
+        @change="onChange"
+      />
     </label>
     <p v-if="config" class="hint">
       {{ t('upload.limit', { limit: formatBytes(config.max_upload_bytes) }) }}

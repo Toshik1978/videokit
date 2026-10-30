@@ -2,7 +2,8 @@
 
 Open-source, self-hosted toolbox of video tools served as one Docker container. Tools:
 **YouTube Prep** — upload a video, get cover titles, title/description, tags/hashtags and chapter
-timings (`0:00 "Arrival and lobby"`) in the video's spoken language by default or a language you pick, with per-section regenerate.
+timings (`0:00 "Arrival and lobby"`) in the video's spoken language by default or a language you
+pick, with per-section regenerate.
 **Audio Extract** — upload a video, download or share its audio as a 192 kbps MP3 named after the
 video (no AI, no cost).
 **Video Generation** — a prompt plus up to 7 pictures (5–10 s, 9:16/16:9, 1080p/720p) become one silent
@@ -136,9 +137,10 @@ Dockerfile, compose.yaml, scripts/{docker_smoke.sh,image_size_guard.sh,changelog
 - **`jobs.source_name`**: the original file name from the upload tools' `POST /api/tools/<id>/jobs` `file_name`, sanitized,
   exposed to tools as `JobHandle.source_name`; never logged and never returned by the job API.
 - **Output language** = the language picked on the upload page (`language`, sent with the job);
-  else the language detected by transcription (`result.language = media.language`); else, for a
-  silent video, the browser's language (`fallback_language`) if supported; else English. The
-  supported list is `tools/youtube_prep/languages.py`; regenerate keeps the job's language.
+  else the language detected by transcription (`media.language`, also kept on the job row);
+  `result.language` holds the resolved output language; else, for a silent video, the
+  browser's language (`fallback_language`) if supported; else English. The supported list is
+  `tools/youtube_prep/languages.py`; regenerate keeps the job's language.
 - **Jobs**: SQLite (WAL) + `DATA_DIR/jobs/<id>/`. The state machine in `core/jobs.py` is enforced
   (`uploading → queued` only when offset == length). `failure_reason` and `failure_code` are set
   iff `failed`. `JobStore.is_expired` is the single expiry predicate shared by purge, the job API,

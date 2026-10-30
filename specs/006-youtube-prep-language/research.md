@@ -21,7 +21,7 @@ were rejected.
 ## L2. Supported languages
 
 - **Decision**: a fixed, tool-owned table in `tools/youtube_prep/languages.py` mapping ISO 639-1 codes
-  to English names (the English name goes into the model instruction). It holds 58 widely used
+  to English names (the English name goes into the model instruction). It holds 61 widely used
   languages that Whisper transcribes and current LLMs write well: `af ar az be bg bn ca cs cy da de el
   en es et eu fa fi fr gl gu he hi hr hu hy id is it ja ka kk kn ko lt lv mk ml mr ms nl no pa pl pt ro
   ru sk sl sr sv sw ta te th tl tr uk ur vi zh`. `GET /api/tools/youtube_prep/options` returns the
@@ -38,7 +38,7 @@ were rejected.
   endonym, for example "Deutsch") and falls back to the code when the browser cannot name it. The
   picker sorts entries by endonym (`localeCompare`), with "Same as the speech" first.
 - **Rationale**: every supported browser (Chrome, Safari ≥ 14.1, Firefox) has it, and it avoids
-  shipping a 58-entry translation table.
+  shipping a 61-entry translation table.
 - **Alternatives**: a hand-written endonym table (maintenance, typos); English names (fails FR-001).
 
 ## L4. Resolving the output language

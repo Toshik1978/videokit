@@ -19,6 +19,8 @@ const router = useRouter();
 
 const languages = ref<string[]>([]);
 const language = ref(AUTO_LANGUAGE);
+// The create body fixes the job's language, so uploads wait until the remembered choice is applied.
+const optionsSettled = ref(false);
 const createFields = computed(() => ({
   language: language.value,
   fallback_language: browserLanguage(),
@@ -31,6 +33,8 @@ onMounted(async () => {
     language.value = loadChoice(languages.value);
   } catch {
     // Without the list only "Same as the speech" is offered.
+  } finally {
+    optionsSettled.value = true;
   }
 });
 
@@ -54,7 +58,12 @@ function onUploaded(jobId: string): void {
         <option v-for="code in languages" :key="code" :value="code">{{ endonym(code) }}</option>
       </select>
     </div>
-    <UploadPanel tool-id="youtube_prep" :create-fields="createFields" @uploaded="onUploaded" />
+    <UploadPanel
+      tool-id="youtube_prep"
+      :create-fields="createFields"
+      :disabled="!optionsSettled"
+      @uploaded="onUploaded"
+    />
   </section>
 </template>
 

@@ -6,7 +6,7 @@
 
 ## Summary
 
-YouTube Prep gets a per-job output language. The upload page offers "Same as the speech" plus 58
+YouTube Prep gets a per-job output language. The upload page offers "Same as the speech" plus 61
 supported languages, each shown by its own name. The device remembers the last choice. The choice,
 plus the browser's language as a fallback for silent videos, goes into YouTube Prep's own job
 creation request. The tool stores it in `language.json` in the job folder, and the pipeline
@@ -67,7 +67,7 @@ fields
 
 | Principle | Status | Notes |
 |-----------|--------|-------|
-| I. Open-source hygiene | Pass | A generic 58-language list; examples use neutral codes; nothing names an operator's languages. |
+| I. Open-source hygiene | Pass | A generic 61-language list; examples use neutral codes; nothing names an operator's languages. |
 | II. Simplicity | Pass | One small module, one GET route, one optional prop on a shared component; no dependency, setting or migration. |
 | III. Multi-tool modularity | Pass | All backend changes are in `tools/youtube_prep/`; the tool uses core only through `uploads.create_upload_job` and `JobAccess`. The frontend shared `UploadPanel` gets a generic `createFields` prop. |
 | IV. Provider abstraction | Pass | No provider change; the language is a prompt-turn instruction. |

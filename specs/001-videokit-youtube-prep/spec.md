@@ -209,7 +209,8 @@ home screen.
 ### Edge Cases
 
 - Video with no speech (music only or silent): processed using visuals only; results carry a
-  notice that no speech was detected; language defaults to English.
+  notice that no speech was detected; language defaults to English
+  (superseded for silent videos by 006 FR-007).
 - Video shorter than 30 seconds (cannot satisfy 3 chapters 10 s apart): metadata is produced and
   the chapters section states that the video is too short for chapters.
 - Video longer than 1 hour: chapter times use `h:mm:ss` from the first chapter at or past one
@@ -297,7 +298,8 @@ home screen.
 
 **YouTube Prep tool**
 
-- **FR-020**: For each processed video, the tool MUST produce, in the detected spoken language:
+- **FR-020**: For each processed video, the tool MUST produce, in the detected spoken language
+  (superseded by 006: the creator can pick the output language):
   3 cover title options, a title, a description, tags, hashtags and chapters.
 - **FR-021**: Cover title options MUST each be at most 5 words.
 - **FR-022**: The title MUST be at most 100 characters.

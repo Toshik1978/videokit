@@ -112,4 +112,48 @@ describe('youtube prep language picker', () => {
     const options = wrapper.get('select').findAll('option');
     expect(options.map((o) => o.text())).toEqual(['Same as the speech']);
   });
+
+  async function pickFile(wrapper: Awaited<ReturnType<typeof setup>>): Promise<void> {
+    const input = wrapper.get('input[type="file"]');
+    const file = new File([new Uint8Array(1)], 'clip.mp4', { type: 'video/mp4' });
+    Object.defineProperty(input.element, 'files', { value: [file], configurable: true });
+    await input.trigger('change');
+    await flushPromises();
+  }
+
+  function createCallBody(fetchFn: ReturnType<typeof stubFetch>): Record<string, unknown> {
+    const call = fetchFn.mock.calls.find((c) => c[0] === '/api/tools/youtube_prep/jobs');
+    return JSON.parse(String(call?.[1]?.body));
+  }
+
+  it('keeps the upload disabled until the options load, then sends the remembered language', async () => {
+    localStorage.setItem(LANGUAGE_KEY, 'de');
+    let release: (r: Response) => void = () => {};
+    const pending = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    const fetchFn = vi.fn((url: string, _init?: RequestInit) => {
+      if (url === '/api/config') return Promise.resolve(json(200, CONFIG));
+      if (url === '/api/tools/youtube_prep/options') return pending;
+      if (url === '/api/tools/youtube_prep/jobs')
+        return Promise.resolve(json(201, { id: 'j1', upload_url: '/u/1' }));
+      return Promise.resolve(json(404, {}));
+    });
+    vi.stubGlobal('fetch', fetchFn);
+    const wrapper = await setup();
+    expect(wrapper.get('input[type="file"]').attributes('disabled')).toBeDefined();
+    release(okOptions());
+    await flushPromises();
+    expect(wrapper.get('input[type="file"]').attributes('disabled')).toBeUndefined();
+    await pickFile(wrapper);
+    expect(createCallBody(fetchFn)).toMatchObject({ language: 'de' });
+  });
+
+  it('enables the upload with auto when the options request fails', async () => {
+    const fetchFn = stubFetch(() => json(500, {}));
+    const wrapper = await setup();
+    expect(wrapper.get('input[type="file"]').attributes('disabled')).toBeUndefined();
+    await pickFile(wrapper);
+    expect(createCallBody(fetchFn)).toMatchObject({ language: 'auto' });
+  });
 });

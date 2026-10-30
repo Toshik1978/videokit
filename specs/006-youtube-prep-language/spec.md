@@ -189,7 +189,7 @@ second job; verify each job's output (and any regenerated section) stays in its 
 ## Assumptions
 
 - The supported list is the set of languages the default transcription and text-generation
-  models handle well; about 30–60 entries, ordered by their own names. The exact list is a
+  models handle well; about 30–70 entries, ordered by their own names. The exact list is a
   planning decision.
 - "Browser's language" means the browser's preferred language as reported to the page at upload
   time; VideoKit has no user accounts, so per-device memory is the only form of "set once".
