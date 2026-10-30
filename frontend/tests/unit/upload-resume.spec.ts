@@ -137,6 +137,39 @@ describe('create fields', () => {
   });
 });
 
+describe('create fields and resume', () => {
+  it('keeps the original job when createFields change before a resume', async () => {
+    seed();
+    const wrapper = await setup('youtube_prep', { language: 'de', fallback_language: 'en' });
+    await wrapper.setProps({ createFields: { language: 'ja', fallback_language: 'fr' } });
+    await choose(wrapper);
+    expect(posted()).toHaveLength(0);
+    expect(tus.instances[0].options.uploadUrl).toBe('/api/uploads/old');
+    expect(stored()[FINGERPRINT]).toEqual({ job_id: 'old', upload_url: '/api/uploads/old' });
+    tus.instances[0].options.onSuccess();
+    expect(wrapper.emitted('uploaded')).toEqual([['old']]);
+  });
+
+  it('sends the choice current at creation, not an earlier one', async () => {
+    const wrapper = await setup('youtube_prep', { language: 'de' });
+    await wrapper.setProps({ createFields: { language: 'ja' } });
+    await choose(wrapper);
+    expect(JSON.parse(posted()[0][1].body as string)).toEqual({
+      size: 500,
+      file_name: 'clip.mp4',
+      language: 'ja',
+    });
+  });
+
+  it('does not touch the stored job when the choice changes mid-upload', async () => {
+    const wrapper = await setup('youtube_prep', { language: 'de' });
+    await choose(wrapper);
+    await wrapper.setProps({ createFields: { language: 'ja' } });
+    expect(posted()).toHaveLength(1);
+    expect(stored()[FINGERPRINT].job_id).toBe('new');
+  });
+});
+
 describe('resumable uploads', () => {
   it('stores job id and upload url under a file fingerprint and disables tus own storage', async () => {
     const wrapper = await setup();

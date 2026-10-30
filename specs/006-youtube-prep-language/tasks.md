@@ -140,7 +140,7 @@ afterwards or an interrupted upload is resumed.
   regenerations stay `de`, and B's are `fr`.
 - Resume A's interrupted upload after the change. No new job is created, and A stays `de`.
 
-- [ ] T010 [US3] Pin the per-job language through resume and later choice changes in `frontend/src/components/UploadPanel.vue`, with tests in `frontend/tests/unit/upload-resume.spec.ts` and `backend/tests/integration/test_youtube_prep_language_api.py` (FR-004; spec edge cases)
+- [x] T010 [US3] Pin the per-job language through resume and later choice changes in `frontend/src/components/UploadPanel.vue`, with tests in `frontend/tests/unit/upload-resume.spec.ts` and `backend/tests/integration/test_youtube_prep_language_api.py` (FR-004; spec edge cases)
   - Frontend: a resume after the `createFields` prop changes still makes no create call and keeps the original job.
   - Backend: two jobs with different languages processed in sequence each keep their own `result.language` through a regenerate.
   - Fix any path where the current choice could leak into an existing job.
