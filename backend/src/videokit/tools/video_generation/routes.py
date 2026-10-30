@@ -8,6 +8,7 @@ logs the prompt, the pictures or a provider message.
 import asyncio
 import json
 import os
+import re
 from collections.abc import Mapping, MutableMapping
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,7 @@ from starlette.requests import Request as StarletteRequest
 
 from videokit.core.downloads import content_disposition
 from videokit.core.errors import AppError
+from videokit.core.jobs import Job
 from videokit.core.pricing import estimate, price_table
 from videokit.core.registry import JobAccess, job_access
 from videokit.core.videogen import Capabilities, Usage, VideoChain
@@ -27,6 +29,8 @@ from videokit.tools.video_generation.inputs import (
     MAX_PICTURE_BYTES,
     MAX_PICTURES,
     MAX_PROMPT_CHARS,
+    PICTURES_DIR,
+    load_inputs,
     parse_fields,
     store_inputs,
 )
@@ -41,6 +45,7 @@ DEFAULT_DURATION_S = 8
 ASPECT_RATIOS = ("9:16", "16:9")
 RESOLUTIONS = ("1080p", "720p")
 PICTURE_TYPES = ("image/jpeg", "image/png", "image/webp", "image/heic", "image/heif")
+PICTURE_NUMBER = re.compile(r"[1-9][0-9]{0,2}")  # 1-based and canonical: no sign, zero padding or non-ASCII digit
 
 router = APIRouter()
 
@@ -186,7 +191,7 @@ async def create_job(request: Request) -> dict[str, str]:
     return {"job_id": job.id}
 
 
-# --- files -----------------------------------------------------------------------------------------------------
+# --- files and inputs ------------------------------------------------------------------------------------------
 
 
 def _read_result(job_dir: Path) -> dict[str, Any]:
@@ -215,15 +220,21 @@ def _stored_download_name(result: dict[str, Any]) -> str:
     return CLIP_FALLBACK_NAME
 
 
+async def _tool_job(job_id: str, request: Request) -> tuple[JobAccess, Job]:
+    """The access and the job; 404 `job_not_found` for an unknown, expired or other tool's job."""
+    access = job_access(request)
+    job = await asyncio.to_thread(access.get, job_id)
+    if job is None or job.tool_id != TOOL_ID:
+        raise _not_found()
+    return access, job
+
+
 async def _finished_file(job_id: str, request: Request, key: str) -> tuple[Path, os.stat_result, dict[str, Any]]:
     """The path and stat of a finished job's file (`file` or `thumbnail` in `result.json`), and the result itself.
 
     404 `job_not_found` for an unknown, expired or other tool's job (or a purged file), 409 `job_not_done` otherwise.
     """
-    access = job_access(request)
-    job = await asyncio.to_thread(access.get, job_id)
-    if job is None or job.tool_id != TOOL_ID:
-        raise _not_found()
+    access, job = await _tool_job(job_id, request)
     if job.state != "done":
         raise AppError("job_not_done", "This job is not finished yet, so there is nothing to download.", 409)
     job_dir = access.job_dir(job_id)
@@ -256,4 +267,41 @@ async def clip(job_id: str, request: Request) -> FileResponse:
 async def thumbnail(job_id: str, request: Request) -> FileResponse:
     """The clip's first-frame JPEG."""
     path, stat, _ = await _finished_file(job_id, request, "thumbnail")
+    return FileResponse(path, media_type="image/jpeg", stat_result=stat)
+
+
+def _stored_inputs(job_dir: Path, job_id: str) -> dict[str, Any]:
+    """The job's inputs as the API shows them; incomplete or missing inputs (data deleted or purged) count as gone."""
+    try:
+        stored = load_inputs(job_dir)
+    except AppError:
+        raise _not_found() from None
+    return {
+        "prompt": stored.fields.prompt,
+        "duration_s": stored.fields.duration_s,
+        "aspect_ratio": stored.fields.aspect_ratio,
+        "resolution": stored.fields.resolution,
+        "pictures": [f"/api/tools/{TOOL_ID}/jobs/{job_id}/{PICTURES_DIR}/{path.stem}" for path in stored.pictures],
+    }
+
+
+@router.get("/jobs/{job_id}/inputs")
+async def inputs(job_id: str, request: Request) -> dict[str, Any]:
+    """What the job was created from (any state), for Try again and the recent clips: fields and picture URLs."""
+    access, _ = await _tool_job(job_id, request)
+    return await asyncio.to_thread(_stored_inputs, access.job_dir(job_id), job_id)
+
+
+@router.get("/jobs/{job_id}/pictures/{n}")
+@router.head("/jobs/{job_id}/pictures/{n}")
+async def picture(job_id: str, n: str, request: Request) -> FileResponse:
+    """The normalized picture `n` (1-based) as a JPEG, in any job state."""
+    access, _ = await _tool_job(job_id, request)
+    if not PICTURE_NUMBER.fullmatch(n):
+        raise _not_found()
+    path = access.job_dir(job_id) / PICTURES_DIR / f"{n}.jpg"
+    try:
+        stat = await asyncio.to_thread(os.stat, path)
+    except OSError:  # out of range, or the data was deleted or purged
+        raise _not_found() from None
     return FileResponse(path, media_type="image/jpeg", stat_result=stat)

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 
 import { ApiError, getJson, postForm } from '@/api/client';
 import { useMessages } from '@/i18n/messages';
@@ -9,7 +9,7 @@ import { useMessages } from '@/i18n/messages';
 import { estimateCost, formatCost } from './estimate';
 import PicturePicker from './PicturePicker.vue';
 import { addRecentClip, listRecentClips, removeRecentClip } from './recentClips';
-import type { CreatedJob, VideoOptions } from './types';
+import type { CreatedJob, JobInputs, VideoOptions } from './types';
 
 const DEFAULT_ASPECT = '9:16';
 const DEFAULT_RESOLUTION = '1080p';
@@ -32,11 +32,14 @@ interface ListedClip {
 const { t, te } = useI18n();
 const { errorMessage } = useMessages();
 const router = useRouter();
+const route = useRoute();
 
 const options = ref<VideoOptions | null>(null);
 const loadError = ref('');
 const submitError = ref('');
 const submitting = ref(false);
+const prefillError = ref('');
+const loadingPictures = ref(false);
 
 const prompt = ref('');
 const duration = ref(0);
@@ -48,7 +51,9 @@ const jobTtlHours = ref<number | null>(null);
 const recent = ref<ListedClip[]>([]);
 const recentLoaded = ref(false);
 
-const canSubmit = computed(() => prompt.value.trim() !== '' && !submitting.value);
+const canSubmit = computed(
+  () => prompt.value.trim() !== '' && !submitting.value && !loadingPictures.value,
+);
 
 const estimate = computed(() => {
   if (options.value === null) return '';
@@ -120,8 +125,51 @@ function jobRoute(jobId: string): string {
 
 onMounted(() => {
   void loadRecent();
-  void loadOptions();
+  void start();
 });
+
+async function start(): Promise<void> {
+  await loadOptions();
+  const from = route.query.from;
+  if (options.value !== null && typeof from === 'string' && from !== '') await prefill(from);
+}
+
+/** A stored picture as a File, so the picker treats it like one the user chose. */
+async function fetchPicture(url: string, position: number): Promise<File> {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error('picture unavailable');
+  const blob = await response.blob();
+  return new File([blob], `picture-${position}.jpg`, { type: 'image/jpeg' });
+}
+
+/** Try again: fills the form from an earlier job's inputs. Nothing is written to that job. */
+async function prefill(jobId: string): Promise<void> {
+  const loaded = options.value;
+  if (loaded === null) return;
+  let inputs: JobInputs;
+  try {
+    inputs = await getJson<JobInputs>(
+      `/api/tools/video_generation/jobs/${encodeURIComponent(jobId)}/inputs`,
+    );
+  } catch {
+    prefillError.value = t('videoGeneration.prefillFailed');
+    return;
+  }
+  prompt.value = inputs.prompt;
+  if (loaded.durations_s.includes(inputs.duration_s)) duration.value = inputs.duration_s;
+  if (loaded.aspect_ratios.includes(inputs.aspect_ratio)) aspect.value = inputs.aspect_ratio;
+  if (loaded.resolutions.includes(inputs.resolution)) resolution.value = inputs.resolution;
+  loadingPictures.value = true;
+  try {
+    pictures.value = await Promise.all(
+      inputs.pictures.map((url, index) => fetchPicture(url, index + 1)),
+    );
+  } catch {
+    prefillError.value = t('videoGeneration.pictures.loadFailed');
+  } finally {
+    loadingPictures.value = false;
+  }
+}
 
 async function loadOptions(): Promise<void> {
   try {
@@ -217,6 +265,12 @@ async function submit(): Promise<void> {
         </p>
       </div>
 
+      <p v-if="prefillError" role="alert" class="error" data-test="prefill-error">
+        {{ prefillError }}
+      </p>
+      <p v-if="loadingPictures" role="status" class="muted" data-test="pictures-loading">
+        {{ t('videoGeneration.pictures.loading') }}
+      </p>
       <PicturePicker v-model="pictures" :limits="options" />
 
       <div class="field">

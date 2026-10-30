@@ -43,11 +43,21 @@ function jobBody(overrides: Record<string, unknown> = {}) {
 }
 
 const TTL_HOURS = 24;
+const SOURCE_API = '/api/tools/video_generation/jobs/j0';
+const SOURCE_INPUTS = {
+  prompt: 'slow zoom into picture 1',
+  duration_s: 6,
+  aspect_ratio: '16:9',
+  resolution: '720p',
+  pictures: [1, 2, 3].map((n) => `${SOURCE_API}/pictures/${n}`),
+};
 
 let optionsReply: () => Response;
 let configReply: () => Response;
 let jobReplies: Record<string, () => Response>;
 let createReply: () => Response;
+let inputsReply: () => Response;
+let pictureReply: (n: string) => Response;
 let fetchMock: ReturnType<typeof vi.fn>;
 
 function stubFetch() {
@@ -57,6 +67,11 @@ function stubFetch() {
       return Promise.resolve(createReply());
     }
     if (url === '/api/config') return Promise.resolve(configReply());
+    if (url === `${SOURCE_API}/inputs`) return Promise.resolve(inputsReply());
+    const picturePart = url.startsWith(`${SOURCE_API}/pictures/`)
+      ? url.split('/').pop()
+      : undefined;
+    if (picturePart !== undefined) return Promise.resolve(pictureReply(picturePart));
     if (url === '/api/jobs/j1/cancel') {
       return Promise.resolve(json(202, jobBody({ state: 'cancelled', queue_position: null })));
     }
@@ -112,6 +127,8 @@ beforeEach(() => {
   configReply = () => json(200, { job_ttl_hours: TTL_HOURS });
   jobReplies = {};
   createReply = () => json(201, { job_id: 'j1' });
+  inputsReply = () => json(200, SOURCE_INPUTS);
+  pictureReply = (n) => new Response(new Blob([`bytes-${n}`], { type: 'image/jpeg' }));
   Object.assign(URL, {
     createObjectURL: vi.fn((file: File) => `blob:${file.name}`),
     revokeObjectURL: vi.fn(),
@@ -529,6 +546,142 @@ describe('recent clips', () => {
     await flushPromises();
     await vi.waitFor(() => expect(current()).toBe('/tools/video-generation/jobs/j1'));
     expect(storedIds()).toEqual([]);
+    wrapper.unmount();
+  });
+});
+
+describe('Try again', () => {
+  const FROM = '/tools/video-generation?from=j0';
+  const sourceCalls = () =>
+    fetchMock.mock.calls.filter(([url]) => String(url).startsWith(SOURCE_API));
+
+  it('prefills the prompt, options and the pictures in their order', async () => {
+    const { wrapper } = await mountAt(FROM);
+    expect(wrapper.get<HTMLTextAreaElement>('[data-test="prompt"]').element.value).toBe(
+      SOURCE_INPUTS.prompt,
+    );
+    expect(wrapper.get<HTMLSelectElement>('[data-test="duration"]').element.value).toBe('6');
+    expect(wrapper.get<HTMLInputElement>('[data-test="aspect-16:9"]').element.checked).toBe(true);
+    expect(wrapper.get<HTMLInputElement>('[data-test="resolution-720p"]').element.checked).toBe(
+      true,
+    );
+    expect(names(wrapper)).toEqual(['picture-1.jpg', 'picture-2.jpg', 'picture-3.jpg']);
+    expect(wrapper.get('[data-test="estimate"]').text()).toBe('Estimated cost: about $0.606');
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it('keeps the form defaults for an option the tool no longer offers', async () => {
+    inputsReply = () => json(200, { ...SOURCE_INPUTS, duration_s: 99, resolution: '4k' });
+    const { wrapper } = await mountAt(FROM);
+    expect(wrapper.get<HTMLSelectElement>('[data-test="duration"]').element.value).toBe('8');
+    expect(wrapper.get<HTMLInputElement>('[data-test="resolution-1080p"]').element.checked).toBe(
+      true,
+    );
+    expect(wrapper.get<HTMLInputElement>('[data-test="aspect-16:9"]').element.checked).toBe(true);
+    wrapper.unmount();
+  });
+
+  it('lets the pictures be reordered and removed like picked ones', async () => {
+    const { wrapper } = await mountAt(FROM);
+    await wrapper.findAll('[data-test="move-down"]')[0]!.trigger('click');
+    await wrapper.findAll('[data-test="remove"]')[2]!.trigger('click');
+    expect(names(wrapper)).toEqual(['picture-2.jpg', 'picture-1.jpg']);
+    wrapper.unmount();
+  });
+
+  it('creates a new job and a new Recent clips entry, and never writes to the original', async () => {
+    localStorage.setItem(
+      RECENT_CLIPS_KEY,
+      JSON.stringify([
+        { job_id: 'j0', created_at: new Date().toISOString(), prompt: SOURCE_INPUTS.prompt },
+      ]),
+    );
+    jobReplies['/api/jobs/j0'] = () => json(200, jobBody({ job_id: 'j0', state: 'done' }));
+    const { wrapper, current } = await mountAt(FROM);
+    await type(wrapper, 'slow zoom into picture 3');
+    await wrapper.get('[data-test="generate"]').trigger('click');
+    await flushPromises();
+    await vi.waitFor(() => expect(current()).toBe('/tools/video-generation/jobs/j1'));
+
+    expect(posts()).toHaveLength(1);
+    expect(posts()[0]![0]).toBe('/api/tools/video_generation/jobs');
+    const form = posts()[0]![1].body as FormData;
+    expect(form.get('prompt')).toBe('slow zoom into picture 3');
+    expect(form.get('duration_s')).toBe('6');
+    expect(form.get('aspect_ratio')).toBe('16:9');
+    expect(form.get('resolution')).toBe('720p');
+    const sent = form.getAll('pictures') as File[];
+    expect(sent.map((f) => f.name)).toEqual(['picture-1.jpg', 'picture-2.jpg', 'picture-3.jpg']);
+    expect(sent.every((f) => f.type === 'image/jpeg')).toBe(true);
+    expect(await sent[1]!.text()).toBe('bytes-2');
+    // The original: only GETs of its inputs and pictures, and no write to it.
+    const writes = fetchMock.mock.calls.filter(
+      ([url, init]) =>
+        String(url).includes('/j0') && init?.method !== undefined && init.method !== 'GET',
+    );
+    expect(writes).toEqual([]);
+    expect(sourceCalls()).toHaveLength(4);
+    expect(storedIds()).toEqual(['j1', 'j0']);
+    wrapper.unmount();
+  });
+
+  it('holds Generate while the pictures load, so none is left out', async () => {
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (String(url).startsWith(`${SOURCE_API}/pictures/`)) {
+        return gate.then(() => pictureReply('1'));
+      }
+      if (url === `${SOURCE_API}/inputs`) return Promise.resolve(inputsReply());
+      if (url === '/api/tools/video_generation/options') return Promise.resolve(optionsReply());
+      if (url === '/api/config') return Promise.resolve(configReply());
+      return Promise.resolve(json(init?.method === 'POST' ? 201 : 404, { job_id: 'j1' }));
+    });
+    const { wrapper } = await mountAt(FROM);
+    expect(wrapper.text()).toContain(en.videoGeneration.pictures.loading);
+    expect(wrapper.get<HTMLButtonElement>('[data-test="generate"]').element.disabled).toBe(true);
+    release();
+    await flushPromises();
+    expect(wrapper.text()).not.toContain(en.videoGeneration.pictures.loading);
+    expect(wrapper.get<HTMLButtonElement>('[data-test="generate"]').element.disabled).toBe(false);
+    wrapper.unmount();
+  });
+
+  it('shows a catalog message and leaves an empty, usable form when the inputs are gone', async () => {
+    inputsReply = () => json(404, { error: { code: 'job_not_found', message: 'server text' } });
+    const { wrapper } = await mountAt(FROM);
+    expect(wrapper.get('[role="alert"]').text()).toBe(en.videoGeneration.prefillFailed);
+    expect(wrapper.text()).not.toContain('server text');
+    expect(wrapper.get<HTMLTextAreaElement>('[data-test="prompt"]').element.value).toBe('');
+    expect(wrapper.get<HTMLSelectElement>('[data-test="duration"]').element.value).toBe('8');
+    expect(names(wrapper)).toEqual([]);
+    await type(wrapper, 'a fresh clip');
+    expect(wrapper.get<HTMLButtonElement>('[data-test="generate"]').element.disabled).toBe(false);
+    wrapper.unmount();
+  });
+
+  it('keeps the prompt and options, and says so, when a picture cannot be fetched', async () => {
+    pictureReply = (n) =>
+      n === '2'
+        ? json(404, { error: { code: 'job_not_found', message: 'x' } })
+        : new Response(new Blob(['b'], { type: 'image/jpeg' }));
+    const { wrapper } = await mountAt(FROM);
+    expect(wrapper.get('[role="alert"]').text()).toBe(en.videoGeneration.pictures.loadFailed);
+    expect(wrapper.get<HTMLTextAreaElement>('[data-test="prompt"]').element.value).toBe(
+      SOURCE_INPUTS.prompt,
+    );
+    expect(wrapper.get<HTMLSelectElement>('[data-test="duration"]').element.value).toBe('6');
+    expect(names(wrapper)).toEqual([]);
+    expect(wrapper.get<HTMLButtonElement>('[data-test="generate"]').element.disabled).toBe(false);
+    wrapper.unmount();
+  });
+
+  it('does not ask for any inputs without ?from', async () => {
+    const { wrapper } = await mountAt();
+    expect(sourceCalls()).toHaveLength(0);
     wrapper.unmount();
   });
 });

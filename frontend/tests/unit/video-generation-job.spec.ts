@@ -9,6 +9,7 @@ import type { ToolModule } from '@/tools';
 import * as tool from '@/tools/video-generation/index';
 
 const CLIP_URL = '/api/tools/video_generation/jobs/j1/clip';
+const INPUTS_URL = '/api/tools/video_generation/jobs/j1/inputs';
 const THUMB_URL = '/api/tools/video_generation/jobs/j1/thumbnail';
 
 function job(overrides: Record<string, unknown> = {}) {
@@ -63,6 +64,7 @@ function json(status: number, body: unknown): Response {
 
 type Reply = () => Response;
 let jobReplies: Reply[];
+let inputsReply: Reply;
 let fetchMock: ReturnType<typeof vi.fn>;
 
 function stubFetch() {
@@ -70,6 +72,7 @@ function stubFetch() {
     if (url === '/api/jobs/j1/cancel' && init?.method === 'POST') {
       return Promise.resolve(json(202, job({ state: 'cancelled', queue_position: null })));
     }
+    if (url === INPUTS_URL) return Promise.resolve(inputsReply());
     const reply = jobReplies.length > 1 ? jobReplies.shift()! : jobReplies[0];
     return Promise.resolve(reply());
   });
@@ -101,6 +104,7 @@ function stubNavigator(canShare: boolean) {
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
   jobReplies = [() => json(200, job())];
+  inputsReply = () => json(404, { error: { code: 'job_not_found', message: 'x' } });
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -429,6 +433,83 @@ describe('video generation job page', () => {
     expect(wrapper.text()).toContain(en.job.state.cancelled);
     expect(wrapper.find('[data-test="cancel"]').exists()).toBe(false);
     expect(wrapper.find('video').exists()).toBe(false);
+    wrapper.unmount();
+  });
+});
+
+describe('video generation job page: Try again', () => {
+  const INPUTS = {
+    prompt: 'slow zoom',
+    duration_s: 8,
+    aspect_ratio: '9:16',
+    resolution: '1080p',
+    pictures: ['/api/tools/video_generation/jobs/j1/pictures/1'],
+  };
+  const tryAgain = (wrapper: VueWrapper) => wrapper.find('[data-test="try-again"]');
+  const inputsGets = () => fetchMock.mock.calls.filter(([url]) => url === INPUTS_URL).length;
+
+  it.each([
+    ['done', doneJob()],
+    ['failed', job({ state: 'failed', queue_position: null, failure_reason: 'x' })],
+    ['cancelled', job({ state: 'cancelled', queue_position: null })],
+  ])('offers Try again on a %s job whose inputs are still served', async (_state, body) => {
+    jobReplies = [() => json(200, body)];
+    inputsReply = () => json(200, INPUTS);
+    stubFetch();
+    const wrapper = await mountJob();
+    const link = tryAgain(wrapper);
+    expect(link.exists()).toBe(true);
+    expect(link.text()).toBe(en.videoGeneration.result.tryAgain);
+    expect(link.attributes('href')).toBe('/tools/video-generation?from=j1');
+    expect(inputsGets()).toBe(1);
+    wrapper.unmount();
+  });
+
+  it.each([
+    ['done', doneJob()],
+    ['failed', job({ state: 'failed', queue_position: null, failure_reason: 'x' })],
+    ['cancelled', job({ state: 'cancelled', queue_position: null })],
+  ])('hides Try again on a %s job whose inputs are gone', async (_state, body) => {
+    jobReplies = [() => json(200, body)];
+    stubFetch();
+    const wrapper = await mountJob();
+    expect(inputsGets()).toBe(1);
+    expect(tryAgain(wrapper).exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it('does not ask for the inputs of a job that is still running', async () => {
+    jobReplies = [() => json(200, job({ state: 'generating', queue_position: null }))];
+    inputsReply = () => json(200, INPUTS);
+    stubFetch();
+    const wrapper = await mountJob();
+    expect(inputsGets()).toBe(0);
+    expect(tryAgain(wrapper).exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it('offers Try again once a running job finishes', async () => {
+    jobReplies = [
+      () => json(200, job({ state: 'generating', queue_position: null })),
+      () => json(200, doneJob()),
+    ];
+    inputsReply = () => json(200, INPUTS);
+    stubFetch();
+    const wrapper = await mountJob();
+    expect(tryAgain(wrapper).exists()).toBe(false);
+    await tick(2000);
+    await flushPromises();
+    expect(tryAgain(wrapper).exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it('hides Try again, quietly, when the inputs cannot be read right now', async () => {
+    jobReplies = [() => json(200, doneJob())];
+    inputsReply = () => json(500, { error: { code: 'internal_error', message: 'boom' } });
+    stubFetch();
+    const wrapper = await mountJob();
+    expect(tryAgain(wrapper).exists()).toBe(false);
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false);
     wrapper.unmount();
   });
 });

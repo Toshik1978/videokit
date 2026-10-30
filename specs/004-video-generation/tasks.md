@@ -189,10 +189,10 @@ generation: the job completes and the fake provider counted one `submit` (quicks
 **Independent Test**: From a done job, Try again shows the same pictures (order), prompt and
 options; submitting creates a new job and leaves the original unchanged.
 
-- [ ] T028 [US3] Serve a job's inputs in `backend/src/videokit/tools/video_generation/routes.py` (contracts/http-api.md "inputs", "pictures/{n}")
+- [x] T028 [US3] Serve a job's inputs in `backend/src/videokit/tools/video_generation/routes.py` (contracts/http-api.md "inputs", "pictures/{n}")
   - `GET /jobs/{id}/inputs` (any state, not expired) → `{prompt, duration_s, aspect_ratio, resolution, pictures: [urls in order]}`; `GET /jobs/{id}/pictures/{n}` → `image/jpeg`, `404` out of range/expired/other tool.
   - Tests: `backend/tests/integration/test_video_generation.py` (done, failed and cancelled-before-delete jobs; expired → 404; prompt never in logs).
-- [ ] T029 [US3] Add Try again in `frontend/src/tools/video-generation/JobPage.vue` and `VideoGenerationPage.vue`
+- [x] T029 [US3] Add Try again in `frontend/src/tools/video-generation/JobPage.vue` and `VideoGenerationPage.vue`
   - Try again on done/failed jobs (and cancelled ones whose inputs still exist): navigate to the form with `?from=<id>`; the form loads `…/inputs`, fetches pictures as blobs into the picker in order, fills prompt and options; submit creates a new job and a new Recent clips entry.
   - Tests: `frontend/tests/unit/video-generation.spec.ts` (prefill order and options; original untouched), extend `frontend/tests/e2e/video-generation.spec.ts`.
 

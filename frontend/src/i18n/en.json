@@ -102,6 +102,7 @@
       "heading": "Your clip",
       "generating": "Generating your clip"
     },
+    "prefillFailed": "The earlier prompt and pictures could not be loaded. Fill in the form again.",
     "expired": "This clip has expired or does not exist. Make a new clip.",
     "cancelWarning": "The provider may still charge for this attempt.",
     "cancelConfirm": "Cancel anyway",

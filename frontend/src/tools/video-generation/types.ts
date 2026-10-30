@@ -31,3 +31,13 @@ export interface VideoResult {
   resolution: string;
   size_bytes: number;
 }
+
+/** `GET /api/tools/video_generation/jobs/{id}/inputs`: what a job was started with. */
+export interface JobInputs {
+  prompt: string;
+  duration_s: number;
+  aspect_ratio: string;
+  resolution: string;
+  /** Picture URLs in the order the user arranged them. */
+  pictures: string[];
+}

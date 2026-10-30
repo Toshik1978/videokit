@@ -1042,3 +1042,135 @@ def test_an_unreadable_or_unsafe_result_json_is_not_found(omni: TestClient, cont
     (_store(omni).job_dir(job_id) / "result.json").write_text(content, encoding="utf-8")
     assert omni.get(_file_url(job_id, "clip")).status_code == 404
     assert omni.get(_file_url(job_id, "thumbnail")).status_code == 404
+
+
+# --- inputs and pictures (Try again) --------------------------------------------------------------------------
+
+
+def _picture_url(job_id: str, n: int) -> str:
+    return _file_url(job_id, f"pictures/{n}")
+
+
+def _done_with_pictures(client: TestClient, make_picture: MakePicture, count: int = 2) -> str:
+    pictures = [make_picture("png", 64 + n, 48).read_bytes() for n in range(count)]
+    job_id = client.post(CREATE, data=FORM, files=_picture_files(*pictures)).json()["job_id"]
+    _wait(client, job_id, JobState.DONE)
+    return str(job_id)
+
+
+def test_a_done_jobs_inputs_list_the_fields_and_the_picture_urls_in_order(
+    omni: TestClient, make_picture: MakePicture
+) -> None:
+    job_id = _done_with_pictures(omni, make_picture)
+    r = omni.get(_file_url(job_id, "inputs"))
+    assert r.status_code == 200
+    assert r.json() == {
+        "prompt": PROMPT,
+        "duration_s": 6,
+        "aspect_ratio": "16:9",
+        "resolution": "720p",
+        "pictures": [_picture_url(job_id, 1), _picture_url(job_id, 2)],
+    }
+
+
+def test_inputs_without_pictures_have_an_empty_list(omni: TestClient) -> None:
+    job_id = _done(omni)
+    assert omni.get(_file_url(job_id, "inputs")).json()["pictures"] == []
+
+
+def test_a_picture_is_the_normalized_jpeg(omni: TestClient, make_picture: MakePicture) -> None:
+    job_id = _done_with_pictures(omni, make_picture)
+    for n in (1, 2):
+        r = omni.get(_picture_url(job_id, n))
+        assert r.status_code == 200
+        assert r.headers["content-type"] == "image/jpeg"
+        assert r.content == (_store(omni).job_dir(job_id) / "pictures" / f"{n}.jpg").read_bytes()
+        assert r.content[:3] == b"\xff\xd8\xff"
+        assert omni.head(_picture_url(job_id, n)).status_code == 200
+
+
+def test_inputs_and_pictures_are_served_for_a_failed_job(tmp_path: Path, make_picture: MakePicture) -> None:
+    fake = FakeVideoGenerator(model=FAKE_MODEL, caps=OMNI_CAPS, polls=[VideoError("video_failed")])
+    with _client(tmp_path, fake) as client:
+        job_id = _submit(client, [make_picture("png", 64, 48).read_bytes()])
+        _wait(client, job_id, JobState.FAILED)
+        r = client.get(_file_url(job_id, "inputs"))
+        assert (r.status_code, r.json()["prompt"], r.json()["pictures"]) == (200, PROMPT, [_picture_url(job_id, 1)])
+        assert client.get(_picture_url(job_id, 1)).status_code == 200
+
+
+def test_inputs_are_served_while_the_job_is_still_running(tmp_path: Path) -> None:
+    fake = FakeVideoGenerator(model=FAKE_MODEL, caps=OMNI_CAPS, polls=["pending"] * 1000)
+    with _client(tmp_path, fake) as client:
+        job_id = _submit(client)
+        _wait(client, job_id, JobState.GENERATING)
+        assert client.get(_file_url(job_id, "inputs")).json()["prompt"] == PROMPT
+
+
+def test_a_cancelled_jobs_inputs_are_not_found_once_its_data_is_deleted(
+    tmp_path: Path, make_picture: MakePicture
+) -> None:
+    fake = FakeVideoGenerator(model=FAKE_MODEL, submits=["op-9"], polls=["pending"] * 1000)
+    with _client(tmp_path, fake) as client:
+        job_id = _submit(client, [make_picture("png", 64, 48).read_bytes()])
+        _wait(client, job_id, JobState.GENERATING)
+        deadline = time.monotonic() + 10
+        while not fake.poll_refs:
+            assert time.monotonic() < deadline
+            time.sleep(0.005)
+        assert client.post(f"/api/jobs/{job_id}/cancel").status_code == 202
+        _wait(client, job_id, JobState.CANCELLED)
+        job_dir = _store(client).job_dir(job_id)
+        deadline = time.monotonic() + 10
+        while job_dir.exists():
+            assert time.monotonic() < deadline
+            time.sleep(0.01)
+        for url in (_file_url(job_id, "inputs"), _picture_url(job_id, 1)):
+            r = client.get(url)
+            assert (r.status_code, r.json()["error"]["code"]) == (404, "job_not_found")
+
+
+def test_inputs_and_pictures_of_an_unknown_or_another_tools_job_are_not_found(omni: TestClient) -> None:
+    other = omni.post("/api/tools/youtube_prep/jobs", json={"size": 100}).json()["job_id"]
+    for job_id in ("no-such-job", other):
+        for url in (_file_url(job_id, "inputs"), _picture_url(job_id, 1)):
+            r = omni.get(url)
+            assert (r.status_code, r.json()["error"]["code"]) == (404, "job_not_found")
+
+
+def test_inputs_and_pictures_of_an_expired_job_are_not_found(tmp_path: Path, make_picture: MakePicture) -> None:
+    with _client(tmp_path, FakeVideoGenerator(model=FAKE_MODEL, caps=OMNI_CAPS), job_ttl_hours=1) as client:
+        job_id = _done_with_pictures(client, make_picture, 1)
+        _store(client)._clock = lambda: time.time() + 2 * 3600
+        for url in (_file_url(job_id, "inputs"), _picture_url(job_id, 1)):
+            r = client.get(url)
+            assert (r.status_code, r.json()["error"]["code"]) == (404, "job_not_found")
+
+
+@pytest.mark.parametrize("n", ["0", "3", "99999999999999999999", "-1", "01", "1.5", "abc", "%20", "٢", "1.jpg"])
+def test_a_picture_out_of_range_or_not_a_positive_integer_is_not_found(
+    omni: TestClient, make_picture: MakePicture, n: str
+) -> None:
+    job_id = _done_with_pictures(omni, make_picture)
+    r = omni.get(_file_url(job_id, f"pictures/{n}"))
+    assert (r.status_code, r.json()["error"]["code"]) == (404, "job_not_found")
+
+
+def test_a_picture_number_never_reaches_outside_the_job_directory(omni: TestClient, make_picture: MakePicture) -> None:
+    job_id = _done_with_pictures(omni, make_picture, 1)
+    (_store(omni).job_dir(job_id) / "secret.jpg").write_bytes(b"\xff\xd8\xff secret")
+    for n in ("..%2Fsecret", f"..%2F..%2Fjobs%2F{job_id}%2Fsecret", "1%2F..%2Fsecret"):
+        r = omni.get(_file_url(job_id, f"pictures/{n}"))
+        assert r.status_code == 404 and b"secret" not in r.content
+
+
+@pytest.mark.parametrize("content", ["not json", "[1, 2]", '{"prompt": "x"}', None])
+def test_unreadable_inputs_are_not_found(omni: TestClient, make_picture: MakePicture, content: str | None) -> None:
+    job_id = _done_with_pictures(omni, make_picture, 1)
+    path = _store(omni).job_dir(job_id) / "inputs.json"
+    if content is None:
+        path.unlink()
+    else:
+        path.write_text(content, encoding="utf-8")
+    r = omni.get(_file_url(job_id, "inputs"))
+    assert (r.status_code, r.json()["error"]["code"]) == (404, "job_not_found")

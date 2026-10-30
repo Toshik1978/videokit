@@ -10,7 +10,7 @@ import ShareButton from '@/components/ShareButton.vue';
 import { useMessages } from '@/i18n/messages';
 
 import { formatCost } from './estimate';
-import type { VideoResult } from './types';
+import type { JobInputs, VideoResult } from './types';
 
 const POLL_MS = 2000;
 const TOOL_ID = 'video_generation';
@@ -30,12 +30,15 @@ const jobPath = `/api/jobs/${encodeURIComponent(jobId)}`;
 const toolPath = `/api/tools/${TOOL_ID}/jobs/${encodeURIComponent(jobId)}`;
 const clipUrl = `${toolPath}/clip`;
 const thumbnailUrl = `${toolPath}/thumbnail`;
+const inputsUrl = `${toolPath}/inputs`;
+const tryAgainTo = `/tools/video-generation?from=${encodeURIComponent(jobId)}`;
 
 const job = ref<Job | null>(null);
 const expired = ref(false);
 const error = ref('');
 const cancelError = ref('');
 const confirmingCancel = ref(false);
+const canTryAgain = ref(false);
 let timer: ReturnType<typeof setTimeout> | undefined;
 let unmounted = false;
 
@@ -68,9 +71,25 @@ function stopTimer(): void {
   timer = undefined;
 }
 
+/**
+ * Try again needs the job's stored inputs: the server answers 200 while they exist and 404 once the
+ * job expired or was cancelled (a cancel deletes the job's data). Any other answer hides the button.
+ */
+async function probeInputs(): Promise<void> {
+  try {
+    const inputs = await getJson<JobInputs>(inputsUrl);
+    if (!unmounted) canTryAgain.value = typeof inputs.prompt === 'string';
+  } catch {
+    if (!unmounted) canTryAgain.value = false;
+  }
+}
+
 function applyJob(next: Job): void {
+  const wasTerminal = job.value !== null && isTerminal(job.value.state);
   job.value = next;
-  if (isTerminal(next.state)) stopTimer();
+  if (!isTerminal(next.state)) return;
+  stopTimer();
+  if (!wasTerminal) void probeInputs();
 }
 
 async function poll(): Promise<void> {
@@ -219,6 +238,11 @@ onBeforeUnmount(() => {
           />
         </div>
       </section>
+      <div v-if="canTryAgain" class="actions again">
+        <RouterLink class="download" data-test="try-again" :to="tryAgainTo">
+          {{ t('videoGeneration.result.tryAgain') }}
+        </RouterLink>
+      </div>
     </template>
   </section>
 </template>
@@ -271,6 +295,10 @@ onBeforeUnmount(() => {
 
 .result dd {
   margin: 0;
+}
+
+.again {
+  margin: 12px 0;
 }
 
 .actions {

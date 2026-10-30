@@ -217,3 +217,90 @@ test.describe('at 360 px wide', () => {
     await expectTouchTargets(page);
   });
 });
+
+/** The centre pixel of each picture thumbnail, to tell same-sized pictures apart by their colour. */
+async function thumbnailColours(page: Page): Promise<number[][]> {
+  return page.getByTestId('picture').evaluateAll((items) =>
+    items.map((item) => {
+      const img = item.querySelector('img') as HTMLImageElement;
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const context = canvas.getContext('2d')!;
+      context.drawImage(img, 0, 0);
+      const x = Math.floor(canvas.width / 2);
+      const y = Math.floor(canvas.height / 2);
+      return Array.from(context.getImageData(x, y, 1, 1).data.slice(0, 3));
+    }),
+  );
+}
+
+/** Rounds a channel to 0 or 255: the pictures are re-encoded as JPEG, so exact values drift. */
+const dominant = (colour: number[]) => colour.map((value) => (value > 127 ? 255 : 0));
+
+test('Try again opens the form with the same prompt, options and pictures in order, and makes a new job', async ({
+  page,
+}) => {
+  const prompt = `${PROMPT} again ${Date.now()}`;
+  await openForm(page);
+  await page.getByTestId('prompt').fill(prompt);
+  await addPictures(page, [
+    ['red.png', [255, 0, 0]],
+    ['green.png', [0, 255, 0]],
+  ]);
+  await page.getByTestId('move-down').first().click(); // green, red
+  await page.getByTestId('duration').selectOption('6');
+  await page.getByTestId('aspect-16:9').check();
+  await page.getByTestId('resolution-720p').check();
+  await page.getByTestId('generate').click();
+  await page.waitForURL(/\/tools\/video-generation\/jobs\//);
+  const firstJobUrl = page.url();
+  await expect(page.getByTestId('download')).toBeVisible({ timeout: 60_000 });
+
+  await page.getByTestId('try-again').click();
+  await expect(page).toHaveURL(/\/tools\/video-generation\?from=/);
+  await expect(page.getByTestId('picture')).toHaveCount(2);
+  await expect(page.getByTestId('prompt')).toHaveValue(prompt);
+  await expect(page.getByTestId('duration')).toHaveValue('6');
+  await expect(page.getByTestId('aspect-16:9')).toBeChecked();
+  await expect(page.getByTestId('resolution-720p')).toBeChecked();
+  await expect(page.getByTestId('generate')).toBeEnabled();
+  await expect
+    .poll(async () => (await thumbnailColours(page)).map(dominant))
+    .toEqual([
+      [0, 255, 0],
+      [255, 0, 0],
+    ]);
+  await expectNoHorizontalScroll(page);
+  await expectTouchTargets(page);
+
+  await page.getByTestId('prompt').fill(`${prompt} v2`);
+  await page.getByTestId('generate').click();
+  await page.waitForURL(/\/tools\/video-generation\/jobs\//);
+  expect(page.url()).not.toBe(firstJobUrl);
+  await expect(page.getByTestId('download')).toBeVisible({ timeout: 60_000 });
+
+  // Both attempts are their own entries; the first is untouched and still plays.
+  await openForm(page);
+  await expect(page.getByTestId('recent-clip').filter({ hasText: prompt })).toHaveCount(2);
+  await page.goto(firstJobUrl);
+  await expect(page.getByTestId('download')).toBeVisible();
+});
+
+test('Try again is hidden on a cancelled clip, whose pictures are deleted with it', async ({
+  page,
+}) => {
+  await openForm(page);
+  await page.getByTestId('prompt').fill(SLOW_PROMPT);
+  await addPictures(page, [['one.png', [200, 60, 60]]]);
+  await page.getByTestId('generate').click();
+  await page.waitForURL(/\/tools\/video-generation\/jobs\//);
+  await expect(page.getByTestId('try-again')).toHaveCount(0);
+  const cancel = page.getByTestId('cancel');
+  await cancel.click();
+  if (await page.getByTestId('cancel-confirm').isVisible()) {
+    await page.getByTestId('cancel-confirm').click();
+  }
+  await expect(cancel).toHaveCount(0);
+  await expect(page.getByTestId('try-again')).toHaveCount(0);
+});

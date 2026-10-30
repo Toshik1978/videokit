@@ -343,6 +343,19 @@ def _video_run(
                 time.sleep(0.005)
             assert client.post(f"/api/jobs/{job.id}/cancel").status_code == 202
         body = _wait_done(client, job.id)
+        # Try again reads the inputs back through the API; serving them must not log them either.
+        base = f"/api/tools/video_generation/jobs/{job.id}"
+        if cancel:  # a cancelled job's data is deleted, shortly after the state changes
+            deadline = time.monotonic() + 10
+            while access.job_dir(job.id).exists():
+                assert time.monotonic() < deadline, "the cancelled job's data was never deleted"
+                time.sleep(0.01)
+        inputs, served = client.get(f"{base}/inputs"), client.get(f"{base}/pictures/1")
+        if cancel:
+            assert (inputs.status_code, served.status_code) == (404, 404)
+        else:
+            assert inputs.status_code == 200 and VIDEO_PROMPT_MARKER in inputs.json()["prompt"]
+            assert served.status_code == 200 and served.content == fake.requests[0].pictures[0].jpeg
     assert len(fake.requests) == 1
     assert VIDEO_PROMPT_MARKER in fake.requests[0].prompt  # the provider really received the prompt
     return body, fake.requests[0].pictures[0].jpeg
