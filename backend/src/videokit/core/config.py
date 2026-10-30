@@ -109,7 +109,14 @@ def validate(settings: Settings) -> list[str]:
     ):
         if not names:
             problems.append(f"{var} must list at least one provider")
-        elif any(name not in allowed for name in names):
+            continue
+        if var == "TRANSCRIBE_PROVIDERS" and "local" in names:  # removed in 0.4.0: say what to change
+            problems.append(
+                "TRANSCRIBE_PROVIDERS lists 'local', which was removed in 0.4.0 "
+                "(use openai, with OPENAI_TRANSCRIBE_URL for a self-hosted server)"
+            )
+            names = [name for name in names if name != "local"]
+        if any(name not in allowed for name in names):
             problems.append(f"{var} contains an unknown provider (allowed: {', '.join(allowed)})")
 
     if any(name not in VIDEO_PROVIDER_NAMES for name in settings.video_providers):  # empty is fine: tool hidden

@@ -55,6 +55,9 @@ Write a short paragraph above the generated groups: what the release means for s
 VideoKit, not a restatement of the commit list. Mention anything an existing user must do, such as
 an environment variable that changed.
 
+For a breaking release, link the upgrade steps from that paragraph. The 0.4.0 section links
+[Upgrading from 0.3](../README.md#upgrading-from-03).
+
 ## Step 2: verify, commit and tag
 
 Check first (optional):

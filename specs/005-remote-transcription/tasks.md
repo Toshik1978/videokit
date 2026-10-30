@@ -107,10 +107,10 @@ at the lowered limit, and an import check proving `faster_whisper`, `ctranslate2
 **Independent Test**: start with `TRANSCRIBE_PROVIDERS=local`, with nothing set, and with leftover
 `WHISPER_MODEL` / `WHISPER_DEVICE`; check the startup lines.
 
-- [ ] T014 [US3] Add the upgrade-specific startup messages in `backend/src/videokit/core/config.py` (contracts/configuration.md "Startup validation")
+- [x] T014 [US3] Add the upgrade-specific startup messages in `backend/src/videokit/core/config.py` (contracts/configuration.md "Startup validation")
   - `local` listed → `TRANSCRIBE_PROVIDERS lists 'local', which was removed in 0.4.0 (use openai, with OPENAI_TRANSCRIBE_URL for a self-hosted server)` instead of the generic unknown-provider line; empty → `TRANSCRIBE_PROVIDERS must list at least one provider`; leftover `WHISPER_MODEL` / `WHISPER_DEVICE` change nothing.
   - Tests: `backend/tests/unit/test_config.py`, `backend/tests/integration/test_log_hygiene.py` (real-uvicorn startup prints exactly one `Configuration error:` line per problem).
-- [ ] T015 [US3] Document the upgrade from 0.3.x in `README.md` (contracts/configuration.md "Migration from 0.3.x")
+- [x] T015 [US3] Document the upgrade from 0.3.x in `README.md` (contracts/configuration.md "Migration from 0.3.x")
   - An "Upgrading from 0.3" section with the four migration steps (set providers, set `OPENAI_TRANSCRIBE_URL` / `OPENAI_TRANSCRIBE_MODEL` or `OPENAI_API_KEY`, remove `WHISPER_*` and GPU flags, optionally delete `<data>/models` and `<data>/huggingface`; VideoKit never deletes them).
   - `docs/RELEASING.md`: note that a breaking release's changelog section links the upgrade section.
 

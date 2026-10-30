@@ -11,8 +11,11 @@ message (Constitution VI).
 import base64
 import io
 import logging
+import os
 import shutil
 import socket
+import subprocess
+import sys
 import threading
 import time
 from collections.abc import Callable, Iterator
@@ -601,3 +604,31 @@ def test_video_generation_resume_impossible_logs_no_prompt_picture_or_message(
     assert (body["state"], body["failure_code"]) == ("failed", "resume_impossible")
     assert fresh.requests == []
     _assert_video_log_clean("\n".join(captured.lines), dying.requests[0].pictures[0].jpeg)
+
+
+def test_old_0_3_env_fails_startup_with_the_single_local_line_and_no_traceback(tmp_path: Path) -> None:
+    env = {k: v for k, v in os.environ.items() if k.upper() not in {n.upper() for n in Settings.model_fields}}
+    env.update(
+        DATA_DIR=str(tmp_path / "data"),
+        TRANSCRIBE_PROVIDERS="local",
+        WHISPER_MODEL="large-v3",
+        WHISPER_DEVICE="cuda",
+        LLM_PROVIDERS="anthropic",
+        ANTHROPIC_API_KEY=ANTHROPIC_KEY,
+    )
+    result = subprocess.run(  # noqa: S603 - fixed argv, test-controlled env
+        [sys.executable, "-m", "uvicorn", "--factory", "videokit.main:app_from_env", "--port", "0"],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    assert result.returncode != 0
+    lines = [ln for ln in result.stderr.splitlines() if ln.strip()]
+    assert lines == [
+        "Configuration error: TRANSCRIBE_PROVIDERS lists 'local', which was removed in 0.4.0 "
+        "(use openai, with OPENAI_TRANSCRIBE_URL for a self-hosted server)"
+    ]
+    assert "Traceback" not in result.stderr + result.stdout
+    assert ANTHROPIC_KEY not in result.stderr + result.stdout

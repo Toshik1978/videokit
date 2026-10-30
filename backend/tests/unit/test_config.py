@@ -70,7 +70,7 @@ def test_unknown_providers(ok_env: None, monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setenv("TRANSCRIBE_PROVIDERS", "local,bogus")
     monkeypatch.setenv("LLM_PROVIDERS", "anthropic,nope")
     problems = validate(Settings())
-    assert len(problems) == 2
+    assert len(problems) == 3  # the 'local' line, the generic line for 'bogus', and LLM_PROVIDERS
     assert any("TRANSCRIBE_PROVIDERS" in p for p in problems)
     assert any("LLM_PROVIDERS" in p for p in problems)
 
@@ -136,10 +136,50 @@ def test_default_transcribe_providers_are_refused(ok_env: None, monkeypatch: pyt
     assert [p for p in validate(Settings()) if "TRANSCRIBE_PROVIDERS must list at least one" in p]
 
 
-def test_local_is_an_unknown_transcription_provider(ok_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+LOCAL_LINE = (
+    "TRANSCRIBE_PROVIDERS lists 'local', which was removed in 0.4.0 "
+    "(use openai, with OPENAI_TRANSCRIBE_URL for a self-hosted server)"
+)
+
+
+def _transcribe_problems() -> list[str]:
+    return [p for p in validate(Settings()) if "TRANSCRIBE_PROVIDERS" in p]
+
+
+def test_local_gets_the_removed_in_0_4_0_message_only(ok_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TRANSCRIBE_PROVIDERS", "local")
-    problems = [p for p in validate(Settings()) if "TRANSCRIBE_PROVIDERS" in p]
-    assert problems == ["TRANSCRIBE_PROVIDERS contains an unknown provider (allowed: openai)"]
+    assert _transcribe_problems() == [LOCAL_LINE]
+
+
+def test_local_listed_twice_is_reported_once(ok_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TRANSCRIBE_PROVIDERS", "local,local")
+    assert _transcribe_problems() == [LOCAL_LINE]
+
+
+def test_local_with_another_unknown_name_also_gets_the_generic_line(
+    ok_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TRANSCRIBE_PROVIDERS", "local,foo")
+    assert _transcribe_problems() == [LOCAL_LINE, "TRANSCRIBE_PROVIDERS contains an unknown provider (allowed: openai)"]
+
+
+def test_local_with_openai_keeps_the_local_line_and_openai_validation(
+    ok_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TRANSCRIBE_PROVIDERS", "local,openai")
+    assert _transcribe_problems() == [LOCAL_LINE]  # ok_env supplies what openai needs
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_TRANSCRIBE_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_TRANSCRIBE_URL", raising=False)
+    problems = _transcribe_problems()
+    assert problems[0] == LOCAL_LINE and len(problems) == 2
+
+
+def test_leftover_whisper_variables_change_nothing(ok_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("WHISPER_MODEL", "large-v3")
+    monkeypatch.setenv("WHISPER_DEVICE", "cuda")
+    assert validate(Settings()) == []
+    assert config.load_settings() is not None
 
 
 def test_whisper_settings_and_cuda_probe_are_gone() -> None:

@@ -44,5 +44,7 @@ def test_docs_describe_remote_transcription_only() -> None:
         assert f"`{name}`" in readme, name
     assert "--add-host" in readme
     assert "http://host.docker.internal:8000/v1" in readme
-    for text in (readme, (ROOT / ".claude" / "CLAUDE.md").read_text()):
+    # The upgrade section legitimately names the removed variables.
+    current = readme.split("\n## Upgrading from 0.3\n")[0] + readme.split("\n## Cost\n", 1)[1]
+    for text in (current, (ROOT / ".claude" / "CLAUDE.md").read_text()):
         assert not re.search(r"WHISPER_|faster-whisper(?!-large)|cuBLAS|gpu-check|HF_HOME", text)

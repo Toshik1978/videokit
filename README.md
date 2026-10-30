@@ -235,6 +235,21 @@ service:
 `model=<model>, self-hosted` for any other address. It makes no network call and never shows the
 address or keys.
 
+## Upgrading from 0.3
+
+Version 0.4.0 removed the in-process Whisper (`local`) transcription provider. An `.env` that still
+lists it fails at startup with `TRANSCRIBE_PROVIDERS lists 'local', which was removed in 0.4.0 (use
+openai, with OPENAI_TRANSCRIBE_URL for a self-hosted server)`. To upgrade:
+
+1. Set `TRANSCRIBE_PROVIDERS=openai`.
+2. For a self-hosted server, set `OPENAI_TRANSCRIBE_URL` and `OPENAI_TRANSCRIBE_MODEL` (and
+   `OPENAI_TRANSCRIBE_API_KEY` if the server needs one). For OpenAI's API, set `OPENAI_API_KEY`.
+   See [Transcription](#transcription) and [Configuration](#configuration).
+3. Remove `WHISPER_MODEL`, `WHISPER_DEVICE` and the GPU reservation in `compose.yaml` or the
+   `--gpus` flag of `docker run`; the container no longer needs a GPU.
+4. Optionally delete `<data>/models` and `<data>/huggingface` (the old model cache). VideoKit never
+   deletes them.
+
 ## Cost
 
 Only the cloud providers you configure cost money. With the default configuration, text generation

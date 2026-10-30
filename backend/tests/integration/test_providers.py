@@ -167,13 +167,14 @@ def test_provider_check_failure_stops_startup_naming_the_provider(
     ]
 
 
-def test_local_is_an_unknown_transcription_provider(
+def test_local_transcription_provider_is_reported_as_removed(
     env: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     env.setenv("TRANSCRIBE_PROVIDERS", "local")
     env.setenv("ANTHROPIC_API_KEY", PLACEHOLDER)
     assert _exit_lines(capsys) == [
-        "Configuration error: TRANSCRIBE_PROVIDERS contains an unknown provider (allowed: openai)"
+        "Configuration error: TRANSCRIBE_PROVIDERS lists 'local', which was removed in 0.4.0 "
+        "(use openai, with OPENAI_TRANSCRIBE_URL for a self-hosted server)"
     ]
 
 
