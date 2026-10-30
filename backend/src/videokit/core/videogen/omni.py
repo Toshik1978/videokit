@@ -105,6 +105,14 @@ def _from_codes(codes: list[str]) -> VideoErrorCode | None:
     return None
 
 
+def _after_acceptance(codes: list[str]) -> VideoErrorCode:
+    """Omni reports a refused prompt only as INVALID_ARGUMENT on an interaction it had already accepted (research V10).
+
+    The request's shape was validated when it was accepted, so a later INVALID_ARGUMENT means the content.
+    """
+    return "content_blocked" if "invalid_argument" in codes else "video_failed"
+
+
 def _from_http(status: int | None, codes: list[str], message: str) -> VideoErrorCode:
     mapped = _from_codes(codes)
     if mapped is not None:
@@ -294,7 +302,8 @@ class OmniProvider:
         if video is not None:
             return PollResult(done=True, video=video, usage=_usage(interaction, requested), error=None)
 
-        code = _from_codes(_interaction_codes(interaction)) or "video_failed"
+        codes = _interaction_codes(interaction)
+        code = _from_codes(codes) or _after_acceptance(codes)
         logger.warning("Omni interaction ended without a clip (%s: %s)", interaction.status, code)
         return PollResult(done=True, video=None, usage=_usage(interaction, None), error=VideoError(code))
 

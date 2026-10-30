@@ -309,7 +309,7 @@ task format    # auto-format both stacks
 - The default test suite needs no API keys, no network access to AI providers and no GPU; it uses
   fakes and tiny generated video fixtures.
 - Tests that call real providers are opt-in. Provide keys in your environment and run
-  `cd backend && uv run pytest -m live`.
+  `cd backend && uv run pytest -m live --no-cov`.
 - Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/)
   (`feat:`, `fix:`, `docs:`, `chore:` and so on).
 - Design documents live in [`specs/001-videokit-youtube-prep/`](specs/001-videokit-youtube-prep/)

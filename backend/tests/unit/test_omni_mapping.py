@@ -556,6 +556,25 @@ def test_poll_safety_codes_in_the_interaction_errors_are_content_blocked(
     assert result.video is None
 
 
+def test_poll_invalid_argument_after_acceptance_is_content_blocked(tmp_path: Path) -> None:
+    # The shape Omni returned for a refused prompt in the live run: no safety code, only INVALID_ARGUMENT.
+    errors = [{"code": "INVALID_ARGUMENT", "message": "There was a problem processing your request."}]
+    result = _poll(_interaction("failed", errors=errors, output_text=""), tmp_path)
+    assert result.done is True
+    assert result.video is None
+    assert result.error is not None
+    assert result.error.code == "content_blocked"
+
+
+def test_invalid_argument_at_submit_is_not_content_blocked() -> None:
+    def reject(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, json={"error": {"code": 400, "status": "INVALID_ARGUMENT", "message": "bad"}})
+
+    with pytest.raises(VideoError) as exc:
+        _provider(reject).submit(REQUEST)
+    assert exc.value.code == "video_failed"
+
+
 def test_poll_safety_code_given_as_a_uri_is_content_blocked(tmp_path: Path) -> None:
     errors = [{"code": "https://errors.example.com/type/IMAGE_SAFETY"}]
     result = _poll(_interaction("failed", errors=errors), tmp_path)

@@ -202,9 +202,10 @@ Provider facts were checked against Google's official documentation on 2026-10-2
 |-----------------|----------------|----------------------------|
 | HTTP 402 `payment_required`; 429 `quota_exceeded`; 400 `failed_precondition` (billing disabled) | `provider_out_of_credit` | yes, at submit only |
 | Safety codes (`safety`, `prohibited_content`, `image_safety`, `image_prohibited_content`, `content_blocked`), as HTTP error or in `Interaction.errors[]` (**live-verify** which) | `content_blocked` | no |
+| `INVALID_ARGUMENT` in `Interaction.errors[]` of an interaction already accepted (live run: this is how Omni reports a refused prompt, with no safety code and a generic message) | `content_blocked` | no |
 | 400 `invalid_request` about an image | `invalid_picture` | no |
 | 429 rate limit after SDK retries, 5xx, network errors, 401/403 | `provider_unavailable` | yes, at submit only |
-| Status `failed`/`incomplete` without a safety code; no video in a completed interaction | `video_failed` | no (already accepted) |
+| Status `failed`/`incomplete` without a safety code or `INVALID_ARGUMENT`; no video in a completed interaction | `video_failed` | no (already accepted) |
 | Wait cap reached | `provider_timeout` | no |
 | `submit.json` without `operation.json` on resume | `resume_impossible` | no |
 

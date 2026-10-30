@@ -47,7 +47,7 @@ remuxes a generated H.264 + AAC clip to a silent MP4; the compressed image stays
 ## 3. Live (opt-in, real key, costs ≈ $2.10)
 
 ```bash
-cd backend && GEMINI_API_KEY=<your-api-key> uv run pytest -m live -k omni
+cd backend && GEMINI_API_KEY=<your-api-key> uv run pytest -m live --no-cov -k omni
 ```
 
 A 5 s 720p clip (inline delivery) and a 10 s 1080p clip (URI delivery), each from a prompt and one

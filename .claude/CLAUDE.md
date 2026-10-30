@@ -50,7 +50,7 @@ task lint                       # ruff, ruff format --check, mypy strict; vue-ts
 task test                       # pytest (+coverage, fail_under 80) and vitest (+coverage, lines 80)
 task e2e                        # Playwright: desktop-chrome, iphone (WebKit), pixel, mobile-360
 task format                     # auto-format both stacks
-cd backend && uv run pytest -m live   # opt-in real-provider smoke tests (needs keys / GPU)
+cd backend && uv run pytest -m live --no-cov   # opt-in real-provider smoke tests (needs keys / GPU)
 gitleaks detect --redact        # full-history secret scan (CI does the same; see .gitleaks.toml)
 docker build -t videokit:ci . && scripts/docker_smoke.sh videokit:ci   # incl. codec decode check
 task docker:build && task docker:run   # run the image directly with ./.data bind-mounted
