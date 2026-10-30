@@ -69,9 +69,9 @@ const posted = () =>
   );
 const stored = () => JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}');
 
-async function setup(toolId = 'youtube_prep') {
+async function setup(toolId = 'youtube_prep', createFields?: Record<string, unknown>) {
   const wrapper = mount(UploadPanel, {
-    props: { toolId },
+    props: { toolId, createFields },
     global: { plugins: [createI18nInstance()] },
   });
   await flushPromises();
@@ -101,6 +101,41 @@ beforeEach(() => {
   stubFetch();
 });
 afterEach(() => vi.unstubAllGlobals());
+
+describe('create fields', () => {
+  const body = () => JSON.parse(posted()[0][1].body as string);
+
+  it('sends the body unchanged when no createFields are given', async () => {
+    const wrapper = await setup();
+    await choose(wrapper);
+    expect(body()).toEqual({ size: 500, file_name: 'clip.mp4' });
+  });
+
+  it('merges createFields into the create body', async () => {
+    const wrapper = await setup('youtube_prep', { language: 'de', fallback_language: 'en' });
+    await choose(wrapper);
+    expect(body()).toEqual({
+      size: 500,
+      file_name: 'clip.mp4',
+      language: 'de',
+      fallback_language: 'en',
+    });
+  });
+
+  it('never lets createFields override size or file_name', async () => {
+    const wrapper = await setup('youtube_prep', { size: 1, file_name: 'x.mp4', language: 'de' });
+    await choose(wrapper);
+    expect(body()).toEqual({ size: 500, file_name: 'clip.mp4', language: 'de' });
+  });
+
+  it('makes no create call when resuming, even with createFields', async () => {
+    seed();
+    const wrapper = await setup('youtube_prep', { language: 'de' });
+    await choose(wrapper);
+    expect(posted()).toHaveLength(0);
+    expect(tus.instances[0].options.uploadUrl).toBe('/api/uploads/old');
+  });
+});
 
 describe('resumable uploads', () => {
   it('stores job id and upload url under a file fingerprint and disables tus own storage', async () => {

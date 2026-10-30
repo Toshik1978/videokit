@@ -33,7 +33,8 @@
       "generation_failed": "Generating a new version failed. The previous text was kept.",
       "too_many_pictures": "Too many pictures. Remove some and try again.",
       "picture_too_large": "One of the pictures is too large. Choose a smaller one.",
-      "invalid_picture": "One of the files is not a supported picture. Use JPEG, PNG, WebP or HEIC."
+      "invalid_picture": "One of the files is not a supported picture. Use JPEG, PNG, WebP or HEIC.",
+      "invalid_language": "That output language is not supported. Please choose another."
     }
   },
   "tools": {
@@ -52,7 +53,11 @@
   },
   "youtubePrep": {
     "heading": "YouTube Prep",
-    "intro": "Upload a video to get a title, description, tags and chapters."
+    "intro": "Upload a video to get a title, description, tags and chapters.",
+    "language": {
+      "label": "Output language",
+      "auto": "Same as the speech"
+    }
   },
   "audioExtract": {
     "heading": "Audio Extract",
@@ -136,6 +141,7 @@
     "ready": "Ready — tap Share again"
   },
   "job": {
+    "outputLanguage": "Output language: {language}",
     "expired": "This job has expired or does not exist. Please upload the video again.",
     "state": {
       "uploading": "Uploading",
@@ -172,7 +178,7 @@
     "copied": "Copied to clipboard.",
     "pressCopy": "Text selected. Press your device's copy command to copy it.",
     "notices": {
-      "no_speech": "No speech was detected, so these results are based on the visuals only.",
+      "no_speech": "No speech was detected, so these results are based on the visuals only, in {language}.",
       "too_short_for_chapters": "The video is too short for chapters."
     },
     "sections": {

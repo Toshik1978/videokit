@@ -30,11 +30,11 @@ function job(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function doneJob(notices: string[] = []) {
+function doneJob(notices: string[] = [], language = 'en') {
   return job({
     state: 'done',
     queue_position: null,
-    result: { language: 'en', notices, rendered: RENDERED },
+    result: { language, notices, rendered: RENDERED },
   });
 }
 
@@ -363,7 +363,31 @@ describe('result cards', () => {
     stubFetch();
     const wrapper = await mountPage();
     const text = wrapper.findAll('[data-test="notice"]').map((n) => n.text());
-    expect(text).toEqual([en.job.notices.no_speech]);
+    expect(text).toEqual([en.job.notices.no_speech.replace('{language}', 'English')]);
+    wrapper.unmount();
+  });
+
+  it('shows the output language by its own name', async () => {
+    jobReplies = [() => json(200, doneJob([], 'de'))];
+    stubFetch();
+    const wrapper = await mountPage();
+    expect(wrapper.get('[data-test="output-language"]').text()).toBe('Output language: Deutsch');
+    wrapper.unmount();
+  });
+
+  it('names the language in the no-speech notice', async () => {
+    jobReplies = [() => json(200, doneJob(['no_speech'], 'ru'))];
+    stubFetch();
+    const wrapper = await mountPage();
+    expect(wrapper.get('[data-test="notice"]').text()).toContain('русский');
+    wrapper.unmount();
+  });
+
+  it('falls back to the code when the language has no display name', async () => {
+    jobReplies = [() => json(200, doneJob([], 'zz'))];
+    stubFetch();
+    const wrapper = await mountPage();
+    expect(wrapper.get('[data-test="output-language"]').text()).toBe('Output language: zz');
     wrapper.unmount();
   });
 
@@ -388,7 +412,7 @@ describe('result cards', () => {
     expect(chapters.find('[data-test="copy"]').exists()).toBe(false);
     expect(chapters.find('[data-test="regenerate"]').exists()).toBe(false);
     expect(wrapper.findAll('[data-test="notice"]').map((n) => n.text())).toEqual([
-      en.job.notices.no_speech,
+      en.job.notices.no_speech.replace('{language}', 'English'),
     ]);
     // The other cards are unaffected.
     expect(wrapper.findAll('textarea')).toHaveLength(5);

@@ -25,7 +25,8 @@ from videokit.core.registry import JobCancelled, Tool
 from videokit.core.transcribe import AudioFiles, Segment, TranscriberChain, Transcript
 from videokit.core.worker import Context, Providers, WorkerJobHandle
 from videokit.main import create_app
-from videokit.tools.youtube_prep import TOOL, pipeline
+from videokit.tools.youtube_prep import TOOL, languages, pipeline
+from videokit.tools.youtube_prep.languages import LanguageSetting
 from videokit.tools.youtube_prep.prompt import NO_SPEECH_TEXT, SYSTEM_PROMPT
 from videokit.tools.youtube_prep.schema import OUTPUT_SCHEMA, YouTubePrepResult
 
@@ -48,11 +49,6 @@ VALID: dict[str, Any] = {
     ],
 }
 TOO_LONG_TITLE = "x" * 120
-ENGLISH_INSTRUCTION = "No speech was detected; write all output in English (language code en)."
-
-
-def _language_instruction(code: str) -> str:
-    return f"Write all output in the language detected in the speech (language code {code})."
 
 
 def _invalid() -> dict[str, Any]:
@@ -90,12 +86,14 @@ def store(settings: Settings) -> JobStore:
     return JobStore(settings.data_dir, settings.job_ttl_hours, settings.max_upload_bytes)
 
 
-def _queue(store: JobStore, video: Path) -> str:
+def _queue(store: JobStore, video: Path, setting: LanguageSetting | None = None) -> str:
     data = video.read_bytes()
     job = store.create("youtube_prep", len(data))
     job_dir = store.job_dir(job.id)
     job_dir.mkdir(parents=True)
     (job_dir / "source.bin").write_bytes(data)
+    if setting is not None:
+        languages.write_setting(job_dir, setting)
     store.set_upload_offset(job.id, len(data))
     store.set_state(job.id, JobState.QUEUED)
     return job.id
@@ -235,8 +233,7 @@ async def test_generation_request_has_a_stable_prefix_and_the_duration_in_the_tu
     assert all(f.jpeg.startswith(b"\xff\xd8") for f in req.frames)
     [turn] = req.turns
     assert turn.role == "user"
-    assert ENGLISH_INSTRUCTION not in turn.text  # speech was detected ...
-    assert _language_instruction("en") in turn.text  # ... so its detected language is enforced
+    assert languages.instruction("en") in turn.text  # the detected language is enforced in the turn
     assert "0:36" in turn.text  # the duration lives in the turn ...
     assert "0:36" not in req.context_text and "36" not in req.system  # ... not in the cached prefix
     assert pipeline.build_prefix(media, job_dir).request(OUTPUT_SCHEMA, req.turns) == req
@@ -381,7 +378,7 @@ async def test_video_without_audio_skips_transcription(
     assert job.usage["audio_minutes"] == 0
     assert job.usage["cost_usd"] == pytest.approx(pricing.estimate(llm.usage, MODEL))
     assert llm.requests[0].context_text == NO_SPEECH_TEXT
-    assert ENGLISH_INSTRUCTION in llm.requests[0].turns[0].text
+    assert languages.instruction("en") in llm.requests[0].turns[0].text
     result = _result(store, job_id)
     assert result["notices"] == ["no_speech"]
     assert result["language"] == "en"
@@ -402,10 +399,9 @@ async def test_no_speech_gets_a_notice_and_english_as_the_language(
     assert len(transcriber.calls) == 1
     first, repair = llm.requests
     for turn in (first.turns[0], repair.turns[2]):  # the instruction rides in the generate and repair turns ...
-        assert ENGLISH_INSTRUCTION in turn.text
-    assert (
-        ENGLISH_INSTRUCTION not in first.system and ENGLISH_INSTRUCTION not in first.context_text
-    )  # ... not the prefix
+        assert languages.instruction("en") in turn.text
+    en = languages.instruction("en")
+    assert en not in first.system and en not in first.context_text  # ... not the prefix
     job = _job(store, job_id)
     assert (job.no_speech, job.language) == (True, "en")
     assert job.providers == {"transcription": "fake", "llm": f"fake:{MODEL}"}
@@ -428,11 +424,100 @@ async def test_output_language_is_the_language_detected_by_transcription(
 
     first, repair = llm.requests
     for turn in (first.turns[0], repair.turns[2]):  # the instruction rides in the generate and repair turns ...
-        assert _language_instruction("de") in turn.text
+        assert languages.instruction("de") in turn.text
     for req in (first, repair):  # ... never in the cached prefix
         assert "language code de" not in req.system and "language code de" not in req.context_text
     assert _job(store, job_id).language == "de"
     assert _result(store, job_id)["language"] == "de"
+
+
+def _media_for(language: str, no_speech: bool) -> MediaArtifacts:
+    return MediaArtifacts(
+        duration_s=36.0, has_audio=True, language=language, no_speech=no_speech, segments=[], frames=[]
+    )
+
+
+@pytest.mark.parametrize(
+    ("choice", "fallback", "detected", "no_speech", "expected"),
+    [
+        ("ja", "en", "de", False, "ja"),  # a picked code wins with speech ...
+        ("ja", "pt", "de", True, "ja"),  # ... and without
+        ("auto", "pt", "de", False, "de"),  # auto + speech: the detected language
+        ("auto", "pt", "de", True, "pt"),  # auto + no speech: the fallback
+        ("auto", "en", "", False, "en"),  # nothing detected: English
+    ],
+)
+def test_output_language_resolution_table(
+    choice: str, fallback: str, detected: str, no_speech: bool, expected: str
+) -> None:
+    media = _media_for(detected, no_speech)
+    assert pipeline.output_language(LanguageSetting(choice, fallback), media) == expected
+
+
+async def test_a_picked_language_is_used_whatever_the_speech(
+    store: JobStore, settings: Settings, make_video: MakeVideo
+) -> None:
+    job_id = _queue(store, make_video(audio=True, **LONG), LanguageSetting("ja", "en"))
+    llm = FakeLLM([_invalid(), VALID], model=MODEL)
+
+    await _run(store, job_id, settings, FakeTranscriber(name="fake", language="de"), llm)
+
+    first, repair = llm.requests
+    ja, de = languages.instruction("ja"), languages.instruction("de")
+    for turn in (first.turns[0], repair.turns[2]):  # the turns carry the picked language ...
+        assert ja in turn.text
+        assert de not in turn.text
+    # ... and the prefix stays byte-identical to the one an unpicked job would send (SC-004)
+    assert (repair.system, repair.context_text, repair.frames) == (first.system, first.context_text, first.frames)
+    assert first.system == SYSTEM_PROMPT
+    assert "language code ja" not in first.system and "language code ja" not in first.context_text
+    assert first.schema == repair.schema == OUTPUT_SCHEMA
+    assert _result(store, job_id)["language"] == "ja"
+    assert _job(store, job_id).language == "de"  # the job row still records what transcription detected
+    assert _media(store, job_id).language == "de"
+
+
+async def test_prefix_does_not_depend_on_the_language(
+    store: JobStore, settings: Settings, make_video: MakeVideo
+) -> None:
+    video = make_video(audio=True, **LONG)
+    requests = []
+    for setting in (None, LanguageSetting("ja", "en"), LanguageSetting("fr", "en")):
+        job_id = _queue(store, video, setting)
+        llm = FakeLLM([VALID], model=MODEL)
+        await _run(store, job_id, settings, FakeTranscriber(name="fake"), llm)
+        requests.append(llm.requests[0])
+    first, *others = requests
+    for other in others:
+        assert (other.system, other.context_text, other.schema) == (first.system, first.context_text, first.schema)
+        assert [f.jpeg for f in other.frames] == [f.jpeg for f in first.frames]
+        assert other.turns != first.turns
+
+
+async def test_auto_without_speech_uses_the_fallback_language(
+    store: JobStore, settings: Settings, make_video: MakeVideo
+) -> None:
+    job_id = _queue(store, make_video(audio=False, **LONG), LanguageSetting("auto", "pt"))
+    llm = FakeLLM([VALID], model=MODEL)
+
+    await _run(store, job_id, settings, FakeTranscriber(name="fake"), llm)
+
+    assert languages.instruction("pt") in llm.requests[0].turns[0].text
+    assert _result(store, job_id)["language"] == "pt"
+    assert (_job(store, job_id).language, _job(store, job_id).no_speech) == ("en", True)  # detection unchanged
+
+
+async def test_missing_language_file_behaves_as_auto_with_english_fallback(
+    store: JobStore, settings: Settings, make_video: MakeVideo
+) -> None:
+    job_id = _queue(store, make_video(audio=False, **LONG))
+    assert not (store.job_dir(job_id) / languages.LANGUAGE_JSON).exists()
+    llm = FakeLLM([VALID], model=MODEL)
+
+    await _run(store, job_id, settings, FakeTranscriber(name="fake"), llm)
+
+    assert languages.instruction("en") in llm.requests[0].turns[0].text
+    assert _result(store, job_id)["language"] == "en"
 
 
 async def test_result_language_falls_back_to_the_job_language(

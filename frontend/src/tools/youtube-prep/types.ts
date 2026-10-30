@@ -12,6 +12,7 @@ export const SECTIONS = [
 export type Section = (typeof SECTIONS)[number];
 
 export interface YouTubePrepResult {
+  language: string;
   notices: string[];
   rendered: Record<Section, string>;
 }

@@ -32,7 +32,8 @@ from videokit.core.purge import purge_expired
 from videokit.core.transcribe import TranscriberChain
 from videokit.core.worker import Context, Providers, WorkerJobHandle
 from videokit.main import create_app
-from videokit.tools.youtube_prep import pipeline, prompt
+from videokit.tools.youtube_prep import languages, pipeline, prompt
+from videokit.tools.youtube_prep.languages import LanguageSetting
 from videokit.tools.youtube_prep.schema import OUTPUT_SCHEMA, SECTIONS, YouTubePrepResult
 
 MODEL = "claude-opus-5-5"
@@ -50,7 +51,6 @@ VALID: dict[str, Any] = {
         {"start_seconds": 24.5, "title": "Rooms"},
     ],
 }
-ENGLISH_INSTRUCTION = "No speech was detected; write all output in English (language code en)."
 GEN_USAGE = Usage(input_tokens=1000, output_tokens=200)
 
 
@@ -132,12 +132,15 @@ def _seed(
     *,
     transcriber: FakeTranscriber | None = None,
     has_audio: bool = True,
+    setting: LanguageSetting | None = None,
 ) -> str:
     """Run the real pipeline (fake media/providers) on a new job and mark it done, as the worker would."""
     job = store.create("youtube_prep", 100)
     store.job_dir(job.id).mkdir(parents=True)
     store.set_upload_offset(job.id, 100)
     store.set_state(job.id, JobState.QUEUED)
+    if setting is not None:
+        languages.write_setting(store.job_dir(job.id), setting)
     ctx = Context(
         media=cast(MediaService, FakeMedia(has_audio=has_audio)),
         transcriber=TranscriberChain([transcriber or FakeTranscriber(name="fake")]),
@@ -225,7 +228,8 @@ def test_regenerate_reuses_the_byte_identical_request_prefix(
     media = pipeline.load_media(store.job_dir(job_id))
     [turn] = regen.turns
     assert turn.role == "user"
-    assert turn.text == f"{prompt.regenerate_turn('title', 'shorter', before)}\n{pipeline.turn_notes(media)}"
+    notes = pipeline.turn_notes(media, before["language"])
+    assert turn.text == f"{prompt.regenerate_turn('title', 'shorter', before)}\n{notes}"
     assert "User hint: shorter" in turn.text
     assert "0:36" in turn.text  # duration facts ride in the turn, as for generation
 
@@ -239,10 +243,56 @@ def test_regenerate_enforces_the_detected_language(
     with _client(tmp_path, settings, llm) as client:
         result = client.post(_url(job_id), json={"section": "title"}).json()["result"]
 
-    instruction = "Write all output in the language detected in the speech (language code de)."
+    instruction = languages.instruction("de")
     original, regen = llm.requests
     assert instruction in original.turns[0].text and instruction in regen.turns[0].text
     assert instruction not in regen.system and instruction not in regen.context_text
+    assert result["language"] == "de"
+
+
+def test_regenerate_keeps_a_picked_language(tmp_path: Path, settings: Settings, store: JobStore, llm: FakeLLM) -> None:
+    job_id = _seed(store, settings, llm, setting=LanguageSetting("ja", "en"))  # speech is English
+    llm.script.append(_only("title", "ホテルツアー", language="en"))
+    llm.script.append(_only("title", "ホテルツアー2", language="en"))
+
+    with _client(tmp_path, settings, llm) as client:
+        assert client.post(_url(job_id), json={"section": "title"}).json()["result"]["language"] == "ja"
+        result = client.post(_url(job_id), json={"section": "title"}).json()["result"]
+
+    original, regen, again = llm.requests
+    assert result["language"] == "ja"
+    assert languages.instruction("ja") in original.turns[0].text
+    assert languages.instruction("ja") in regen.turns[0].text
+    assert languages.instruction("ja") in again.turns[0].text
+    assert (regen.system, regen.context_text, regen.frames) == (original.system, original.context_text, original.frames)
+    assert regen.schema == original.schema == OUTPUT_SCHEMA
+
+
+def test_regenerate_keeps_the_language_of_an_auto_job_without_speech(
+    tmp_path: Path, settings: Settings, store: JobStore, llm: FakeLLM
+) -> None:
+    job_id = _seed(store, settings, llm, has_audio=False, setting=LanguageSetting("auto", "pt"))
+    llm.script.append(_only("title", "Tour", language="en"))
+
+    with _client(tmp_path, settings, llm) as client:
+        result = client.post(_url(job_id), json={"section": "title"}).json()["result"]
+
+    assert languages.instruction("pt") in llm.requests[1].turns[0].text
+    assert result["language"] == "pt"
+
+
+def test_regenerate_keeps_the_language_of_an_auto_job_with_speech(
+    tmp_path: Path, settings: Settings, store: JobStore, llm: FakeLLM
+) -> None:
+    job_id = _seed(
+        store, settings, llm, transcriber=FakeTranscriber(name="fake", language="de"), setting=LanguageSetting()
+    )
+    llm.script.append(_only("title", "Hotel", language="en"))
+
+    with _client(tmp_path, settings, llm) as client:
+        result = client.post(_url(job_id), json={"section": "title"}).json()["result"]
+
+    assert languages.instruction("de") in llm.requests[1].turns[0].text
     assert result["language"] == "de"
 
 
@@ -330,8 +380,9 @@ def test_no_speech_jobs_regenerate_in_english(
         result = client.post(_url(job_id), json={"section": "title"}).json()["result"]
 
     regen = llm.requests[1]
-    assert ENGLISH_INSTRUCTION in regen.turns[0].text
-    assert ENGLISH_INSTRUCTION not in regen.system and ENGLISH_INSTRUCTION not in regen.context_text
+    english = languages.instruction("en")
+    assert english in regen.turns[0].text
+    assert english not in regen.system and english not in regen.context_text
     assert result["language"] == "en"  # the result language is kept
     assert result["notices"] == ["no_speech"]
 

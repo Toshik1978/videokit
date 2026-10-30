@@ -34,13 +34,12 @@ from videokit.core.pricing import estimate, transcription_cost
 from videokit.core.registry import CoreContext, JobHandle
 from videokit.core.transcribe import AudioFiles
 from videokit.core.transcribe import Segment as TranscriptSegment
-from videokit.tools.youtube_prep import prompt, rules
+from videokit.tools.youtube_prep import languages, prompt, rules
 from videokit.tools.youtube_prep.schema import OUTPUT_SCHEMA, ModelOutput, Rendered, YouTubePrepResult
 
 RESULT_JSON = "result.json"
-DEFAULT_LANGUAGE = "en"  # no speech: the output language defaults to English
+UNDETECTED_LANGUAGE = "en"  # what transcription records when there is no speech or no detected language
 NOTICE_NO_SPEECH = "no_speech"
-ENGLISH_INSTRUCTION = "No speech was detected; write all output in English (language code en)."
 MAX_LISTED_PROBLEMS = 3  # in a failure reason; the repair turn lists them all
 
 
@@ -122,20 +121,18 @@ def duration_note(duration_s: float) -> str:
     return note
 
 
-def output_language(media: MediaArtifacts) -> str:
-    """The output language: the one detected by transcription, or English without speech (FR-020)."""
-    return DEFAULT_LANGUAGE if media.no_speech else media.language or DEFAULT_LANGUAGE
-
-
-def language_instruction(media: MediaArtifacts) -> str:
+def output_language(setting: languages.LanguageSetting, media: MediaArtifacts) -> str:
+    """The job's output language: a picked code, else the detected one, else the setting's fallback (L4)."""
+    if setting.choice != languages.AUTO:
+        return setting.choice
     if media.no_speech:
-        return ENGLISH_INSTRUCTION
-    return f"Write all output in the language detected in the speech (language code {output_language(media)})."
+        return setting.fallback
+    return media.language or UNDETECTED_LANGUAGE
 
 
-def turn_notes(media: MediaArtifacts) -> str:
+def turn_notes(media: MediaArtifacts, language: str) -> str:
     """Per-job facts appended to every generate/repair/regenerate turn (never part of the cached prefix)."""
-    return f"{duration_note(media.duration_s)}\n{language_instruction(media)}"
+    return f"{duration_note(media.duration_s)}\n{languages.instruction(language)}"
 
 
 # ---------------------------------------------------------------- stages
@@ -154,7 +151,7 @@ def sanitize_segments(segments: Sequence[TranscriptSegment], duration_s: float) 
 def _transcribe(job: JobHandle, ctx: CoreContext, media: MediaArtifacts) -> tuple[MediaArtifacts, dict[str, str]]:
     """Fill the transcript fields of `media` (or mark no speech when there is no audio)."""
     if not media.has_audio:
-        return media.model_copy(update={"language": DEFAULT_LANGUAGE, "no_speech": True}), {}
+        return media.model_copy(update={"language": UNDETECTED_LANGUAGE, "no_speech": True}), {}
     transcript = ctx.transcriber.transcribe(AudioFiles(mp3=job.dir / "audio.mp3"))
     cost = transcription_cost(transcript, ctx.settings.pricing_overrides)
     job.add_usage(Usage(audio_minutes=transcript.audio_minutes), cost)
@@ -163,7 +160,7 @@ def _transcribe(job: JobHandle, ctx: CoreContext, media: MediaArtifacts) -> tupl
     segments = sanitize_segments(transcript.segments, media.duration_s)
     no_speech = transcript.no_speech or not segments
     update = {
-        "language": DEFAULT_LANGUAGE if no_speech else transcript.language or DEFAULT_LANGUAGE,
+        "language": UNDETECTED_LANGUAGE if no_speech else transcript.language or UNDETECTED_LANGUAGE,
         "language_probability": transcript.language_probability,
         "no_speech": no_speech,
         "segments": [] if no_speech else segments,
@@ -178,18 +175,20 @@ def _call(job: JobHandle, ctx: CoreContext, req: GenerationRequest, providers: d
     return response
 
 
-def _generate(job: JobHandle, ctx: CoreContext, media: MediaArtifacts, providers: dict[str, str]) -> dict[str, Any]:
+def _generate(
+    job: JobHandle, ctx: CoreContext, media: MediaArtifacts, language: str, providers: dict[str, str]
+) -> dict[str, Any]:
     """Generate, normalize and validate, with at most one repair call (FR-029)."""
     prefix = build_prefix(media, job.dir)
     duration = media.duration_s
-    turns = [Turn("user", f"{prompt.generate_turn()}\n{turn_notes(media)}")]
+    turns = [Turn("user", f"{prompt.generate_turn()}\n{turn_notes(media, language)}")]
     response = _call(job, ctx, prefix.request(OUTPUT_SCHEMA, turns), providers)
     normalized, problems = check_output(response.data, duration_s=duration)
     if not problems and normalized is not None:
         return normalized
     turns += [
         Turn("assistant", json.dumps(response.data, ensure_ascii=False)),
-        Turn("user", f"{prompt.repair_turn(problems)}\n{turn_notes(media)}"),
+        Turn("user", f"{prompt.repair_turn(problems)}\n{turn_notes(media, language)}"),
     ]
     response = _call(job, ctx, prefix.request(OUTPUT_SCHEMA, turns), providers)
     normalized, problems = check_output(response.data, duration_s=duration)
@@ -201,13 +200,13 @@ def _generate(job: JobHandle, ctx: CoreContext, media: MediaArtifacts, providers
     )
 
 
-def build_result(normalized: dict[str, Any], media: MediaArtifacts) -> YouTubePrepResult:
+def build_result(normalized: dict[str, Any], media: MediaArtifacts, language: str) -> YouTubePrepResult:
     notices = [NOTICE_NO_SPEECH] if media.no_speech else []
     notices += rules.notices(duration_s=media.duration_s)
     sections = {section: normalized[section] for section in rules.SECTIONS}
-    # The language detected by transcription (English without speech), whatever the model claims (FR-020).
+    # The resolved output language, whatever the model claims (FR-020).
     return YouTubePrepResult(
-        language=output_language(media), notices=notices, rendered=Rendered(**rules.render(normalized)), **sections
+        language=language, notices=notices, rendered=Rendered(**rules.render(normalized)), **sections
     )
 
 
@@ -232,14 +231,19 @@ def regenerate(
     media = load_media(job.dir)
     current = YouTubePrepResult.model_validate_json((job.dir / RESULT_JSON).read_text(encoding="utf-8"))
     prefix = build_prefix(media, job.dir)
-    turns = [Turn("user", f"{prompt.regenerate_turn(section, hint, current.model_dump())}\n{turn_notes(media)}")]
+    turns = [
+        Turn(
+            "user",
+            f"{prompt.regenerate_turn(section, hint, current.model_dump())}\n{turn_notes(media, current.language)}",
+        )
+    ]
     try:
         response = _call(job, ctx, prefix.request(OUTPUT_SCHEMA, turns), providers)
         value, problems = check_section(section, response.data, duration_s=media.duration_s)
         if problems:
             turns += [
                 Turn("assistant", json.dumps(response.data, ensure_ascii=False)),
-                Turn("user", f"{prompt.repair_turn(problems)}\n{turn_notes(media)}"),
+                Turn("user", f"{prompt.repair_turn(problems)}\n{turn_notes(media, current.language)}"),
             ]
             response = _call(job, ctx, prefix.request(OUTPUT_SCHEMA, turns), providers)
             value, problems = check_section(section, response.data, duration_s=media.duration_s)
@@ -264,6 +268,7 @@ def regenerate(
 
 def run(job: JobHandle, ctx: CoreContext) -> None:
     """The whole pipeline (blocking). The worker sets `done` once it returns and maps raised errors."""
+    setting = languages.read_setting(job.dir)
     job.check_cancelled()
     job.set_state("extracting")
     media = ctx.media.extract(job.dir)
@@ -275,4 +280,5 @@ def run(job: JobHandle, ctx: CoreContext) -> None:
 
     job.check_cancelled()
     job.set_state("generating", language=media.language, no_speech=media.no_speech)
-    write_result(job.dir, build_result(_generate(job, ctx, media, providers), media))
+    language = output_language(setting, media)
+    write_result(job.dir, build_result(_generate(job, ctx, media, language, providers), media, language))

@@ -10,6 +10,7 @@ import ResultCard from '@/components/ResultCard.vue';
 import UsageFooter from '@/components/UsageFooter.vue';
 import { useMessages } from '@/i18n/messages';
 
+import { endonym } from './language';
 import RegenerateControl from './RegenerateControl.vue';
 import { type RegenerateResponse, type Section, SECTIONS, type YouTubePrepResult } from './types';
 
@@ -42,6 +43,7 @@ const result = computed(() => (job.value?.state === 'done' ? job.value.result : 
 // A too-short video has no chapters: the Chapters card shows the notice instead of its text.
 const TOO_SHORT = 'too_short_for_chapters';
 const tooShort = computed(() => result.value?.notices.includes(TOO_SHORT) ?? false);
+const languageName = computed(() => endonym(result.value?.language ?? ''));
 const pageNotices = computed(() => (result.value?.notices ?? []).filter((n) => n !== TOO_SHORT));
 
 function cardNotice(section: Section): string | undefined {
@@ -117,8 +119,9 @@ onBeforeUnmount(() => {
       <JobStatus v-if="job" :job="job" @cancel="cancel" />
       <template v-if="result">
         <p v-for="notice in pageNotices" :key="notice" data-test="notice" class="notice">
-          {{ t(`job.notices.${notice}`) }}
+          {{ t(`job.notices.${notice}`, { language: languageName }) }}
         </p>
+        <p data-test="output-language">{{ t('job.outputLanguage', { language: languageName }) }}</p>
         <ResultCard
           v-for="section in SECTIONS"
           :key="section"

@@ -96,7 +96,7 @@ describe('upload page', () => {
     const { wrapper } = await setup();
     await choose(wrapper, 5000);
     expect(wrapper.get('[role="alert"]').text()).toContain('1000 B');
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(tus.instances).toHaveLength(0);
   });
 
@@ -111,6 +111,7 @@ describe('upload page', () => {
 
     const post = fetchMock.mock.calls.find(([url]) => url === '/api/tools/youtube_prep/jobs');
     expect(JSON.parse((post![1] as RequestInit).body as string)).toEqual({
+      language: 'auto',
       size: 500,
       file_name: 'clip.mp4',
     });

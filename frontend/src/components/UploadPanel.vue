@@ -6,7 +6,7 @@ import { useI18n } from 'vue-i18n';
 import { ApiError, getJson, postJson } from '@/api/client';
 import { useMessages } from '@/i18n/messages';
 
-const props = defineProps<{ toolId: string }>();
+const props = defineProps<{ toolId: string; createFields?: Record<string, unknown> }>();
 const emit = defineEmits<{ uploaded: [jobId: string] }>();
 
 interface AppConfig {
@@ -235,7 +235,7 @@ async function onChange(event: Event): Promise<void> {
     if (!entry) {
       const job = await postJson<{ job_id: string; upload_url: string }>(
         `/api/tools/${encodeURIComponent(props.toolId)}/jobs`,
-        { size: file.size, file_name: file.name },
+        { ...props.createFields, size: file.size, file_name: file.name },
       );
       if (attempt.cancelled) {
         await cancelJob(job.job_id);
