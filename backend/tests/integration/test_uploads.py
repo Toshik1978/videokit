@@ -65,7 +65,13 @@ def completed() -> list[str]:
 
 @pytest.fixture
 def client(tmp_path: Path, tools_pkg: str, completed: list[str]) -> Iterator[TestClient]:
-    settings = Settings(data_dir=tmp_path / "data", anthropic_api_key=SecretStr("sk-test"), max_upload_gb=1)
+    settings = Settings(
+        transcribe_providers=["openai"],
+        openai_transcribe_api_key=SecretStr("stt-test"),
+        data_dir=tmp_path / "data",
+        anthropic_api_key=SecretStr("sk-test"),
+        max_upload_gb=1,
+    )
     app = create_app(settings, tools_package=tools_pkg, static_dir=tmp_path / "static")
 
     async def on_complete(job_id: str) -> None:

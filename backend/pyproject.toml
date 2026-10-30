@@ -12,12 +12,6 @@ dependencies = [
     "pydantic-settings",
     "anthropic",
     "openai",
-    "faster-whisper",
-    # faster-whisper 1.2.1 passes av.open(metadata_errors=...), which av 19 rejects; lift when it supports av 19.
-    "av<19",
-    # GPU matrix math for ctranslate2 (CUDA 12); the only GPU library it loads — see
-    # specs/002-packaging-releases/research.md R2.
-    "nvidia-cublas-cu12; sys_platform == 'linux'",
     # HEIC decoding behind MediaService.normalize_picture (tiled phone photos); specs/004-video-generation/research.md V7.
     "pillow-heif>=1.8.1",
     # Gemini Omni video generation (Interactions API); >=2.28 is the first release that knows the model.

@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 VideoKit is an open-source, self-hosted web app that hosts small video tools. You run it as a
-single Docker container on your own machine, with or without a GPU. It has three tools:
+single Docker container on your own machine. It has three tools:
 **YouTube Prep**, **Audio Extract** and **Video Generation** (the last one only when you configure a
 video provider).
 
@@ -135,12 +135,8 @@ mkdir -p .data           # create it yourself, or Docker creates it owned by roo
 docker compose up -d    # pulls ghcr.io/toshik1978/videokit:latest and starts it
 ```
 
-`compose.yaml` reserves an NVIDIA GPU for local transcription. On a host without the NVIDIA
-Container Toolkit, delete the `deploy:` block at the end of `compose.yaml` before running
-`docker compose up -d`, or the container will not start. The image itself runs fine on the CPU.
-
 Then open <http://localhost:8000>. The service listens on port 8000 and keeps its data (jobs,
-SQLite index, model cache) in the gitignored `./.data` directory next to `compose.yaml`, bind
+SQLite index) in the gitignored `./.data` directory next to `compose.yaml`, bind
 mounted as `/data`. The container runs as your user (`PUID`/`PGID` in `.env`, default 1000;
 set them to the output of `id -u` and `id -g` if yours differ) so it can write there. `./.data`
 must exist before the first start, hence the `mkdir`. To back up or wipe the
@@ -148,8 +144,9 @@ data, copy or delete `./.data`.
 
 To build the image yourself instead of pulling it, see [Development](#development).
 
-The default configuration transcribes locally and generates text with Anthropic, so set
-`ANTHROPIC_API_KEY` in `.env`. The app refuses to start, with a message naming the problem, if a
+Transcription has no default provider: `.env.example` sets `TRANSCRIBE_PROVIDERS=openai`, which needs
+either `OPENAI_API_KEY` or a self-hosted server (see [Transcription](#transcription)). Text
+generation defaults to Anthropic, so also set `ANTHROPIC_API_KEY` in `.env`. The app refuses to start, with a message naming the problem, if a
 listed provider lacks its key or model id. `GET /api/health` reports which configured providers
 are ready.
 
@@ -164,19 +161,21 @@ The most important variables:
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `TRANSCRIBE_PROVIDERS` | `local` | Ordered, comma-separated: `local`, `openai`. The next one is tried if one fails. |
+| `TRANSCRIBE_PROVIDERS` | none | Required. Ordered, comma-separated; the only provider is `openai` (OpenAI's API or a self-hosted OpenAI-compatible server). |
+| `OPENAI_TRANSCRIBE_URL` | empty | Base URL of a self-hosted transcription server, with its API prefix (for example `http://host.docker.internal:8000/v1`). Empty means OpenAI's API. Must start with `http://` or `https://`. |
+| `OPENAI_TRANSCRIBE_MODEL` | `whisper-1` | Model id sent to whichever address is configured. |
+| `OPENAI_TRANSCRIBE_API_KEY` | none | Optional transcription key. For OpenAI's API it is used instead of `OPENAI_API_KEY`; for a self-hosted server it is the only key sent (none when unset). |
 | `LLM_PROVIDERS` | `anthropic` | Ordered, comma-separated: `anthropic`, `openai`. The next one is tried if one fails. |
 | `ANTHROPIC_API_KEY` | none | Required if `anthropic` is listed. |
-| `OPENAI_API_KEY` | none | Required if `openai` is listed for either stage. |
+| `OPENAI_API_KEY` | none | Required if `openai` is in `LLM_PROVIDERS`, or for OpenAI transcription when `OPENAI_TRANSCRIBE_API_KEY` is unset. Not needed for a self-hosted transcription server. |
 | `OPENAI_MODEL` | none | Required if `openai` is in `LLM_PROVIDERS`. It has no default so a stale model id is never pinned. |
 | `VIDEO_PROVIDERS` | empty | Ordered, comma-separated: `omni`. Empty hides the Video Generation tool. |
 | `GEMINI_API_KEY` | none | Required if `omni` is listed. A Google AI Studio key from a project with billing enabled. |
 | `OMNI_MODEL` | `gemini-omni-1.1-flash` | Model id sent to the Gemini API. |
 | `MAX_UPLOAD_GB` | `10` | Largest accepted upload. Larger files are rejected before transfer. |
 | `JOB_TTL_HOURS` | `24` | How long job data is kept. |
-| `WHISPER_DEVICE` | `auto` | `auto`, `cuda` or `cpu` for local transcription. |
 
-Example of cloud-only transcription with an OpenAI fallback for text generation:
+Example of OpenAI transcription with an OpenAI fallback for text generation:
 
 ```bash
 TRANSCRIBE_PROVIDERS=openai
@@ -202,23 +201,39 @@ Video Generation uses Google's Gemini Omni Flash, which is available on the paid
   clips can be rejected for a while. Check your project's tier and limits in AI Studio.
 - VideoKit itself enforces no spending limit. Control spending through the provider account.
 
-## GPU is optional
+## Transcription
 
-One image works on hosts with and without a GPU.
+VideoKit does not transcribe inside the container, so the image stays small and needs no GPU. Audio
+goes to an OpenAI-compatible transcription API, which is either OpenAI's or a server you run yourself.
 
-- **CPU:** local transcription runs on the CPU when no GPU is available (`WHISPER_DEVICE=auto`
-  falls back to it) or when `WHISPER_DEVICE=cpu`. It is slower, but jobs complete.
-- **GPU:** local transcription runs on an NVIDIA GPU. The image already includes the GPU library
-  (cuBLAS) that local transcription needs; the host only needs the NVIDIA driver and the NVIDIA
-  Container Toolkit. `compose.yaml` requests the GPU through its `deploy.resources.reservations.devices`
-  block; delete that block on hosts without a GPU. With `WHISPER_DEVICE=cuda`, startup fails if no
-  usable GPU is found; `auto` uses the GPU when present.
-- **Verify a GPU host:** `task docker:build` followed by `task docker:gpu-check` runs a short
-  transcription check inside the image and fails unless it runs on the GPU. On a host without the
-  NVIDIA Container Toolkit, Docker itself refuses `--gpus all` with its own error before the script
-  runs. The script's `no GPU visible to the container` line appears when the image runs without
-  `--gpus`.
-- **Cloud only:** set `TRANSCRIBE_PROVIDERS=openai` to skip local transcription entirely.
+- **OpenAI:** set `TRANSCRIBE_PROVIDERS=openai` and `OPENAI_API_KEY` (or `OPENAI_TRANSCRIBE_API_KEY`
+  to use a different key for transcription only).
+- **Self-hosted:** also set `OPENAI_TRANSCRIBE_URL` to your server's base URL including the API
+  prefix, and `OPENAI_TRANSCRIBE_MODEL` to a model the server serves. Any OpenAI-compatible server
+  works, for example [speaches](https://github.com/speaches-ai/speaches); the server may use a GPU,
+  VideoKit does not need one. An address whose host is `api.openai.com` counts as OpenAI's API.
+  Without a server key no key is sent.
+
+Example for a server running on the Docker host, listening on port 8000:
+
+```bash
+TRANSCRIBE_PROVIDERS=openai
+OPENAI_TRANSCRIBE_URL=http://host.docker.internal:8000/v1
+OPENAI_TRANSCRIBE_MODEL=Systran/faster-whisper-large-v3
+```
+
+From inside the container, the host is reachable as `host.docker.internal` once you map it. With
+`docker run`, add `--add-host host.docker.internal:host-gateway`; in `compose.yaml`, add under the
+service:
+
+```yaml
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+```
+
+`GET /api/health` reports the transcription provider as `model=<model>` for OpenAI's API and
+`model=<model>, self-hosted` for any other address. It makes no network call and never shows the
+address or keys.
 
 ## Cost
 
@@ -226,8 +241,8 @@ Only the cloud providers you configure cost money. With the default configuratio
 is estimated to cost under US$0.50 per 30-minute video, and regenerating one section costs a small
 fraction of that. Cheap regeneration relies on the provider's prompt cache, which lives about five
 minutes and is refreshed by each use; a regeneration after a longer pause pays for the video's
-transcript and frames again. Cloud transcription with OpenAI adds roughly US$0.006 per audio
-minute; local transcription is free. Figures are estimates based on published per-token prices,
+transcript and frames again. Transcription with OpenAI's `whisper-1` adds roughly US$0.006 per audio
+minute; transcription on a self-hosted server is free to VideoKit, whatever the model is called. Figures are estimates based on published per-token prices,
 shown in each job's footer. If prices change, override them with `PRICING_OVERRIDES` (see the
 configuration reference).
 
@@ -269,7 +284,7 @@ What leaves your machine depends on the providers you choose:
 
 | Data | Where it goes |
 | --- | --- |
-| Audio | Stays on your machine with local transcription. Sent to OpenAI if `openai` is in `TRANSCRIBE_PROVIDERS`. |
+| Audio | Sent to the transcription server: OpenAI's API, or your own server when `OPENAI_TRANSCRIBE_URL` is set (then it goes only there). |
 | Transcript text and extracted frames | Sent to the provider(s) in `LLM_PROVIDERS` (Anthropic by default, OpenAI as an option) to generate and regenerate the text. |
 | Video Generation prompt and pictures | Sent to Google (Gemini API) if `omni` is in `VIDEO_PROVIDERS`. Pictures are re-encoded as JPEG first, which drops their metadata, including GPS. |
 
@@ -302,11 +317,10 @@ task e2e       # Playwright end-to-end tests (desktop and phone emulation)
 task format    # auto-format both stacks
 ```
 
-- Build and run the image locally with `task docker:build` and `task docker:run`
-  (`task docker:run GPU=true` adds `--gpus all`). They use the same `./.data` directory as Compose.
+- Build and run the image locally with `task docker:build` and `task docker:run`. They use the same `./.data` directory as Compose.
 - Releases are tag-driven; see [`docs/RELEASING.md`](docs/RELEASING.md). Working on the code:
   [`CONTRIBUTING.md`](CONTRIBUTING.md).
-- The default test suite needs no API keys, no network access to AI providers and no GPU; it uses
+- The default test suite needs no API keys, no network access to AI providers; it uses
   fakes and tiny generated video fixtures.
 - Tests that call real providers are opt-in. Provide keys in your environment and run
   `cd backend && uv run pytest -m live --no-cov`.

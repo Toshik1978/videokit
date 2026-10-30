@@ -160,9 +160,9 @@ def select_frame_times(scenes: list[float], end_s: float, max_frames: int) -> li
 
 
 def _extract_audio(source: Path, job_dir: Path) -> None:
-    base = ["ffmpeg", "-v", "error", "-y", "-i", str(source), "-vn", "-ac", "1"]
-    _run([*base, "-ar", "16000", str(job_dir / "audio.wav")])
-    _run([*base, "-b:a", "32k", str(job_dir / "audio.mp3")])
+    _run(
+        ["ffmpeg", "-v", "error", "-y", "-i", str(source), "-vn", "-ac", "1", "-b:a", "32k", str(job_dir / "audio.mp3")]
+    )
 
 
 def _extract_frames(source: Path, job_dir: Path, times: list[float], width: int) -> list[Frame]:

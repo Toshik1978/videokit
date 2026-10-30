@@ -97,6 +97,8 @@ def main() -> None:
         video_pipeline.POLL_INTERVAL_S = VIDEO_POLL_INTERVAL_S
         settings = Settings(
             data_dir=Path(data_dir),
+            transcribe_providers=["openai"],
+            openai_transcribe_api_key=SecretStr("e2e-placeholder"),
             anthropic_api_key=SecretStr("e2e-placeholder"),
             gemini_api_key=SecretStr("e2e-placeholder"),
             video_providers=["omni"],

@@ -10,13 +10,11 @@ from videokit.core.transcribe.base import (
     Transcript,
 )
 from videokit.core.transcribe.chain import TranscriberChain
-from videokit.core.transcribe.local_whisper import LocalWhisperTranscriber
 from videokit.core.transcribe.openai import OpenAITranscriber
 
 __all__ = [
     "AllProvidersFailed",
     "AudioFiles",
-    "LocalWhisperTranscriber",
     "OpenAITranscriber",
     "ProviderError",
     "ProviderStatus",

@@ -5,13 +5,12 @@ from typing import Any
 
 from videokit.core.config import ConfigurationError, Settings
 from videokit.core.llm import AnthropicProvider, LLMChain, LLMProvider, OpenAIProvider
-from videokit.core.transcribe import LocalWhisperTranscriber, OpenAITranscriber, Transcriber, TranscriberChain
+from videokit.core.transcribe import OpenAITranscriber, Transcriber, TranscriberChain
 from videokit.core.videogen import VideoChain, VideoGenerator
 from videokit.core.videogen.omni import OmniProvider
 from videokit.core.worker import Providers
 
 TRANSCRIBERS: dict[str, Callable[[Settings], Transcriber]] = {
-    "local": LocalWhisperTranscriber,
     "openai": OpenAITranscriber,
 }
 LLMS: dict[str, Callable[[Settings], LLMProvider]] = {

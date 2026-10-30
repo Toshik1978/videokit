@@ -34,7 +34,13 @@ MakeVideo = Callable[..., Path]
 
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
-    return Settings(data_dir=tmp_path / "data", anthropic_api_key=SecretStr("sk-test"), max_upload_gb=1)
+    return Settings(
+        transcribe_providers=["openai"],
+        openai_transcribe_api_key=SecretStr("stt-test"),
+        data_dir=tmp_path / "data",
+        anthropic_api_key=SecretStr("sk-test"),
+        max_upload_gb=1,
+    )
 
 
 @pytest.fixture

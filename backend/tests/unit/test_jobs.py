@@ -485,10 +485,10 @@ def test_add_usage_is_atomic_across_threads(store: JobStore) -> None:
 def test_update_media_info(store: JobStore) -> None:
     job = store.create("t", 10)
     updated = store.update_info(
-        job.id, duration_s=12.5, language="en", no_speech=True, providers={"transcription": "local"}
+        job.id, duration_s=12.5, language="en", no_speech=True, providers={"transcription": "fake"}
     )
     assert (updated.duration_s, updated.language, updated.no_speech) == (12.5, "en", True)
-    assert updated.providers == {"transcription": "local"}
+    assert updated.providers == {"transcription": "fake"}
     with pytest.raises(JobNotFound):
         store.update_info("nope", language="en")
 

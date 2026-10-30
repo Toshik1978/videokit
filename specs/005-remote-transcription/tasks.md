@@ -69,29 +69,29 @@ completes with timed chapters, the detected language and transcription cost 0; h
 **Independent Test**: `task test`, `task lint`, the image smoke test without `--gpus`, `task docker:size`
 at the lowered limit, and an import check proving `faster_whisper`, `ctranslate2` and `av` are absent.
 
-- [ ] T006 [US2] Amend the constitution with `/speckit-constitution` in `.specify/memory/constitution.md` (research T12)
+- [x] T006 [US2] Amend the constitution with `/speckit-constitution` in `.specify/memory/constitution.md` (research T12)
   - MINOR 1.5.0 → 1.6.0: Principle IV transcription provider "OpenAI-compatible (OpenAI or a self-hosted server)" and "VideoKit itself MUST NOT require a GPU"; Technology & Operational Constraints: transcription via an OpenAI-compatible Whisper server or OpenAI, a CPU-only image, an example `compose.yaml` without GPU access. Sync Impact Report updated.
-- [ ] T007 [US2] Remove the `local` provider from the backend in `backend/src/videokit/core/` (research T1, T10; contracts/internal-interfaces.md)
+- [x] T007 [US2] Remove the `local` provider from the backend in `backend/src/videokit/core/` (research T1, T10; contracts/internal-interfaces.md)
   - Delete `core/transcribe/local_whisper.py` and its export; `TRANSCRIBERS` = `openai`; `TRANSCRIBE_PROVIDER_NAMES = ("openai",)`; `transcribe_providers` default `[]`.
   - Remove `whisper_model`, `whisper_device`, `WHISPER_DEVICES`, `cuda_available()` and their validation from `core/config.py`; remove `FREE_TRANSCRIPTION_PROVIDERS` from `core/pricing.py` (only `self_hosted` is free).
   - Update every test and fixture that names `local` or the Whisper settings to the fake transcriber or `openai` with a stub client: `backend/tests/conftest.py`, `backend/tests/fakes_transcribe.py`, `backend/tests/unit/{test_config,test_transcribe,test_jobs,test_openapi,test_pricing}.py`, `backend/tests/integration/{test_providers,test_api_platform,test_worker,test_regenerate,test_youtube_prep_pipeline,test_log_hygiene}.py`, `backend/tests/e2e_app.py`, `frontend/tests/unit/usage-footer.spec.ts`; delete the local-only cases.
   - Commit with a breaking marker (`feat!:`; research T13).
-- [ ] T008 [US2] Extract only the MP3 in `backend/src/videokit/core/media.py` and `backend/src/videokit/core/transcribe/base.py` (research T9)
+- [x] T008 [US2] Extract only the MP3 in `backend/src/videokit/core/media.py` and `backend/src/videokit/core/transcribe/base.py` (research T9)
   - `_extract_audio` writes only `audio.mp3` (`-vn -ac 1 -b:a 32k`); `AudioFiles` keeps only `mp3`; `backend/src/videokit/tools/youtube_prep/pipeline.py` builds `AudioFiles(mp3=…)`.
   - Tests: `backend/tests/integration/test_media.py` (no `audio.wav` in the job dir), `backend/tests/integration/test_youtube_prep_pipeline.py`.
-- [ ] T009 [US2] Drop the Whisper and GPU dependencies in `backend/pyproject.toml` and `backend/uv.lock` (research T11)
+- [x] T009 [US2] Drop the Whisper and GPU dependencies in `backend/pyproject.toml` and `backend/uv.lock` (research T11)
   - Remove `faster-whisper`, `av<19` and `nvidia-cublas-cu12` with their comments; `uv lock`; confirm `ctranslate2`, `onnxruntime`, `huggingface-hub` and `av` leave the lock.
   - Delete `backend/tests/unit/test_whisper_audio_compat.py`; remove the `av` ignore and its comment from `.github/dependabot.yml`.
-- [ ] T010 [US2] Make the image CPU-only in `Dockerfile` and `scripts/docker_smoke.sh` (research T11)
+- [x] T010 [US2] Make the image CPU-only in `Dockerfile` and `scripts/docker_smoke.sh` (research T11)
   - Remove `NVIDIA_VISIBLE_DEVICES`, `NVIDIA_DRIVER_CAPABILITIES`, the `ldconfig` step, `--no-install-package nvidia-cuda-nvrtc-cu12` and `HF_HOME`; keep `XDG_CACHE_HOME=/data/cache`; reword the stage comments (no GPU).
   - Smoke test: drop the Hugging Face cache checks; add the import check that `faster_whisper`, `ctranslate2` and `av` are absent; default `SMOKE_TRANSCRIBE_PROVIDERS` works without a GPU.
   - Tests: `backend/tests/unit/test_dockerfile.py`.
-- [ ] T011 [P] [US2] Remove GPU tooling from `compose.yaml`, `Taskfile.yml` and `scripts/gpu_check.py` (research T11)
+- [x] T011 [P] [US2] Remove GPU tooling from `compose.yaml`, `Taskfile.yml` and `scripts/gpu_check.py` (research T11)
   - Delete the Compose `deploy.resources.reservations.devices` block and its comment; remove the Taskfile `GPU` var, `GPU_FLAGS` and `docker:gpu-check`; delete `scripts/gpu_check.py`.
   - Delete `backend/tests/unit/test_gpu_check.py` and `backend/tests/unit/test_taskfile_gpu.py`; `backend/tests/unit/test_compose.py` asserts no GPU reservation.
-- [ ] T012 [US2] Lower the image size limit in `scripts/image_size_guard.sh` (research T11; SC-003)
+- [x] T012 [US2] Lower the image size limit in `scripts/image_size_guard.sh` (research T11; SC-003)
   - Build the image, measure with `task docker:size`, set `LIMIT_BYTES` to the measured size plus about 25 % rounded up to 10 MB; confirm the size is at least 40 % below v0.3.0's limit-checked size and record both numbers in the commit message.
-- [ ] T013 [US2] Rewrite the transcription and GPU documentation in `README.md`, `.env.example`, `CONTRIBUTING.md` and `.claude/CLAUDE.md` (contracts/configuration.md)
+- [x] T013 [US2] Rewrite the transcription and GPU documentation in `README.md`, `.env.example`, `CONTRIBUTING.md` and `.claude/CLAUDE.md` (contracts/configuration.md)
   - README: remove "GPU is optional" and the Compose GPU paragraph; provider table (`TRANSCRIBE_PROVIDERS` no default, only `openai`; `OPENAI_TRANSCRIBE_URL`, `OPENAI_TRANSCRIBE_MODEL`, `OPENAI_TRANSCRIBE_API_KEY` and which key goes where; no `WHISPER_*`); one exact self-hosted example with `http://host.docker.internal:8000/v1` and `--add-host`; privacy table (audio goes to OpenAI or the configured server); costs (self-hosted transcription is free); test section (no GPU wording).
   - `.env.example`: `TRANSCRIBE_PROVIDERS=openai`, commented placeholder `OPENAI_TRANSCRIBE_URL` / `OPENAI_TRANSCRIBE_API_KEY`; drop `WHISPER_*`.
   - `.claude/CLAUDE.md`: remove the faster-whisper/`av`, cuBLAS, `-cu12` and `docker:gpu-check` gotchas and the GPU wording in the intro, layout and Docker notes; update `core/` listing (`transcribe/{openai,chain}`).

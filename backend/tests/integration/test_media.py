@@ -120,8 +120,8 @@ def test_probe_rejects_audio_only_file(tmp_path: Path) -> None:
 def test_extract_audio_files(tmp_path: Path, make_video: MakeVideo) -> None:
     job = _job_dir(tmp_path, make_video(audio=True))
     MediaService(_settings(tmp_path)).extract(job)
-    wav = _stream_info(job / "audio.wav")
-    assert (int(wav["sample_rate"]), wav["channels"]) == (16000, 1)
+    assert not (job / "audio.wav").exists()
+    assert [p.name for p in job.glob("audio.*")] == ["audio.mp3"]
     mp3 = _stream_info(job / "audio.mp3")
     assert (mp3["codec_name"], mp3["channels"]) == ("mp3", 1)
     assert int(mp3["bit_rate"]) == pytest.approx(32000, rel=0.1)

@@ -13,12 +13,3 @@ services:
     # Create ./.data first (`mkdir -p .data`); otherwise Docker creates it as root.
     user: "${PUID:-1000}:${PGID:-1000}"
     restart: unless-stopped
-    # GPU access for local transcription; needs the NVIDIA container toolkit on the host.
-    # Delete this block on hosts without it (local transcription then runs on the CPU).
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]

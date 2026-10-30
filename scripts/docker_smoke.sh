@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # Container smoke test: start the image with placeholder keys (startup checks key presence only,
 # no network), wait for GET /api/health to return 200, then fetch / (the SPA).
-# Before that, as the image's user and without any keys, check that the caches the local
-# transcription stack writes to (Hugging Face hub/xet, XDG) resolve to a writable place under /data;
-# a cache under the read-only home directory makes every local transcription job fail.
+# Before that, as the image's user, check that the cache directory (XDG) resolves to a writable place
+# under /data, and that the removed local transcription stack (faster_whisper, ctranslate2, av) is absent.
 # Also generate tiny clips in the codecs users upload (H.264, HEVC, VP9, AV1, MP3 audio) with the
 # image's own ffmpeg and run each through the app's media code (probe, audio and frame extraction).
 # Also encode a generated tone to MP3 (libmp3lame, 192k) and probe it, as Audio Extract does.
@@ -24,14 +23,23 @@ timeout_s="${SMOKE_TIMEOUT:-120}"
 
 docker run --rm --entrypoint python "$image" -c '
 import os, pathlib
-from huggingface_hub import constants
 
-for path in (constants.HF_HOME, constants.HF_HUB_CACHE, os.environ.get("XDG_CACHE_HOME", "")):
-    assert path.startswith("/data/"), f"cache dir {path!r} is outside /data"
-    pathlib.Path(path).mkdir(parents=True, exist_ok=True)
-    (pathlib.Path(path) / ".write-test").write_text("ok")
-print("cache dirs writable")
-' || { echo "model cache directories are not writable for the container user" >&2; exit 1; }
+path = os.environ.get("XDG_CACHE_HOME", "")
+assert path.startswith("/data/"), f"cache dir {path!r} is outside /data"
+pathlib.Path(path).mkdir(parents=True, exist_ok=True)
+(pathlib.Path(path) / ".write-test").write_text("ok")
+print("cache dir writable")
+' || { echo "the cache directory is not writable for the container user" >&2; exit 1; }
+
+docker run --rm --entrypoint python "$image" -c '
+import importlib.util, sys
+
+present = [m for m in ("faster_whisper", "ctranslate2", "av") if importlib.util.find_spec(m)]
+if present:
+    print(f"unexpected packages in the image: {present}", file=sys.stderr)
+    sys.exit(1)
+print("no local transcription stack")
+' || { echo "the image still ships the local transcription stack" >&2; exit 1; }
 
 docker run --rm --entrypoint python "$image" -c '
 import shutil, subprocess, sys, tempfile
@@ -62,7 +70,7 @@ with tempfile.TemporaryDirectory() as tmp:
             shutil.move(job_dir / name, job_dir / SOURCE_NAME)
             media = MediaService(settings).extract(job_dir)
             assert media.has_audio and media.frames
-            assert (job_dir / "audio.wav").stat().st_size > 0 and (job_dir / "audio.mp3").stat().st_size > 0
+            assert (job_dir / "audio.mp3").stat().st_size > 0
         except Exception as exc:
             # The exception type only: its message may carry ffmpeg output or paths.
             print(f"codec check failed: {name} ({type(exc).__name__})", file=sys.stderr)
@@ -187,7 +195,7 @@ wait_and_check() {
 env_args=(
   -e "TRANSCRIBE_PROVIDERS=${SMOKE_TRANSCRIBE_PROVIDERS:-openai}"
   -e LLM_PROVIDERS=anthropic
-  -e OPENAI_API_KEY=placeholder-openai-key
+  -e OPENAI_TRANSCRIBE_URL=http://localhost:8000/v1
   -e ANTHROPIC_API_KEY=placeholder-anthropic-key
 )
 
@@ -202,18 +210,18 @@ docker run -d --name "$name_bind" --user "$uid:$gid" -v "$bind_dir:/data" -p 127
   "${env_args[@]}" "$image" >/dev/null
 wait_and_check "$name_bind"
 
-# Health already passed, so the app has opened its SQLite DB in /data; caches are written on demand.
+# Health already passed, so the app has opened its SQLite DB in /data; the cache is written on demand.
 docker exec "$name_bind" python -c '
 import os, pathlib
-for path in (os.environ["HF_HOME"], os.environ["XDG_CACHE_HOME"]):
-    pathlib.Path(path).mkdir(parents=True, exist_ok=True)
-    (pathlib.Path(path) / ".write-test").write_text("ok")
-' || { echo "caches not writable under the bind-mounted /data" >&2; exit 1; }
+path = os.environ["XDG_CACHE_HOME"]
+pathlib.Path(path).mkdir(parents=True, exist_ok=True)
+(pathlib.Path(path) / ".write-test").write_text("ok")
+' || { echo "cache not writable under the bind-mounted /data" >&2; exit 1; }
 
 db_file="$(find "$bind_dir" -maxdepth 2 -name '*.db' -o -maxdepth 2 -name '*.sqlite*' | head -n1)"
 [ -n "$db_file" ] || { echo "no SQLite database found in the bind-mounted /data" >&2; exit 1; }
-[ -d "$bind_dir/huggingface" ] && [ -d "$bind_dir/cache" ] \
-  || { echo "cache directories missing in the bind-mounted /data" >&2; exit 1; }
+[ -d "$bind_dir/cache" ] \
+  || { echo "cache directory missing in the bind-mounted /data" >&2; exit 1; }
 wrong_owner="$(find "$bind_dir" ! -user "$uid" | head -n1)"
 [ -z "$wrong_owner" ] || { echo "files in the bind-mounted /data are not owned by uid $uid" >&2; exit 1; }
 

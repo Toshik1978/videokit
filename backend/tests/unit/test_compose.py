@@ -1,4 +1,4 @@
-"""Tests for compose.yaml: it runs the published image with GPU access by default."""
+"""Tests for compose.yaml: it runs the published image and reserves no GPU."""
 
 from __future__ import annotations
 
@@ -23,15 +23,12 @@ def test_runs_the_published_image() -> None:
     assert "build" not in service
 
 
-def test_gpu_reservation_is_enabled() -> None:
-    devices = _service()["deploy"]["resources"]["reservations"]["devices"]
-    assert devices == [{"driver": "nvidia", "count": "all", "capabilities": ["gpu"]}]
-
-
-def test_gpu_block_documents_how_to_remove_it() -> None:
-    text = COMPOSE.read_text(encoding="utf-8")
-    assert "NVIDIA container toolkit" in text
-    assert "delete this block" in text.lower()
+def test_no_gpu_reservation() -> None:
+    service = _service()
+    assert "deploy" not in service or "devices" not in (service["deploy"].get("resources", {}).get("reservations", {}))
+    text = COMPOSE.read_text(encoding="utf-8").lower()
+    assert "nvidia" not in text
+    assert "gpu" not in text
 
 
 def test_user_volume_port_env_and_restart_unchanged() -> None:

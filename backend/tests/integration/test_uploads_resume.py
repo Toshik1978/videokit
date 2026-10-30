@@ -36,7 +36,13 @@ def completed() -> list[str]:
 
 @pytest.fixture
 def client(tmp_path: Path, completed: list[str]) -> Iterator[TestClient]:
-    settings = Settings(data_dir=tmp_path / "data", anthropic_api_key=SecretStr("sk-test"), max_upload_gb=1)
+    settings = Settings(
+        transcribe_providers=["openai"],
+        openai_transcribe_api_key=SecretStr("stt-test"),
+        data_dir=tmp_path / "data",
+        anthropic_api_key=SecretStr("sk-test"),
+        max_upload_gb=1,
+    )
     app = create_app(settings, tools_package="videokit.tools", static_dir=tmp_path / "static")
 
     async def on_complete(job_id: str) -> None:
@@ -200,7 +206,13 @@ def test_repeat_patch_at_full_length_retries_completion(client: TestClient, comp
 def test_finished_uploads_are_completed_at_startup(tmp_path: Path) -> None:
     """The process died after the last byte was recorded but before completion ran: the next start completes it
     (tus clients treat HEAD offset == length as done and never send another PATCH)."""
-    settings = Settings(data_dir=tmp_path / "data", anthropic_api_key=SecretStr("sk-test"), max_upload_gb=1)
+    settings = Settings(
+        transcribe_providers=["openai"],
+        openai_transcribe_api_key=SecretStr("stt-test"),
+        data_dir=tmp_path / "data",
+        anthropic_api_key=SecretStr("sk-test"),
+        max_upload_gb=1,
+    )
     store = JobStore(settings.data_dir, settings.job_ttl_hours, settings.max_upload_bytes)
     finished = store.create("demo_tool", 4).id
     store.set_upload_offset(finished, 4)
@@ -226,7 +238,13 @@ def test_finished_uploads_are_completed_at_startup(tmp_path: Path) -> None:
 
 def test_expired_finished_upload_is_not_queued_at_startup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """FR-015: a finished upload already past `expires_at` must not be probed or queued; the purge deletes it."""
-    settings = Settings(data_dir=tmp_path / "data", anthropic_api_key=SecretStr("sk-test"), max_upload_gb=1)
+    settings = Settings(
+        transcribe_providers=["openai"],
+        openai_transcribe_api_key=SecretStr("stt-test"),
+        data_dir=tmp_path / "data",
+        anthropic_api_key=SecretStr("sk-test"),
+        max_upload_gb=1,
+    )
     past = time.time() - (settings.job_ttl_hours + 1) * 3600
     old = JobStore(settings.data_dir, settings.job_ttl_hours, settings.max_upload_bytes, clock=lambda: past)
     job_id = old.create("demo_tool", 4).id

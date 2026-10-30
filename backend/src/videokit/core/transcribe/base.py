@@ -29,9 +29,8 @@ class AllProvidersFailed(AppError):
 
 @dataclass(frozen=True)
 class AudioFiles:
-    """Extracted audio of one job: 16 kHz mono WAV (local Whisper) and 32 kbps mono MP3 (cloud upload)."""
+    """Extracted audio of one job: a 32 kbps mono MP3 (uploaded to the transcription server)."""
 
-    wav: Path
     mp3: Path
 
 

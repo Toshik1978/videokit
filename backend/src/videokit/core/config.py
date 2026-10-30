@@ -1,6 +1,5 @@
 """Environment-based configuration and startup validation (see contracts/configuration.md)."""
 
-import importlib
 import os
 import re
 from pathlib import Path
@@ -11,12 +10,11 @@ from pydantic import SecretStr, ValidationError, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 from pydantic_settings.exceptions import SettingsError
 
-TRANSCRIBE_PROVIDER_NAMES = ("local", "openai")
+TRANSCRIBE_PROVIDER_NAMES = ("openai",)
 LLM_PROVIDER_NAMES = ("anthropic", "openai")
 VIDEO_PROVIDER_NAMES = ("omni",)
 MAX_FRAMES_RANGE = (1, 100)
 ANTHROPIC_EFFORTS = ("low", "medium", "high")
-WHISPER_DEVICES = ("auto", "cuda", "cpu")
 
 
 class Settings(BaseSettings):
@@ -30,9 +28,7 @@ class Settings(BaseSettings):
     job_ttl_hours: int = 24
     max_frames: int = 80
     frame_width: int = 768
-    transcribe_providers: Annotated[list[str], NoDecode] = ["local"]
-    whisper_model: str = "large-v3-turbo"
-    whisper_device: str = "auto"
+    transcribe_providers: Annotated[list[str], NoDecode] = []
     openai_transcribe_model: str = "whisper-1"
     openai_transcribe_url: str | None = None
     openai_transcribe_api_key: SecretStr | None = None
@@ -78,15 +74,6 @@ def load_settings() -> Settings:
         match = re.search(r'field "([^"]+)"', str(exc))
         fields = dict.fromkeys([match.group(1)] if match else ["(unknown)"])
     raise ConfigurationError([f"{name.upper()} has an invalid value" for name in fields])
-
-
-def cuda_available() -> bool:
-    """True when ctranslate2 (used by faster-whisper) sees at least one CUDA device."""
-    try:
-        ctranslate2 = importlib.import_module("ctranslate2")  # untyped third-party package
-        return bool(ctranslate2.get_cuda_device_count() > 0)
-    except Exception:
-        return False
 
 
 def is_openai_api(url: str | None) -> bool:
@@ -149,15 +136,8 @@ def validate(settings: Settings) -> list[str]:
     if "openai" in settings.llm_providers and not (settings.openai_model or "").strip():
         problems.append("OPENAI_MODEL is required when 'openai' is listed in LLM_PROVIDERS")
 
-    for var, value, choices in (
-        ("ANTHROPIC_EFFORT", settings.anthropic_effort, ANTHROPIC_EFFORTS),
-        ("WHISPER_DEVICE", settings.whisper_device, WHISPER_DEVICES),
-    ):
-        if value not in choices:
-            problems.append(f"{var} must be one of: {', '.join(choices)}")
-
-    if settings.whisper_device == "cuda" and not cuda_available():
-        problems.append("WHISPER_DEVICE is 'cuda' but no usable GPU was found")
+    if settings.anthropic_effort not in ANTHROPIC_EFFORTS:
+        problems.append(f"ANTHROPIC_EFFORT must be one of: {', '.join(ANTHROPIC_EFFORTS)}")
 
     low, high = MAX_FRAMES_RANGE
     if not low <= settings.max_frames <= high:

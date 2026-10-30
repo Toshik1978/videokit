@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 SCRIPT = Path(__file__).resolve().parents[3] / "scripts" / "image_size_guard.sh"
-LIMIT = 1_250_000_000
+LIMIT = 330_000_000
 
 FAKE_DOCKER = """\
 #!/bin/sh
@@ -53,23 +53,23 @@ def run(fake_bin: Path, *args: str, size: int = 0, fail: bool = False) -> subpro
 
 
 def test_under_limit_prints_size_and_passes(fake_bin: Path) -> None:
-    result = run(fake_bin, "videokit:ci", size=1_060_000_000)
+    result = run(fake_bin, "videokit:ci", size=260_000_000)
     assert result.returncode == 0
-    assert result.stdout.strip() == "image size: 1.06 GB (limit 1.25 GB)"
+    assert result.stdout.strip() == "image size: 0.26 GB (limit 0.33 GB)"
 
 
 def test_exactly_at_limit_passes(fake_bin: Path) -> None:
     result = run(fake_bin, "videokit:ci", size=LIMIT)
     assert result.returncode == 0
-    assert result.stdout.strip() == "image size: 1.25 GB (limit 1.25 GB)"
+    assert result.stdout.strip() == "image size: 0.33 GB (limit 0.33 GB)"
 
 
 def test_over_limit_fails_with_size_and_limit_on_stderr(fake_bin: Path) -> None:
     result = run(fake_bin, "videokit:ci", size=LIMIT + 1)
     assert result.returncode == 1
     assert result.stdout == ""
-    assert "1250000001" in result.stderr
-    assert "1250000000" in result.stderr
+    assert "330000001" in result.stderr
+    assert "330000000" in result.stderr
 
 
 def test_missing_argument_is_a_usage_error(fake_bin: Path) -> None:

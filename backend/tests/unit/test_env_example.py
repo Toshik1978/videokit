@@ -32,3 +32,17 @@ def test_readme_documents_the_video_generation_settings() -> None:
     for name in VIDEO_VARIABLES:
         assert f"`{name}`" in readme, name
     assert "POST /api/tools/<id>/jobs" in readme
+
+
+def test_docs_describe_remote_transcription_only() -> None:
+    values = _example_values()
+    assert values["TRANSCRIBE_PROVIDERS"] == "openai"
+    assert not [name for name in values if name.startswith("WHISPER_")]
+    assert re.search(r"^#\s*OPENAI_TRANSCRIBE_URL=", (ROOT / ".env.example").read_text(), re.MULTILINE)
+    readme = (ROOT / "README.md").read_text()
+    for name in ("OPENAI_TRANSCRIBE_URL", "OPENAI_TRANSCRIBE_MODEL", "OPENAI_TRANSCRIBE_API_KEY"):
+        assert f"`{name}`" in readme, name
+    assert "--add-host" in readme
+    assert "http://host.docker.internal:8000/v1" in readme
+    for text in (readme, (ROOT / ".claude" / "CLAUDE.md").read_text()):
+        assert not re.search(r"WHISPER_|faster-whisper(?!-large)|cuBLAS|gpu-check|HF_HOME", text)

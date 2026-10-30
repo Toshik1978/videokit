@@ -22,7 +22,7 @@ def _settings(**overrides: Any) -> Settings:
 
 
 def _audio(tmp_path: Path) -> AudioFiles:
-    return AudioFiles(wav=tmp_path / "audio.wav", mp3=tmp_path / "audio.mp3")
+    return AudioFiles(mp3=tmp_path / "audio.mp3")
 
 
 def _seg(start: float, end: float, text: str) -> SimpleNamespace:

@@ -95,7 +95,13 @@ class GatedLLM(FakeLLM):
 
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
-    return Settings(data_dir=tmp_path / "data", anthropic_api_key=SecretStr("sk-test"), max_upload_gb=1)
+    return Settings(
+        transcribe_providers=["openai"],
+        openai_transcribe_api_key=SecretStr("stt-test"),
+        data_dir=tmp_path / "data",
+        anthropic_api_key=SecretStr("sk-test"),
+        max_upload_gb=1,
+    )
 
 
 @pytest.fixture
@@ -134,7 +140,7 @@ def _seed(
     store.set_state(job.id, JobState.QUEUED)
     ctx = Context(
         media=cast(MediaService, FakeMedia(has_audio=has_audio)),
-        transcriber=TranscriberChain([transcriber or FakeTranscriber(name="local")]),
+        transcriber=TranscriberChain([transcriber or FakeTranscriber(name="fake")]),
         llm=LLMChain([llm]),
         settings=settings,
     )
@@ -145,7 +151,7 @@ def _seed(
 
 @contextlib.contextmanager
 def _client(tmp_path: Path, settings: Settings, llm: FakeLLM) -> Iterator[TestClient]:
-    providers = Providers(transcriber=TranscriberChain([FakeTranscriber(name="local")]), llm=LLMChain([llm]))
+    providers = Providers(transcriber=TranscriberChain([FakeTranscriber(name="fake")]), llm=LLMChain([llm]))
     app = create_app(settings, providers, static_dir=tmp_path / "static")
     with TestClient(app) as client:
         yield client
@@ -227,7 +233,7 @@ def test_regenerate_reuses_the_byte_identical_request_prefix(
 def test_regenerate_enforces_the_detected_language(
     tmp_path: Path, settings: Settings, store: JobStore, llm: FakeLLM
 ) -> None:
-    job_id = _seed(store, settings, llm, transcriber=FakeTranscriber(name="local", language="de"))
+    job_id = _seed(store, settings, llm, transcriber=FakeTranscriber(name="fake", language="de"))
     llm.script.append(_only("title", "Hotel tour", language="fr"))
 
     with _client(tmp_path, settings, llm) as client:

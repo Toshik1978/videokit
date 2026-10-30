@@ -23,7 +23,7 @@ from videokit.core.jobs import RESTART_FAILURE_REASON, Job, JobState, JobStore
 from videokit.core.llm import AnthropicProvider, LLMChain
 from videokit.core.media import MediaService
 from videokit.core.registry import CoreContext, JobHandle
-from videokit.core.transcribe import AllProvidersFailed, LocalWhisperTranscriber, TranscriberChain
+from videokit.core.transcribe import AllProvidersFailed, OpenAITranscriber, TranscriberChain
 from videokit.core.worker import Providers, Worker
 from videokit.main import create_app
 
@@ -126,7 +126,13 @@ def other() -> ScriptedTool:
 
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
-    return Settings(data_dir=tmp_path / "data", anthropic_api_key=SecretStr("sk-test"), max_upload_gb=1)
+    return Settings(
+        data_dir=tmp_path / "data",
+        anthropic_api_key=SecretStr("sk-test"),
+        max_upload_gb=1,
+        transcribe_providers=["openai"],
+        openai_transcribe_api_key=SecretStr("stt-test"),
+    )
 
 
 @pytest.fixture
@@ -925,7 +931,7 @@ def test_default_providers_are_built_from_settings_without_loading_anything(tmp_
         providers: Providers = app.state.providers
     [transcriber] = providers.transcriber.providers
     [llm] = providers.llm.providers
-    assert isinstance(transcriber, LocalWhisperTranscriber)
-    assert transcriber._model is None  # no Whisper model loaded at startup
+    assert isinstance(transcriber, OpenAITranscriber)
+    assert transcriber._client is None  # no SDK client (and no network) at startup
     assert isinstance(llm, AnthropicProvider)
     assert llm._client is None  # no SDK client (and no network) at startup

@@ -75,7 +75,13 @@ class RecordingHandle(WorkerJobHandle):
 
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
-    return Settings(data_dir=tmp_path / "data", anthropic_api_key=SecretStr("sk-test"), max_upload_gb=1)
+    return Settings(
+        transcribe_providers=["openai"],
+        openai_transcribe_api_key=SecretStr("stt-test"),
+        data_dir=tmp_path / "data",
+        anthropic_api_key=SecretStr("sk-test"),
+        max_upload_gb=1,
+    )
 
 
 @pytest.fixture
@@ -145,7 +151,7 @@ async def test_happy_path_writes_the_result_and_records_the_job(
     store: JobStore, settings: Settings, make_video: MakeVideo
 ) -> None:
     job_id = _queue(store, make_video(audio=True, **LONG))
-    transcriber = FakeTranscriber(name="local")
+    transcriber = FakeTranscriber(name="fake")
     llm = FakeLLM([VALID], model=MODEL)
 
     handle = await _run(store, job_id, settings, transcriber, llm)
@@ -182,7 +188,7 @@ async def test_happy_path_writes_the_result_and_records_the_job(
     assert job.duration_s == pytest.approx(36.0, abs=0.3)
     assert job.language == "en"
     assert job.no_speech is False
-    assert job.providers == {"transcription": "local", "llm": f"fake:{MODEL}"}
+    assert job.providers == {"transcription": "fake", "llm": f"fake:{MODEL}"}
     expected_cost = pricing.estimate(Usage(input_tokens=1000, output_tokens=200), MODEL)
     assert job.usage == {
         "input_tokens": 1000,
@@ -191,13 +197,13 @@ async def test_happy_path_writes_the_result_and_records_the_job(
         "cache_write_tokens": 0,
         "audio_minutes": 0.5,
         "video_output_tokens": 0,
-        "cost_usd": pytest.approx(expected_cost),  # local transcription is free
+        "cost_usd": pytest.approx(expected_cost),
     }
 
     job_dir = store.job_dir(job_id)
     assert not (job_dir / "source.bin").exists()
     assert len(transcriber.calls) == 1
-    assert transcriber.calls[0] == AudioFiles(wav=job_dir / "audio.wav", mp3=job_dir / "audio.mp3")
+    assert transcriber.calls[0] == AudioFiles(mp3=job_dir / "audio.mp3")
     media = _media(store, job_id)
     assert media.has_audio is True
     assert media.language == "en"
@@ -216,7 +222,7 @@ async def test_generation_request_has_a_stable_prefix_and_the_duration_in_the_tu
     job_id = _queue(store, make_video(audio=True, **LONG))
     llm = FakeLLM([VALID], model=MODEL)
 
-    await _run(store, job_id, settings, FakeTranscriber(name="local"), llm)
+    await _run(store, job_id, settings, FakeTranscriber(name="fake"), llm)
 
     [req] = llm.requests
     media = pipeline.load_media(store.job_dir(job_id))  # what regeneration will read back
@@ -250,7 +256,7 @@ async def test_transcript_segments_are_sanitized_before_media_json(
     ]
     llm = FakeLLM([VALID], model=MODEL)
 
-    await _run(store, job_id, settings, FakeTranscriber(name="local", segments=segments), llm)
+    await _run(store, job_id, settings, FakeTranscriber(name="fake", segments=segments), llm)
 
     media = _media(store, job_id)
     assert [(s.start, s.text) for s in media.segments] == [
@@ -270,7 +276,7 @@ async def test_invalid_output_is_repaired_once(store: JobStore, settings: Settin
     job_id = _queue(store, make_video(audio=True, **LONG))
     llm = FakeLLM([_invalid(), VALID], model=MODEL)
 
-    await _run(store, job_id, settings, FakeTranscriber(name="local"), llm)
+    await _run(store, job_id, settings, FakeTranscriber(name="fake"), llm)
 
     assert len(llm.requests) == 2
     assert _result(store, job_id)["title"] == VALID["title"]
@@ -287,7 +293,7 @@ async def test_repair_reuses_the_identical_request_prefix(
     invalid = _invalid()
     llm = FakeLLM([invalid, VALID], model=MODEL)
 
-    await _run(store, job_id, settings, FakeTranscriber(name="local"), llm)
+    await _run(store, job_id, settings, FakeTranscriber(name="fake"), llm)
 
     first, repair = llm.requests
     # Byte-identical stable prefix (system, transcript, frames) so the repair call reads the cache (SC-004).
@@ -311,7 +317,7 @@ async def test_output_still_invalid_after_repair_fails_with_a_readable_reason(
     llm = FakeLLM([_invalid(), _invalid()], model=MODEL)
 
     with pytest.raises(AppError) as exc:
-        await _run(store, job_id, settings, FakeTranscriber(name="local"), llm)
+        await _run(store, job_id, settings, FakeTranscriber(name="fake"), llm)
 
     assert len(llm.requests) == 2  # exactly one repair attempt
     assert "title is 120 characters, at most 100 allowed" in exc.value.message
@@ -331,7 +337,7 @@ async def test_output_not_matching_the_schema_is_repaired(
     broken["extra"] = True
     llm = FakeLLM([broken, VALID], model=MODEL)
 
-    await _run(store, job_id, settings, FakeTranscriber(name="local"), llm)
+    await _run(store, job_id, settings, FakeTranscriber(name="fake"), llm)
 
     repair_text = llm.requests[1].turns[2].text
     assert "hashtags" in repair_text
@@ -348,7 +354,7 @@ async def test_schema_invalid_output_after_repair_fails(
     llm = FakeLLM([{"title": 1}, {"title": 2}], model=MODEL)
 
     with pytest.raises(AppError) as exc:
-        await _run(store, job_id, settings, FakeTranscriber(name="local"), llm)
+        await _run(store, job_id, settings, FakeTranscriber(name="fake"), llm)
 
     assert "title" in exc.value.message
     assert not (store.job_dir(job_id) / "result.json").exists()
@@ -361,7 +367,7 @@ async def test_video_without_audio_skips_transcription(
     store: JobStore, settings: Settings, make_video: MakeVideo
 ) -> None:
     job_id = _queue(store, make_video(audio=False, **LONG))
-    transcriber = FakeTranscriber(name="local")
+    transcriber = FakeTranscriber(name="fake")
     llm = FakeLLM([VALID], model=MODEL)
 
     handle = await _run(store, job_id, settings, transcriber, llm)
@@ -387,7 +393,7 @@ async def test_no_speech_gets_a_notice_and_english_as_the_language(
     store: JobStore, settings: Settings, make_video: MakeVideo
 ) -> None:
     job_id = _queue(store, make_video(audio=True, **LONG))
-    transcriber = FakeTranscriber(name="local", no_speech=True, language="fr", language_probability=0.2)
+    transcriber = FakeTranscriber(name="fake", no_speech=True, language="fr", language_probability=0.2)
     german = {**VALID, "language": "de"}  # e.g. inferred from on-screen text
     llm = FakeLLM([{**_invalid(), "language": "de"}, german], model=MODEL)
 
@@ -402,7 +408,7 @@ async def test_no_speech_gets_a_notice_and_english_as_the_language(
     )  # ... not the prefix
     job = _job(store, job_id)
     assert (job.no_speech, job.language) == (True, "en")
-    assert job.providers == {"transcription": "local", "llm": f"fake:{MODEL}"}
+    assert job.providers == {"transcription": "fake", "llm": f"fake:{MODEL}"}
     result = _result(store, job_id)
     assert result["notices"] == ["no_speech"]
     assert result["language"] == "en"
@@ -418,7 +424,7 @@ async def test_output_language_is_the_language_detected_by_transcription(
     french = {**VALID, "language": "fr"}
     llm = FakeLLM([{**_invalid(), "language": "fr"}, french], model=MODEL)
 
-    await _run(store, job_id, settings, FakeTranscriber(name="local", language="de"), llm)
+    await _run(store, job_id, settings, FakeTranscriber(name="fake", language="de"), llm)
 
     first, repair = llm.requests
     for turn in (first.turns[0], repair.turns[2]):  # the instruction rides in the generate and repair turns ...
@@ -434,7 +440,7 @@ async def test_result_language_falls_back_to_the_job_language(
 ) -> None:
     job_id = _queue(store, make_video(audio=True, **LONG))
     output = {**VALID, "language": "  "}
-    await _run(store, job_id, settings, FakeTranscriber(name="local", language="de"), FakeLLM([output], model=MODEL))
+    await _run(store, job_id, settings, FakeTranscriber(name="fake", language="de"), FakeLLM([output], model=MODEL))
     assert _result(store, job_id)["language"] == "de"
 
 
@@ -442,7 +448,7 @@ async def test_too_short_for_chapters(store: JobStore, settings: Settings, make_
     job_id = _queue(store, make_video(audio=True))  # 6 s
     llm = FakeLLM([VALID], model=MODEL)  # chapters that a short video must not have
 
-    await _run(store, job_id, settings, FakeTranscriber(name="local"), llm)
+    await _run(store, job_id, settings, FakeTranscriber(name="fake"), llm)
 
     assert len(llm.requests) == 1  # chapters are dropped by normalization, no repair needed
     assert "30 seconds" in llm.requests[0].turns[0].text
@@ -459,7 +465,7 @@ class CancellingTranscriber(FakeTranscriber):
     """Requests cancellation of the job while transcribing (as `POST .../cancel` would)."""
 
     def __init__(self, store: JobStore, job_id: str) -> None:
-        super().__init__(name="local")
+        super().__init__(name="fake")
         self._store = store
         self._job_id = job_id
 
@@ -485,7 +491,7 @@ async def test_cancel_mid_pipeline_stops_at_the_next_stage_boundary(
 async def test_cancel_before_start_runs_nothing(store: JobStore, settings: Settings, make_video: MakeVideo) -> None:
     job_id = _queue(store, make_video(audio=True, **LONG))
     store.cancel(job_id, active=True)
-    transcriber = FakeTranscriber(name="local")
+    transcriber = FakeTranscriber(name="fake")
 
     with pytest.raises(JobCancelled):
         await _run(store, job_id, settings, transcriber, FakeLLM([], model=MODEL))
@@ -501,7 +507,7 @@ async def test_unknown_llm_model_makes_the_cost_unknown(
     store: JobStore, settings: Settings, make_video: MakeVideo
 ) -> None:
     job_id = _queue(store, make_video(audio=True, **LONG))
-    await _run(store, job_id, settings, FakeTranscriber(name="local"), FakeLLM([VALID], model="unpriced-model"))
+    await _run(store, job_id, settings, FakeTranscriber(name="fake"), FakeLLM([VALID], model="unpriced-model"))
     usage = _job(store, job_id).usage
     assert usage["cost_usd"] is None
     assert usage["input_tokens"] == 1000  # tokens are still shown
@@ -520,7 +526,7 @@ async def test_paid_transcription_is_priced_per_audio_minute(
 async def test_pricing_overrides_apply(store: JobStore, settings: Settings, make_video: MakeVideo) -> None:
     settings = settings.model_copy(update={"pricing_overrides": {"custom-model": {"input": 1.0, "output": 1.0}}})
     job_id = _queue(store, make_video(audio=True, **LONG))
-    await _run(store, job_id, settings, FakeTranscriber(name="local"), FakeLLM([VALID], model="custom-model"))
+    await _run(store, job_id, settings, FakeTranscriber(name="fake"), FakeLLM([VALID], model="custom-model"))
     assert _job(store, job_id).usage["cost_usd"] == pytest.approx(1200 / 1_000_000)
 
 
@@ -540,7 +546,7 @@ TUS_PATCH = {"Tus-Resumable": "1.0.0", "Content-Type": "application/offset+octet
 
 @contextlib.contextmanager
 def _app_client(tmp_path: Path, settings: Settings, llm: FakeLLM) -> Iterator[TestClient]:
-    providers = Providers(transcriber=TranscriberChain([FakeTranscriber(name="local")]), llm=LLMChain([llm]))
+    providers = Providers(transcriber=TranscriberChain([FakeTranscriber(name="fake")]), llm=LLMChain([llm]))
     app = create_app(settings, providers, static_dir=tmp_path / "static")
     with TestClient(app) as client:
         yield client
@@ -570,7 +576,7 @@ def test_upload_to_done_through_the_app(tmp_path: Path, settings: Settings, make
 
         assert body["state"] == "done"
         assert body["language"] == "en"
-        assert body["providers"] == {"transcription": "local", "llm": f"fake:{MODEL}"}
+        assert body["providers"] == {"transcription": "fake", "llm": f"fake:{MODEL}"}
         assert body["usage"]["input_tokens"] == 1000
         assert body["usage"]["cost_usd"] is not None
         result = YouTubePrepResult.model_validate(body["result"])

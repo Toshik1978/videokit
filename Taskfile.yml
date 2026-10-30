@@ -2,11 +2,6 @@ version: '3'
 
 # Single entry point for local development, git hooks and CI.
 
-vars:
-  # GPU=true works as an environment variable and as a CLI variable (`task docker:run GPU=true`).
-  GPU:
-    sh: echo "${GPU:-false}"
-
 tasks:
   setup:
     desc: Install backend and frontend dependencies
@@ -164,19 +159,8 @@ tasks:
     cmds:
       - scripts/image_size_guard.sh {{.IMAGE}}
 
-  docker:gpu-check:
-    desc: Check that videokit:local runs Whisper on an NVIDIA GPU (needs a GPU host, caches the model in ./.data)
-    cmds:
-      - mkdir -p .data
-      - >-
-        docker run --rm --gpus all --user "$(id -u):$(id -g)"
-        -v "$PWD/.data:/data" -v "$PWD/scripts/gpu_check.py:/gpu_check.py:ro"
-        --entrypoint python videokit:local /gpu_check.py
-
   docker:run:
-    desc: Run videokit:local on port 8000 with ./.data as /data (set GPU=true for --gpus all)
-    vars:
-      GPU_FLAGS: '{{if eq .GPU "true"}}--gpus all{{end}}'
+    desc: Run videokit:local on port 8000 with ./.data as /data
     cmds:
       - mkdir -p .data
-      - docker run --rm -p 8000:8000 --env-file .env --user "$(id -u):$(id -g)" -v "$PWD/.data:/data" {{.GPU_FLAGS}} videokit:local
+      - docker run --rm -p 8000:8000 --env-file .env --user "$(id -u):$(id -g)" -v "$PWD/.data:/data" videokit:local

@@ -15,9 +15,14 @@ from videokit.main import create_app
 
 
 def test_openapi_title_and_neutral_version(tmp_path: Path) -> None:
-    settings = Settings(data_dir=tmp_path / "data", anthropic_api_key=SecretStr("k"))
+    settings = Settings(
+        data_dir=tmp_path / "data",
+        anthropic_api_key=SecretStr("k"),
+        transcribe_providers=["openai"],
+        openai_transcribe_api_key=SecretStr("k"),
+    )
     providers = Providers(
-        transcriber=TranscriberChain([FakeTranscriber(name="local", segments=[])]),
+        transcriber=TranscriberChain([FakeTranscriber(name="fake", segments=[])]),
         llm=LLMChain([FakeLLM([])]),
     )
     with TestClient(create_app(settings, providers, static_dir=tmp_path / "static")) as client:

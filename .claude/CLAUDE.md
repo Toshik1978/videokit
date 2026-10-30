@@ -32,7 +32,7 @@ constitution `.specify/memory/constitution.md`.
   gitignored, `.env.example` holds placeholders. A gitignored `.denylist` (one string per line)
   is checked by `scripts/check_denylist.py` in pre-commit.
 - **Test-first** for every change (failing test → fix → refactor). The default suites run without
-  API keys, network access to AI providers or a GPU (fakes + tiny ffmpeg-generated fixtures).
+  API keys, network access to AI providers (fakes + tiny ffmpeg-generated fixtures).
   Real-provider tests live in `backend/tests/live/` behind the `live` marker.
 - **Logs and UI never expose** API keys, uploaded content, transcripts, frames or stack traces.
   Log exception *types* only. `backend/tests/integration/test_log_hygiene.py` guards this,
@@ -50,12 +50,11 @@ task lint                       # ruff, ruff format --check, mypy strict; vue-ts
 task test                       # pytest (+coverage, fail_under 80) and vitest (+coverage, lines 80)
 task e2e                        # Playwright: desktop-chrome, iphone (WebKit), pixel, mobile-360
 task format                     # auto-format both stacks
-cd backend && uv run pytest -m live --no-cov   # opt-in real-provider smoke tests (needs keys / GPU)
+cd backend && uv run pytest -m live --no-cov   # opt-in real-provider smoke tests (needs keys)
 gitleaks detect --redact        # full-history secret scan (CI does the same; see .gitleaks.toml)
 docker build -t videokit:ci . && scripts/docker_smoke.sh videokit:ci   # incl. codec decode check
 task docker:build && task docker:run   # run the image directly with ./.data bind-mounted
 task docker:size                # compressed image size vs the limit (scripts/image_size_guard.sh)
-task docker:gpu-check           # Whisper on the GPU inside videokit:local (needs a GPU host)
 task changelog [TAG=vX.Y.Z]     # prepend the next release section to CHANGELOG.md (cliff)
 task release:verify TAG=vX.Y.Z  # version matches newest changelog entry, notes extract
 ```
@@ -71,7 +70,7 @@ pre-commit only; `task lint` / `task test` / beads setup check run at pre-push. 
 backend/src/videokit/
   main.py                  create_app(settings, providers=None), app_from_env (uvicorn --factory entry)
   core/                    config, errors, db, jobs, registry, api, uploads (tus), worker, purge,
-                           media (ffmpeg), pricing, providers, transcribe/{local_whisper,openai,chain},
+                           media (ffmpeg), pricing, providers, transcribe/{openai,chain},
                            llm/{anthropic,openai,chain}, videogen/{base,omni,chain}
   tools/youtube_prep/      TOOL, schema, prompt, rules, pipeline, routes (regenerate)
   tools/audio_extract/     TOOL, naming (download name), routes (GET/HEAD .../jobs/{id}/audio)
@@ -82,7 +81,7 @@ backend/tests/             unit/, integration/, live/, fakes_transcribe.py, fake
 frontend/src/              App, router, i18n/{en.json,messages.ts}, api/client.ts, components/,
                            pages/, tools/<kebab-id>/ (auto-discovered via import.meta.glob;
                            youtube-prep, audio-extract, video-generation)
-Dockerfile, compose.yaml, scripts/{docker_smoke.sh,image_size_guard.sh,gpu_check.py,changelog.sh}
+Dockerfile, compose.yaml, scripts/{docker_smoke.sh,image_size_guard.sh,changelog.sh}
 .cliff.toml, CHANGELOG.md, CONTRIBUTING.md, docs/RELEASING.md, .github/scripts/*
 .github/workflows/{ci,commit-lint,release}.yml
 ```
@@ -152,32 +151,26 @@ Dockerfile, compose.yaml, scripts/{docker_smoke.sh,image_size_guard.sh,gpu_check
   failure codes map to catalog keys via `useMessages` (`errors.generic` fallback) — never render
   server English as primary UI text. Mobile-first: no horizontal scroll at 360 px, touch targets
   ≥ 44×44 px (checked by the e2e suite).
-- **Costs**: `core/pricing.py` (+ `PRICING_OVERRIDES`). Job cost is the sum of known parts; local
-  transcription is free; Omni video output is billed per token (`video_output`: 5792 tokens/s at 720p,
+- **Costs**: `core/pricing.py` (+ `PRICING_OVERRIDES`). Job cost is the sum of known parts; self-hosted
+  transcription (`OPENAI_TRANSCRIBE_URL` set) is free; Omni video output is billed per token (`video_output`: 5792 tokens/s at 720p,
   8688 at 1080p); unknown model → `cost_usd: null`. Verify prices against Anthropic's
   official pricing page before changing them.
 
 ## Gotchas
 
-- `faster-whisper` is incompatible with `av` 19 (it still passes `metadata_errors` to `av.open()`)
-  — keep the `av<19` pin (see `pyproject.toml` comment and `tests/unit/test_whisper_audio_compat.py`)
-  until faster-whisper supports it; Dependabot ignores `av` majors.
 - The Python version lives in four places — `.mise.toml`, `backend/.python-version`,
   `requires-python` and the Dockerfile's `python:X.Y-slim` tag (now `python:3.14-slim`) — and
   Dependabot bumps none of them (it ignores minor/major of the `python` image).
-  Before moving to a new minor, check that `ctranslate2`, `onnxruntime` and `av` ship wheels for it.
-  The GPU library package must stay `-cu12` (`nvidia-cublas-cu12`) while `ctranslate2` links
-  `libcublas.so.12`.
+  Before moving to a new minor, check that the backend dependencies ship wheels for it.
 - TypeScript stays on 6.x: vue-tsc and typescript-eslint use the TypeScript programmatic API,
   which 7.0 dropped (7.1 is expected to restore it); Dependabot ignores `typescript` majors.
 - Node stays on an LTS line, pinned in `.mise.toml` and the Dockerfile's `node:N-slim` build stage;
   Dependabot ignores `node` image majors, so move both together by hand to the next LTS.
-- The image ships only cuBLAS for the GPU (ctranslate2 loads nothing else — research R2), from pip
-  and registered via `ldconfig`. Run `task docker:gpu-check` after any `ctranslate2` /
-  `faster-whisper` upgrade. The compressed-size limit (1.25 GB) lives in
+- The image is CPU-only: transcription happens on a remote OpenAI-compatible server, so no GPU
+  libraries or models ship. The compressed-size limit (330 MB) lives in
   `scripts/image_size_guard.sh` (`task docker:size`, also a CI step).
-- The Docker image defaults to uid 10001 with a read-only `/app`; Hugging Face/XDG caches point to
-  `/data` (`HF_HOME`, `XDG_CACHE_HOME`, set after the build steps). Compose and `task docker:run`
+- The Docker image defaults to uid 10001 with a read-only `/app`; library caches point to
+  `/data` (`XDG_CACHE_HOME=/data/cache`, set after the build steps). Compose and `task docker:run`
   instead run it as the host uid:gid with `./.data` (gitignored and in `.dockerignore`) bind
   mounted as `/data`, so the image must work under any uid: keep `/app` and the Python env
   world-readable and never write outside `/data`. `UID` is readonly in bash, so Compose

@@ -155,7 +155,7 @@ def _transcribe(job: JobHandle, ctx: CoreContext, media: MediaArtifacts) -> tupl
     """Fill the transcript fields of `media` (or mark no speech when there is no audio)."""
     if not media.has_audio:
         return media.model_copy(update={"language": DEFAULT_LANGUAGE, "no_speech": True}), {}
-    transcript = ctx.transcriber.transcribe(AudioFiles(wav=job.dir / "audio.wav", mp3=job.dir / "audio.mp3"))
+    transcript = ctx.transcriber.transcribe(AudioFiles(mp3=job.dir / "audio.mp3"))
     cost = transcription_cost(transcript, ctx.settings.pricing_overrides)
     job.add_usage(Usage(audio_minutes=transcript.audio_minutes), cost)
     providers = {"transcription": transcript.provider}

@@ -18,8 +18,6 @@ the conventions the code follows. The full rule set for agents working on the co
 - beads (`br`), version 1.9.0 or newer: the
   `beads-setup` pre-push hook (`tools/beads/check-setup.sh`) refuses every push without it. It is
   not part of `.mise.toml`, so install it yourself.
-- Optional: the NVIDIA container toolkit, for running the image with GPU access
-  (`task docker:run GPU=true`, `task docker:gpu-check`).
 
 ## Getting started
 
@@ -46,7 +44,7 @@ CI runs the same checks and adds the browser tests (`task e2e`), the image build
 smoke test and the compressed-size guard (`task docker:size`), and a gitleaks scan of the full
 history. Never pass `--no-verify`.
 
-The default suites need no API keys, no AI-provider network access and no GPU. Real-provider tests
+The default suites need no API keys, no AI-provider network access. Real-provider tests
 live in `backend/tests/live/` behind the `live` marker.
 
 ## Conventions

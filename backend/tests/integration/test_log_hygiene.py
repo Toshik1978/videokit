@@ -120,6 +120,7 @@ def test_full_run_logs_no_transcript_frames_hints_or_keys(
     tmp_path: Path, make_video: MakeVideo, captured: Capture
 ) -> None:
     settings = Settings(
+        transcribe_providers=["openai"],
         data_dir=tmp_path / "data",
         anthropic_api_key=SecretStr(ANTHROPIC_KEY),
         openai_api_key=SecretStr(OPENAI_KEY),
@@ -132,7 +133,7 @@ def test_full_run_logs_no_transcript_frames_hints_or_keys(
         transcriber=TranscriberChain(
             [
                 FakeTranscriber(name="openai", error=ProviderError(LEAKY_ERROR)),
-                FakeTranscriber(name="local", segments=segments),
+                FakeTranscriber(name="fake", segments=segments),
             ]
         ),
         llm=LLMChain([FakeLLM([ProviderError(LEAKY_ERROR)], name="anthropic"), llm]),
@@ -213,6 +214,7 @@ def test_self_hosted_transcription_logs_and_exposes_no_address_key_or_server_mes
     tmp_path: Path, make_video: MakeVideo, captured: Capture
 ) -> None:
     settings = Settings(
+        transcribe_providers=["openai"],
         data_dir=tmp_path / "data",
         anthropic_api_key=SecretStr(ANTHROPIC_KEY),
         openai_api_key=SecretStr(OPENAI_KEY),
@@ -223,7 +225,7 @@ def test_self_hosted_transcription_logs_and_exposes_no_address_key_or_server_mes
     )
     remote = OpenAITranscriber(settings, client=_FailingClient())  # type: ignore[arg-type]
     providers = Providers(
-        transcriber=TranscriberChain([remote, FakeTranscriber(name="local")]),
+        transcriber=TranscriberChain([remote, FakeTranscriber(name="fake")]),
         llm=LLMChain([FakeLLM([RESULT])]),
     )
     data = make_video(audio=True, colors=("red", "blue"), segment_s=12.0).read_bytes()
@@ -243,9 +245,15 @@ def test_self_hosted_transcription_logs_and_exposes_no_address_key_or_server_mes
 
 
 def _quiet_app(tmp_path: Path) -> FastAPI:
-    settings = Settings(data_dir=tmp_path / "data", anthropic_api_key=SecretStr(ANTHROPIC_KEY), log_level="DEBUG")
+    settings = Settings(
+        transcribe_providers=["openai"],
+        openai_transcribe_api_key=SecretStr("stt-test"),
+        data_dir=tmp_path / "data",
+        anthropic_api_key=SecretStr(ANTHROPIC_KEY),
+        log_level="DEBUG",
+    )
     providers = Providers(
-        transcriber=TranscriberChain([FakeTranscriber(name="local", segments=[])]), llm=LLMChain([FakeLLM([])])
+        transcriber=TranscriberChain([FakeTranscriber(name="fake", segments=[])]), llm=LLMChain([FakeLLM([])])
     )
     return create_app(settings, providers, static_dir=tmp_path / "static")
 
@@ -372,6 +380,8 @@ def _video_run(
     monkeypatch.setattr(video_pipeline, "POLL_INTERVAL_S", 0.01)
     monkeypatch.setattr(video_pipeline, "WAIT_CAP_S", 0.3)
     settings = Settings(
+        transcribe_providers=["openai"],
+        openai_transcribe_api_key=SecretStr("stt-test"),
         data_dir=tmp_path / "data",
         anthropic_api_key=SecretStr(ANTHROPIC_KEY),
         gemini_api_key=SecretStr(GEMINI_KEY),
@@ -379,7 +389,7 @@ def _video_run(
         log_level="DEBUG",
     )
     providers = Providers(
-        transcriber=TranscriberChain([FakeTranscriber(name="local", segments=[])]),
+        transcriber=TranscriberChain([FakeTranscriber(name="fake", segments=[])]),
         llm=LLMChain([FakeLLM([])]),
         video=VideoChain([fake]),
     )
@@ -517,6 +527,8 @@ class _ProcessDied(BaseException):
 
 def _video_app(tmp_path: Path, fake: FakeVideoGenerator) -> FastAPI:
     settings = Settings(
+        transcribe_providers=["openai"],
+        openai_transcribe_api_key=SecretStr("stt-test"),
         data_dir=tmp_path / "data",
         anthropic_api_key=SecretStr(ANTHROPIC_KEY),
         gemini_api_key=SecretStr(GEMINI_KEY),
@@ -524,7 +536,7 @@ def _video_app(tmp_path: Path, fake: FakeVideoGenerator) -> FastAPI:
         log_level="DEBUG",
     )
     providers = Providers(
-        transcriber=TranscriberChain([FakeTranscriber(name="local", segments=[])]),
+        transcriber=TranscriberChain([FakeTranscriber(name="fake", segments=[])]),
         llm=LLMChain([FakeLLM([])]),
         video=VideoChain([fake]),
     )

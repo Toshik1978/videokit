@@ -34,10 +34,10 @@ def test_npm_entry_ignores_typescript_majors() -> None:
     assert npm["ignore"] == [{"dependency-name": "typescript", "update-types": [MAJOR]}]
 
 
-def test_uv_entry_ignores_av_majors() -> None:
+def test_uv_entry_has_no_ignore_rules() -> None:
     (uv,) = _entries("uv")
 
-    assert uv["ignore"] == [{"dependency-name": "av", "update-types": [MAJOR]}]
+    assert "ignore" not in uv
 
 
 def test_github_actions_ignore_block_is_unchanged() -> None:

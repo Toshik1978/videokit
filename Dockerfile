@@ -12,9 +12,8 @@ RUN npm ci
 COPY frontend/ ./
 RUN npm run build
 
-# Stage 2: runtime. One image for CPU and GPU hosts: cuBLAS comes from pip (nvidia-cublas-cu12) and
-# is registered with ldconfig; the host driver is injected by the NVIDIA container toolkit when a
-# GPU is passed through. Without a GPU, faster-whisper simply runs on the CPU.
+# Stage 2: runtime. CPU-only: transcription runs on a remote OpenAI-compatible service, so the image
+# carries no speech model, no GPU libraries and no model cache.
 FROM python:3.14-slim
 
 LABEL org.opencontainers.image.title="VideoKit" \
@@ -30,9 +29,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     UV_LINK_MODE=copy \
     PATH=/app/.venv/bin:$PATH \
     DATA_DIR=/data \
-    PORT=8000 \
-    NVIDIA_VISIBLE_DEVICES=all \
-    NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    PORT=8000
 
 # hadolint ignore=DL3008
 RUN apt-get update \
@@ -41,21 +38,17 @@ RUN apt-get update \
 
 WORKDIR /app
 
-# uv is bind-mounted from the uv stage on the sync steps only. The engine never
-# loads nvrtc (research R2), so it is left out.
+# uv is bind-mounted from the uv stage on the sync steps only.
 # Dependencies first so this layer is cached until the lockfile changes.
 COPY backend/pyproject.toml backend/uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=from=uv,source=/uv,target=/usr/local/bin/uv \
-    uv sync --locked --no-dev --no-install-package nvidia-cuda-nvrtc-cu12 --no-install-project
-
-# Make the pip-installed CUDA libraries (cuBLAS) visible to the dynamic loader.
-RUN find /app/.venv -path "*/nvidia/*/lib" -type d > /etc/ld.so.conf.d/nvidia.conf && ldconfig
+    uv sync --locked --no-dev --no-install-project
 
 COPY backend/src ./src
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=from=uv,source=/uv,target=/usr/local/bin/uv \
-    uv sync --locked --no-dev --no-install-package nvidia-cuda-nvrtc-cu12
+    uv sync --locked --no-dev
 
 COPY --from=frontend /build/dist ./src/videokit/static
 
@@ -65,10 +58,9 @@ RUN useradd --uid 10001 --user-group --no-create-home --home-dir /app videokit \
     && chown videokit:videokit /data \
     && chmod -R a+rX /app
 
-# The user's home (/app) is read-only, so runtime caches (Hugging Face hub/xet, XDG) live in the /data
-# volume. Set only here, after the build steps, so build-time tools (uv) do not write into /data.
-ENV HF_HOME=/data/huggingface \
-    XDG_CACHE_HOME=/data/cache
+# The user's home (/app) is read-only, so any library cache (XDG) lives in the /data volume. Set only
+# here, after the build steps, so build-time tools (uv) do not write into /data.
+ENV XDG_CACHE_HOME=/data/cache
 
 USER 10001:10001
 VOLUME ["/data"]

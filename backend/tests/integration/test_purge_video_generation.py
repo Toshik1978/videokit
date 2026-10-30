@@ -31,6 +31,8 @@ def test_a_video_job_ttl_purge_removes_every_file_with_the_row(
 ) -> None:
     monkeypatch.setattr(pipeline, "POLL_INTERVAL_S", 0.01)
     settings = Settings(
+        transcribe_providers=["openai"],
+        openai_transcribe_api_key=SecretStr("stt-test"),
         data_dir=tmp_path / "data",
         anthropic_api_key=SecretStr("sk-test"),
         gemini_api_key=SecretStr("g-test"),

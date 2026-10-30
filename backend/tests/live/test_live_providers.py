@@ -1,7 +1,7 @@
 """Opt-in smoke tests against the real providers (`pytest -m live`).
 
-Each test is skipped unless its requirement is present: an API key (and model) in the environment, or a
-usable CUDA GPU. Fixtures are tiny to keep cost minimal. Nothing here prints keys or model output.
+Each test is skipped unless its requirement is present: an API key (and model) or server address in the
+environment. Fixtures are tiny to keep cost minimal. Nothing here prints keys or model output.
 """
 
 import os
@@ -12,12 +12,11 @@ from pathlib import Path
 
 import pytest
 
-from videokit.core.config import Settings, cuda_available
+from videokit.core.config import Settings
 from videokit.core.llm.anthropic import AnthropicProvider
 from videokit.core.llm.base import GenerationRequest, LabeledFrame, LLMProvider, Turn
 from videokit.core.llm.openai import OpenAIProvider
 from videokit.core.transcribe.base import AudioFiles
-from videokit.core.transcribe.local_whisper import LocalWhisperTranscriber
 from videokit.core.transcribe.openai import OpenAITranscriber
 from videokit.tools.youtube_prep.prompt import SYSTEM_PROMPT, generate_turn
 from videokit.tools.youtube_prep.schema import OUTPUT_SCHEMA, ModelOutput
@@ -35,7 +34,6 @@ requires_openai_key = pytest.mark.skipif(not os.environ.get("OPENAI_API_KEY"), r
 requires_self_hosted = pytest.mark.skipif(
     not os.environ.get("OPENAI_TRANSCRIBE_URL"), reason="OPENAI_TRANSCRIBE_URL not set"
 )
-requires_cuda = pytest.mark.skipif(not cuda_available(), reason="no usable CUDA GPU")
 
 TRANSCRIPT = "[0:00] Welcome to a short demo of a tiny colorful clip.\n[0:03] Now the screen turns blue."
 
@@ -83,18 +81,13 @@ def test_openai_generates_schema_valid_output(make_video: MakeVideo, tmp_path: P
 
 def _speech_free_audio(make_video: MakeVideo, tmp_path: Path) -> AudioFiles:
     video = make_video(colors=("red",), segment_s=2.0, audio=True)  # a sine tone, no speech
-    wav, mp3 = tmp_path / "audio.wav", tmp_path / "audio.mp3"
-    subprocess.run(
-        ["ffmpeg", "-v", "error", "-y", "-i", str(video), "-vn", "-ar", "16000", "-ac", "1", str(wav)],
-        check=True,
-        capture_output=True,
-    )
+    mp3 = tmp_path / "audio.mp3"
     subprocess.run(
         ["ffmpeg", "-v", "error", "-y", "-i", str(video), "-vn", "-ac", "1", "-b:a", "32k", str(mp3)],
         check=True,
         capture_output=True,
     )
-    return AudioFiles(wav=wav, mp3=mp3)
+    return AudioFiles(mp3=mp3)
 
 
 @requires_openai_key
@@ -106,29 +99,21 @@ def test_openai_transcription_of_speech_free_clip_is_no_speech(make_video: MakeV
     assert transcript.audio_minutes > 0
 
 
-@requires_cuda
-def test_local_whisper_on_cuda_handles_speech_free_clip(make_video: MakeVideo, tmp_path: Path) -> None:
-    settings = Settings(whisper_device="cuda", data_dir=tmp_path / "data")
-    transcript = LocalWhisperTranscriber(settings).transcribe(_speech_free_audio(make_video, tmp_path))
-    assert transcript.no_speech is True
-    assert transcript.provider == "local"
-    assert transcript.audio_minutes > 0
-
-
 def _spoken_audio(tmp_path: Path) -> AudioFiles:
-    """A few seconds of synthesized English speech (needs espeak-ng on the host), as WAV and MP3."""
+    """A few seconds of synthesized English speech (needs espeak-ng on the host), as MP3."""
     espeak = shutil.which("espeak-ng") or shutil.which("espeak")
     if espeak is None:
         pytest.skip("espeak-ng not installed (needed to generate a spoken fixture)")
     speech = tmp_path / "speech.wav"
     text = "Welcome to a short demo. Today we look at how a small video tool works. Thank you for watching."
     subprocess.run([espeak, "-v", "en", "-s", "140", "-w", str(speech), text], check=True, capture_output=True)
-    wav, mp3 = tmp_path / "audio.wav", tmp_path / "audio.mp3"
-    for out, args in ((wav, ["-ar", "16000", "-ac", "1"]), (mp3, ["-ac", "1", "-b:a", "32k"])):
-        subprocess.run(
-            ["ffmpeg", "-v", "error", "-y", "-i", str(speech), *args, str(out)], check=True, capture_output=True
-        )
-    return AudioFiles(wav=wav, mp3=mp3)
+    mp3 = tmp_path / "audio.mp3"
+    subprocess.run(
+        ["ffmpeg", "-v", "error", "-y", "-i", str(speech), "-ac", "1", "-b:a", "32k", str(mp3)],
+        check=True,
+        capture_output=True,
+    )
+    return AudioFiles(mp3=mp3)
 
 
 @requires_self_hosted

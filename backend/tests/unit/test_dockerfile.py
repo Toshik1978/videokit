@@ -1,11 +1,10 @@
-"""Static checks on the Dockerfile and the GPU dependency (no Docker needed)."""
+"""Static checks on the Dockerfile (no Docker needed)."""
 
 import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 DOCKERFILE = (ROOT / "Dockerfile").read_text()
-PYPROJECT = (ROOT / "backend" / "pyproject.toml").read_text()
 PYTHON_VERSION = (ROOT / "backend" / ".python-version").read_text().strip()
 
 
@@ -46,11 +45,9 @@ def test_uv_is_bind_mounted_not_copied_into_the_image() -> None:
         assert "--mount=from=uv,source=/uv,target=/usr/local/bin/uv" in line
 
 
-def test_nvrtc_is_not_installed() -> None:
-    syncs = [line for line in _logical_lines() if "uv sync" in line]
-    assert len(syncs) == 2
-    for line in syncs:
-        assert "--no-install-package nvidia-cuda-nvrtc-cu12" in line
+def test_uv_sync_installs_everything_locked() -> None:
+    for line in [line for line in _logical_lines() if "uv sync" in line]:
+        assert "--no-install-package" not in line.replace("--no-install-project", "")
 
 
 def test_uv_uses_system_python() -> None:
@@ -58,15 +55,15 @@ def test_uv_uses_system_python() -> None:
     assert "UV_PYTHON=/usr/local/bin/python3" in DOCKERFILE
 
 
-def test_ldconfig_registers_pip_nvidia_libs() -> None:
-    assert 'find /app/.venv -path "*/nvidia/*/lib" -type d > /etc/ld.so.conf.d/nvidia.conf && ldconfig' in " ".join(
-        _logical_lines()
-    )
+def test_image_is_cpu_only() -> None:
+    assert "ldconfig" not in DOCKERFILE
+    assert "nvidia" not in DOCKERFILE.lower()
+    assert "NVIDIA_" not in DOCKERFILE
+    assert "HF_HOME" not in DOCKERFILE
 
 
-def test_nvidia_env_vars() -> None:
-    assert "NVIDIA_VISIBLE_DEVICES=all" in DOCKERFILE
-    assert "NVIDIA_DRIVER_CAPABILITIES=compute,utility" in DOCKERFILE
+def test_xdg_cache_home_stays_under_data() -> None:
+    assert "XDG_CACHE_HOME=/data/cache" in DOCKERFILE
 
 
 def test_oci_labels() -> None:
@@ -77,12 +74,3 @@ def test_oci_labels() -> None:
         'org.opencontainers.image.licenses="MIT"',
     ):
         assert label in DOCKERFILE
-
-
-def test_cublas_from_pip_without_cudnn() -> None:
-    assert '"nvidia-cublas-cu12;' in PYPROJECT
-    assert "nvidia-cudnn" not in PYPROJECT
-
-
-def test_cublas_is_limited_to_linux() -> None:
-    assert "\"nvidia-cublas-cu12; sys_platform == 'linux'\"" in PYPROJECT

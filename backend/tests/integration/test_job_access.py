@@ -90,7 +90,13 @@ def tool() -> NoUploadTool:
 
 @pytest.fixture
 def client(tmp_path: Path, tool: NoUploadTool) -> Iterator[TestClient]:
-    settings = Settings(data_dir=tmp_path / "data", anthropic_api_key=SecretStr("sk-test"), max_upload_gb=1)
+    settings = Settings(
+        transcribe_providers=["openai"],
+        openai_transcribe_api_key=SecretStr("stt-test"),
+        data_dir=tmp_path / "data",
+        anthropic_api_key=SecretStr("sk-test"),
+        max_upload_gb=1,
+    )
     providers = Providers(transcriber=TranscriberChain([FakeTranscriber()]), llm=LLMChain([FakeLLM([])]))
     app = create_app(settings, providers, tools_package="videokit.tools", static_dir=tmp_path / "static")
     app.state.tools = {tool.id: tool}

@@ -13,7 +13,6 @@ from fakes_videogen import FakeVideoGenerator
 from videokit.core import providers as providers_module
 from videokit.core.config import VIDEO_PROVIDER_NAMES, Settings
 from videokit.core.jobs import JobState, JobStore
-from videokit.core.transcribe import local_whisper
 from videokit.core.videogen import ProviderStatus
 from videokit.main import StartupError, app_from_env, create_app
 
@@ -105,6 +104,8 @@ def settings(tmp_path: Path) -> Settings:
     return Settings(
         data_dir=tmp_path / "data",
         anthropic_api_key=SecretStr("sk-test-secret"),
+        transcribe_providers=["openai"],
+        openai_transcribe_api_key=SecretStr("stt-test-secret"),
         max_upload_gb=1,
         job_ttl_hours=24,
     )
@@ -126,14 +127,13 @@ def client(settings: Settings, tools_pkg: str, static_dir: Path) -> Iterator[Tes
         yield c
 
 
-def test_health(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(local_whisper, "cuda_available", lambda: False)
+def test_health(client: TestClient) -> None:
     response = client.get("/api/health")
     body = response.json()
     assert body["status"] == "ok"
     assert body["queue_length"] == 0
-    local = {"name": "local", "ready": True, "detail": "device=cpu, model=large-v3-turbo (not loaded yet)"}
-    assert body["providers"]["transcription"] == [local]
+    openai = {"name": "openai", "ready": True, "detail": "model=whisper-1"}
+    assert body["providers"]["transcription"] == [openai]
     assert body["providers"]["llm"] == [{"name": "anthropic", "ready": True, "detail": "model=claude-opus-5-5"}]
     assert body["providers"]["video"] == []
     assert "sk-test-secret" not in response.text
@@ -242,6 +242,8 @@ def test_video_provider_without_an_adapter_stops_startup_with_one_line(
 def test_entry_point_unknown_video_provider_exits_cleanly(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    monkeypatch.setenv("TRANSCRIBE_PROVIDERS", "openai")
+    monkeypatch.setenv("OPENAI_TRANSCRIBE_URL", "http://stt.example.com/v1")
     monkeypatch.setenv("DATA_DIR", str(tmp_path / "d"))
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
     monkeypatch.setenv("VIDEO_PROVIDERS", "bogus")
@@ -256,6 +258,8 @@ def test_entry_point_unready_video_provider_exits_cleanly(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setitem(providers_module.VIDEOS, "omni", lambda _settings: _NotReadyVideo(name="omni"))
+    monkeypatch.setenv("TRANSCRIBE_PROVIDERS", "openai")
+    monkeypatch.setenv("OPENAI_TRANSCRIBE_URL", "http://stt.example.com/v1")
     monkeypatch.setenv("DATA_DIR", str(tmp_path / "d"))
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
     monkeypatch.setenv("VIDEO_PROVIDERS", "omni")
@@ -497,6 +501,8 @@ def test_entry_point_bad_values_exit_cleanly(
 def test_entry_point_validation_problems_exit_cleanly(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    monkeypatch.setenv("TRANSCRIBE_PROVIDERS", "openai")
+    monkeypatch.setenv("OPENAI_TRANSCRIBE_URL", "http://stt.example.com/v1")
     monkeypatch.setenv("DATA_DIR", str(tmp_path / "d"))
     monkeypatch.setenv("MAX_FRAMES", "500")
     with pytest.raises(SystemExit) as exc:
@@ -508,6 +514,8 @@ def test_entry_point_validation_problems_exit_cleanly(
 
 
 def test_entry_point_valid_returns_app(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("TRANSCRIBE_PROVIDERS", "openai")
+    monkeypatch.setenv("OPENAI_TRANSCRIBE_URL", "http://stt.example.com/v1")
     monkeypatch.setenv("DATA_DIR", str(tmp_path / "d"))
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
     assert app_from_env().state.settings.data_dir == tmp_path / "d"

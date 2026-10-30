@@ -3,7 +3,7 @@
 # Usage: scripts/image_size_guard.sh <image>
 set -euo pipefail
 
-LIMIT_BYTES=1250000000
+LIMIT_BYTES=330000000
 
 if [ "$#" -ne 1 ] || [ -z "$1" ]; then
   echo "usage: $0 <image>" >&2

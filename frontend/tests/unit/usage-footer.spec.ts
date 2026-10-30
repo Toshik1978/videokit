@@ -18,7 +18,7 @@ const USAGE = {
   video_output_tokens: 0,
   cost_usd: 0.31,
 };
-const PROVIDERS = { transcription: 'local', llm: 'anthropic:claude-opus-5-5' };
+const PROVIDERS = { transcription: 'openai', llm: 'anthropic:claude-opus-5-5' };
 
 const RENDERED = {
   cover_titles: 'a',
@@ -45,7 +45,7 @@ afterEach(() => vi.unstubAllGlobals());
 describe('UsageFooter', () => {
   it('shows providers, tokens, audio minutes and cost', () => {
     const text = mountFooter({ providers: PROVIDERS, usage: USAGE }).text();
-    expect(text).toContain('local');
+    expect(text).toContain('openai');
     expect(text).toContain('anthropic:claude-opus-5-5');
     expect(text).toContain('51,234');
     expect(text).toContain('5,120');

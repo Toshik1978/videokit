@@ -10,6 +10,8 @@ from videokit.core.config import Settings, validate
 def ok_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-secret-value")
+    monkeypatch.setenv("TRANSCRIBE_PROVIDERS", "openai")
+    monkeypatch.setenv("OPENAI_TRANSCRIBE_URL", "http://stt.example.com/v1")
 
 
 def test_defaults() -> None:
@@ -20,9 +22,8 @@ def test_defaults() -> None:
     assert s.job_ttl_hours == 24
     assert s.max_frames == 80
     assert s.frame_width == 768
-    assert s.transcribe_providers == ["local"]
-    assert s.whisper_model == "large-v3-turbo"
-    assert s.whisper_device == "auto"
+    assert s.transcribe_providers == []
+    assert not hasattr(s, "whisper_model") and not hasattr(s, "whisper_device")
     assert s.openai_transcribe_model == "whisper-1"
     assert s.llm_providers == ["anthropic"]
     assert s.anthropic_api_key is None
@@ -39,12 +40,12 @@ def test_defaults() -> None:
 
 def test_env_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MAX_UPLOAD_GB", "2")
-    monkeypatch.setenv("TRANSCRIBE_PROVIDERS", "openai, local")
+    monkeypatch.setenv("TRANSCRIBE_PROVIDERS", "openai")
     monkeypatch.setenv("LLM_PROVIDERS", "openai,anthropic")
     monkeypatch.setenv("PRICING_OVERRIDES", '{"m": {"input": 4.0, "output": 20.0}}')
     s = Settings()
     assert s.max_upload_bytes == 2 * 1024**3
-    assert s.transcribe_providers == ["openai", "local"]
+    assert s.transcribe_providers == ["openai"]
     assert s.llm_providers == ["openai", "anthropic"]
     assert s.pricing_overrides == {"m": {"input": 4.0, "output": 20.0}}
 
@@ -112,7 +113,7 @@ def test_openai_requires_key_and_model(ok_env: None, monkeypatch: pytest.MonkeyP
 
 
 def test_openai_transcription_needs_key_but_not_llm_model(ok_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("TRANSCRIBE_PROVIDERS", "openai")
+    monkeypatch.delenv("OPENAI_TRANSCRIBE_URL")
     problems = validate(Settings())
     assert any("OPENAI_API_KEY" in p for p in problems)
     assert not any("OPENAI_MODEL" in p for p in problems)
@@ -130,60 +131,34 @@ def test_max_frames_bounds_ok(ok_env: None, monkeypatch: pytest.MonkeyPatch, val
     assert validate(Settings()) == []
 
 
-def test_cuda_without_gpu(ok_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("WHISPER_DEVICE", "cuda")
-    monkeypatch.setattr(config, "cuda_available", lambda: False)
-    assert [p for p in validate(Settings()) if "WHISPER_DEVICE" in p]
+def test_default_transcribe_providers_are_refused(ok_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TRANSCRIBE_PROVIDERS")
+    assert [p for p in validate(Settings()) if "TRANSCRIBE_PROVIDERS must list at least one" in p]
 
 
-def test_cuda_with_gpu(ok_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("WHISPER_DEVICE", "cuda")
-    monkeypatch.setattr(config, "cuda_available", lambda: True)
-    assert validate(Settings()) == []
+def test_local_is_an_unknown_transcription_provider(ok_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TRANSCRIBE_PROVIDERS", "local")
+    problems = [p for p in validate(Settings()) if "TRANSCRIBE_PROVIDERS" in p]
+    assert problems == ["TRANSCRIBE_PROVIDERS contains an unknown provider (allowed: openai)"]
 
 
-@pytest.mark.parametrize(("var", "value"), [("ANTHROPIC_EFFORT", "max"), ("WHISPER_DEVICE", "gpu")])
-def test_unknown_enum_values_are_reported(ok_env: None, monkeypatch: pytest.MonkeyPatch, var: str, value: str) -> None:
-    monkeypatch.setenv(var, value)
-    monkeypatch.setattr(config, "cuda_available", lambda: False)
-    problems = validate(Settings())
+def test_whisper_settings_and_cuda_probe_are_gone() -> None:
+    assert not hasattr(config, "cuda_available")
+    assert not hasattr(config, "WHISPER_DEVICES")
+
+
+def test_unknown_effort_is_reported(ok_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ANTHROPIC_EFFORT", "max")
+    problems = [p for p in validate(Settings()) if "TRANSCRIBE_PROVIDERS" not in p]
     assert len(problems) == 1
-    assert problems[0].startswith(var)
+    assert problems[0].startswith("ANTHROPIC_EFFORT")
     assert "\n" not in problems[0]
 
 
-@pytest.mark.parametrize(
-    ("var", "value"),
-    [
-        ("ANTHROPIC_EFFORT", "low"),
-        ("ANTHROPIC_EFFORT", "medium"),
-        ("ANTHROPIC_EFFORT", "high"),
-        ("WHISPER_DEVICE", "auto"),
-        ("WHISPER_DEVICE", "cpu"),
-    ],
-)
-def test_allowed_enum_values_pass(ok_env: None, monkeypatch: pytest.MonkeyPatch, var: str, value: str) -> None:
-    monkeypatch.setenv(var, value)
-    assert validate(Settings()) == []
-
-
-def test_cuda_not_checked_for_other_devices(ok_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
-    def boom() -> bool:
-        raise AssertionError("must not be called")
-
-    monkeypatch.setattr(config, "cuda_available", boom)
-    assert validate(Settings()) == []
-
-
-def test_cuda_available_handles_missing_backend(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("ctranslate2.get_cuda_device_count", lambda: 1)
-    assert config.cuda_available() is True
-
-    def fail() -> int:
-        raise RuntimeError("no driver")
-
-    monkeypatch.setattr("ctranslate2.get_cuda_device_count", fail)
-    assert config.cuda_available() is False
+@pytest.mark.parametrize("value", ["low", "medium", "high"])
+def test_allowed_effort_values_pass(ok_env: None, monkeypatch: pytest.MonkeyPatch, value: str) -> None:
+    monkeypatch.setenv("ANTHROPIC_EFFORT", value)
+    assert [p for p in validate(Settings()) if "ANTHROPIC_EFFORT" in p] == []
 
 
 def test_data_dir_not_writable(ok_env: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -260,7 +235,7 @@ def test_polluted_host_environment_does_not_leak_into_tests() -> None:
     assert s.openai_api_key is None
     assert s.anthropic_api_key is None
     assert s.max_frames == 80
-    assert s.transcribe_providers == ["local"]
+    assert s.transcribe_providers == []
     assert s.llm_providers == ["anthropic"]
     assert s.openai_transcribe_model == "whisper-1"
     assert s.video_providers == []

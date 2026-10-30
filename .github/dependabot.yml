@@ -9,13 +9,6 @@ updates:
     commit-message:
       prefix: build
       include: scope
-    ignore:
-      # Pinned below 19: faster-whisper still passes `metadata_errors` to `av.open()`,
-      # which av 19 removed (backend/tests/unit/test_whisper_audio_compat.py guards it).
-      # Revisit once faster-whisper supports av 19.
-      - dependency-name: "av"
-        update-types:
-          - "version-update:semver-major"
     groups:
       backend:
         patterns:
@@ -50,8 +43,8 @@ updates:
 
   # Base images in the Dockerfile.
   # The Python minor version moves together in .mise.toml, backend/.python-version,
-  # requires-python and the Dockerfile, only after checking wheel availability for
-  # ctranslate2, onnxruntime and av. Dependabot must not propose minor or major
+  # requires-python and the Dockerfile, only after checking that the
+  # backend dependencies ship wheels for the new minor. Dependabot must not propose minor or major
   # Python bumps on its own; patch releases still arrive as proposals.
   - package-ecosystem: docker
     directory: "/"

@@ -82,8 +82,9 @@ def _transcript(provider: str, model: str, minutes: float = 2.0) -> Transcript:
     )
 
 
-def test_local_transcription_is_free() -> None:
-    assert transcription_cost(_transcript("local", "large-v3-turbo")) == 0.0
+def test_only_self_hosted_transcription_is_free() -> None:
+    assert not hasattr(pricing, "FREE_TRANSCRIPTION_PROVIDERS")
+    assert transcription_cost(_transcript("local", "large-v3-turbo")) is None
 
 
 def test_self_hosted_transcription_is_free_whatever_the_model_id() -> None:

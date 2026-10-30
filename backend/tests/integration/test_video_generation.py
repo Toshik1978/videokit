@@ -47,6 +47,8 @@ def fast_polling(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def _client(tmp_path: Path, fake: FakeVideoGenerator, **settings: Any) -> TestClient:
     config = Settings(
+        transcribe_providers=["openai"],
+        openai_transcribe_api_key=SecretStr("stt-test"),
         data_dir=tmp_path / "data",
         anthropic_api_key=SecretStr("sk-test"),
         gemini_api_key=SecretStr("g-test"),
@@ -130,8 +132,24 @@ def test_tool_identity_and_lane_settings() -> None:
 
 
 def test_enabled_only_with_a_video_provider() -> None:
-    assert TOOL.enabled(Settings(video_providers=[])) is False
-    assert TOOL.enabled(Settings(video_providers=["omni"])) is True
+    assert (
+        TOOL.enabled(
+            Settings(
+                transcribe_providers=["openai"], openai_transcribe_api_key=SecretStr("stt-test"), video_providers=[]
+            )
+        )
+        is False
+    )
+    assert (
+        TOOL.enabled(
+            Settings(
+                transcribe_providers=["openai"],
+                openai_transcribe_api_key=SecretStr("stt-test"),
+                video_providers=["omni"],
+            )
+        )
+        is True
+    )
 
 
 def test_the_tool_is_listed_when_enabled(client: TestClient) -> None:
@@ -140,7 +158,12 @@ def test_the_tool_is_listed_when_enabled(client: TestClient) -> None:
 
 
 def test_the_tool_is_hidden_when_no_video_provider_is_configured(tmp_path: Path) -> None:
-    config = Settings(data_dir=tmp_path / "data", anthropic_api_key=SecretStr("sk-test"))
+    config = Settings(
+        transcribe_providers=["openai"],
+        openai_transcribe_api_key=SecretStr("stt-test"),
+        data_dir=tmp_path / "data",
+        anthropic_api_key=SecretStr("sk-test"),
+    )
     providers = Providers(transcriber=TranscriberChain([FakeTranscriber()]), llm=LLMChain([FakeLLM([])]))
     with TestClient(create_app(config, providers, static_dir=tmp_path / "static")) as c:
         assert "video_generation" not in {t["id"] for t in c.get("/api/tools").json()}
@@ -605,7 +628,9 @@ def test_youtube_prep_jobs_in_the_same_restart_still_fail_server_restarted(tmp_p
     with _client(tmp_path, before) as client:
         video_id = _submit(client)
         _wait_polling(before)
-    config = Settings(data_dir=tmp_path / "data")
+    config = Settings(
+        transcribe_providers=["openai"], openai_transcribe_api_key=SecretStr("stt-test"), data_dir=tmp_path / "data"
+    )
     store = JobStore(config.data_dir, config.job_ttl_hours, config.max_upload_bytes)
     prep = store.create("youtube_prep", 10)
     store.set_upload_offset(prep.id, 10)
@@ -755,7 +780,9 @@ def test_a_restart_after_the_charge_but_before_the_result_finalizes_without_char
 def test_a_creation_left_uploading_by_a_stop_is_discarded_at_startup_and_never_generated(tmp_path: Path) -> None:
     """The process died after the inputs were stored but before the job was queued: no client ever received this
     job's id (the 201 is sent after queueing), so generating it would be a paid clip nobody can find."""
-    config = Settings(data_dir=tmp_path / "data")
+    config = Settings(
+        transcribe_providers=["openai"], openai_transcribe_api_key=SecretStr("stt-test"), data_dir=tmp_path / "data"
+    )
     store = JobStore(config.data_dir, config.job_ttl_hours, config.max_upload_bytes)
     orphan = store.create("video_generation", 0)
     fields = CreationInputs(PROMPT, 8, "9:16", "1080p")
@@ -1104,7 +1131,12 @@ def test_options_prices_follow_the_pricing_overrides(tmp_path: Path) -> None:
 
 
 def test_the_routes_are_not_found_when_the_tool_is_disabled(tmp_path: Path) -> None:
-    config = Settings(data_dir=tmp_path / "data", anthropic_api_key=SecretStr("sk-test"))
+    config = Settings(
+        transcribe_providers=["openai"],
+        openai_transcribe_api_key=SecretStr("stt-test"),
+        data_dir=tmp_path / "data",
+        anthropic_api_key=SecretStr("sk-test"),
+    )
     providers = Providers(transcriber=TranscriberChain([FakeTranscriber()]), llm=LLMChain([FakeLLM([])]))
     with TestClient(create_app(config, providers, static_dir=tmp_path / "static")) as c:
         assert c.get(OPTIONS).status_code == 404
