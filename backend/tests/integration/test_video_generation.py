@@ -212,10 +212,32 @@ def test_result_json_describes_the_clip(client: TestClient) -> None:
     ]
     assert (result["file"], result["thumbnail"]) == ("clip.mp4", "thumbnail.jpg")
     assert result["download_name"] == f"{PROMPT}.mp4"
-    assert (result["aspect_ratio"], result["resolution"]) == ("9:16", "1080p")
     assert (result["width"], result["height"]) == (160, 120)  # the fake provider's clip, as probed
+    assert (result["aspect_ratio"], result["resolution"]) == ("16:9", "120p")  # derived from it, not the request
     assert result["duration_s"] == pytest.approx(1.0, abs=0.2)
     assert result["size_bytes"] == clip.stat().st_size
+
+
+@pytest.mark.parametrize(
+    ("clip_size", "requested", "expected"),
+    [
+        ("1080x1920", ("16:9", "720p"), ("9:16", "1080p")),
+        ("1920x1080", ("9:16", "720p"), ("16:9", "1080p")),
+        ("720x1280", ("16:9", "1080p"), ("9:16", "720p")),
+        ("1280x720", ("9:16", "1080p"), ("16:9", "720p")),
+        ("640x640", ("9:16", "1080p"), ("16:9", "640p")),
+        ("480x848", ("16:9", "720p"), ("9:16", "480p")),
+    ],
+)
+def test_result_reports_the_actual_orientation_and_resolution_of_the_clip(
+    tmp_path: Path, clip_size: str, requested: tuple[str, str], expected: tuple[str, str]
+) -> None:
+    with _client(tmp_path, FakeVideoGenerator(model=FAKE_MODEL, clip_size=clip_size)) as client:
+        job_id = _submit(client, aspect_ratio=requested[0], resolution=requested[1])
+        _wait(client, job_id, JobState.DONE)
+        result = _json(client, job_id, "result.json")
+        assert (result["aspect_ratio"], result["resolution"]) == expected
+        assert f"{result['width']}x{result['height']}" == clip_size  # delivered as returned
 
 
 def test_the_clip_has_no_audio_stream(client: TestClient) -> None:

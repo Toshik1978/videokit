@@ -87,11 +87,46 @@ function onPick(event: Event): void {
   target.value = ''; // the same file can be picked again
 }
 
-function move(index: number, offset: -1 | 1): void {
+/** The one reorder both the move buttons and drag and drop go through. */
+function reorder(from: number, to: number): void {
+  if (from === to) return;
   const next = [...pictures.value];
-  const [file] = next.splice(index, 1);
-  next.splice(index + offset, 0, file!);
+  const [file] = next.splice(from, 1);
+  next.splice(to, 0, file!);
   pictures.value = next;
+}
+
+function move(index: number, offset: -1 | 1): void {
+  reorder(index, index + offset);
+}
+
+// Drag and drop is an extra for pointer devices; the buttons stay the accessible way to reorder.
+const dragFrom = ref<number | null>(null);
+const dropOn = ref<number | null>(null);
+
+function onDragStart(event: DragEvent, index: number): void {
+  dragFrom.value = index;
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', String(index)); // Firefox starts no drag without data
+  }
+}
+
+function onDragOver(event: DragEvent, index: number): void {
+  if (dragFrom.value === null) return; // not one of our pictures (e.g. a file from the desktop)
+  event.preventDefault(); // allow the drop
+  dropOn.value = index;
+}
+
+function onDrop(index: number): void {
+  const from = dragFrom.value;
+  onDragEnd();
+  if (from !== null) reorder(from, index);
+}
+
+function onDragEnd(): void {
+  dragFrom.value = null;
+  dropOn.value = null;
 }
 
 function remove(index: number): void {
@@ -126,10 +161,25 @@ function remove(index: number): void {
     </button>
     <p v-if="error" role="alert" class="error" data-test="picture-error">{{ error }}</p>
     <ol v-if="pictures.length > 0" class="list">
-      <li v-for="(file, index) in pictures" :key="keyOf(file)" class="item" data-test="picture">
+      <li
+        v-for="(file, index) in pictures"
+        :key="keyOf(file)"
+        class="item"
+        :class="{
+          'drop-target': dropOn === index && dragFrom !== index,
+          dragging: dragFrom === index,
+        }"
+        draggable="true"
+        data-test="picture"
+        @dragstart="onDragStart($event, index)"
+        @dragover="onDragOver($event, index)"
+        @drop.prevent="onDrop(index)"
+        @dragend="onDragEnd"
+      >
         <span class="position">{{ index + 1 }}</span>
         <img
           class="thumb"
+          draggable="false"
           :src="urlOf(file)"
           :alt="t('videoGeneration.pictures.item', { position: index + 1 })"
         />
@@ -206,6 +256,14 @@ function remove(index: number): void {
   padding: 8px;
   border: 1px solid var(--border);
   border-radius: 8px;
+}
+
+.item.drop-target {
+  border-color: var(--fg);
+}
+
+.item.dragging {
+  opacity: 0.5;
 }
 
 .position {

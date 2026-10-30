@@ -255,3 +255,10 @@ Polish:   T031 docker smoke | T032 docs
 3. **Increment**: US2 (Recent clips + restart resume) → US3 (Try again) → US4 (home card / hidden).
 4. **Polish**: clip check and image size, docs; `task changelog` notes the breaking
    `POST /api/jobs` removal.
+
+## Phase 7: Convergence
+
+- [x] T033 Report the finished clip's actual orientation and resolution, derived from the probed width/height in `backend/src/videokit/tools/video_generation/pipeline.py`, and show them in `frontend/src/tools/video-generation/JobPage.vue`, with tests in `backend/tests/integration/test_video_generation.py` and `frontend/tests/unit/video-generation-job.spec.ts` for a provider clip that differs from the request, per spec US1 AC5 / Edge Cases (partial)
+- [x] T034 Force 8-bit 4:2:0 output (`-pix_fmt yuv420p`) in the libx264 re-encode branch of `finalize_clip` in `backend/src/videokit/core/media.py`, with a 10-bit or yuv444p source case in `backend/tests/integration/test_media.py`, per spec FR-009 / research V6 (partial)
+- [x] T035 Add native drag-and-drop reordering for pointer devices next to the move up/down buttons in `frontend/src/tools/video-generation/PicturePicker.vue`, with a reorder-by-drop case in `frontend/tests/unit/video-generation.spec.ts`, per research V12 (missing)
+- [x] T036 Either map a provider-side `cancelled` interaction to a cancelled job in `backend/src/videokit/core/videogen/omni.py` and `backend/src/videokit/tools/video_generation/pipeline.py` (tests in `backend/tests/unit/test_omni_mapping.py` and `backend/tests/integration/test_video_generation.py`), or record the `video_failed` mapping as the decision in `specs/004-video-generation/research.md` V5, per research V5 (contradicts)

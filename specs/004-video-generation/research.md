@@ -87,9 +87,12 @@ Provider facts were checked against Google's official documentation on 2026-10-2
 
 - **Decision**: Single stage `generating` (new edge `QUEUED → GENERATING`). The tool polls
   `interactions.get(id)` every 10 s with `asyncio.sleep` (no thread held), checking cancellation
-  each round; terminal statuses `completed` → result, `failed`/`incomplete` → mapped error,
-  `cancelled` → cancelled. Wait cap 20 minutes → `provider_timeout`. On user cancel the tool calls
-  `interactions.cancel` best-effort; the UI warns the attempt may still be charged (FR-016).
+  each round; terminal statuses `completed` → result, `failed`/`incomplete`/`cancelled` → mapped
+  error (`video_failed` when the provider gives no reason). A provider-side `cancelled` that the
+  user did not request in VideoKit is a failed job, not a VideoKit cancel: a VideoKit cancel
+  deletes the job's data (FR-024) and leaves Try again nothing to reopen. Wait cap 20 minutes →
+  `provider_timeout`. On user cancel the tool calls `interactions.cancel` best-effort; the UI warns
+  the attempt may still be charged (FR-016).
 - **Rationale**: Google publishes no latency figure ("varies with duration, resolution and load");
   20 minutes is generous for a ≤ 10 s clip. `generating` is already a catalog stage label.
 - **Alternatives considered**: a new `rendering` state (new label, no user value).

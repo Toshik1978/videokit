@@ -56,6 +56,8 @@ class FakeVideoGenerator:
     ``duration_s`` x ``caps.video_tokens_per_second[resolution]`` video tokens and ``tokens_per_image`` input
     tokens per picture (research V8).
 
+    A "done" clip is ``clip_size`` (``"WxH"``, default ``160x120``), whatever the request asked for.
+
     Calls are recorded: ``submit_count`` / ``requests``, ``poll_refs``, ``cancelled``, ``forgotten``.
     """
 
@@ -68,11 +70,13 @@ class FakeVideoGenerator:
         polls: Iterable[PollItem] | None = None,
         caps: Capabilities = CAPABILITIES,
         usage: Usage | None = None,
+        clip_size: str = "160x120",
     ) -> None:
         self.name = name
         self.model = model
         self.caps = caps
         self.usage = usage
+        self.clip_size = clip_size
         self.submit_script: deque[SubmitItem] | None = deque(submits) if submits is not None else None
         self.poll_script: deque[PollItem] = deque(["done"] if polls is None else polls)
         self.requests: list[VideoRequest] = []
@@ -113,7 +117,7 @@ class FakeVideoGenerator:
         if item == "pending":
             return PollResult(done=False, video=None, usage=Usage(), error=None)
         if item == "done":
-            video = write_clip(out_dir / "raw.mp4")
+            video = write_clip(out_dir / "raw.mp4", size=self.clip_size)
             return PollResult(done=True, video=video, usage=self._usage(), error=None)
         raise AssertionError(f"unknown poll script item {item!r}")
 

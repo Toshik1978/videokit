@@ -212,6 +212,7 @@ MP3_MIN_RATE = 32000
 MP3_LOW_RATE_TARGET = 44100
 PICTURE_MAX_SIDE = 2048
 CLIP_NAME = "clip.mp4"
+_REENCODE_ARGS = ("libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p")  # 8-bit 4:2:0 plays everywhere
 THUMBNAIL_NAME = "thumbnail.jpg"
 THUMBNAIL_AT_S = 0.5
 THUMBNAIL_MAX_SIDE = 480
@@ -326,13 +327,13 @@ class MediaService:
         """Turn the provider's download into ``clip.mp4`` and ``thumbnail.jpg`` (research V6).
 
         The clip keeps only the first video stream: no audio, subtitles, data or metadata, ``+faststart``. H.264 is
-        copied; any other codec is re-encoded with libx264. Deletes ``raw`` on success. Raises ``AppError``
-        ``video_failed``.
+        copied; any other codec is re-encoded with libx264 as 8-bit 4:2:0, which every phone gallery plays. Deletes
+        ``raw`` on success. Raises ``AppError`` ``video_failed``.
         """
         out, thumbnail = job_dir / CLIP_NAME, job_dir / THUMBNAIL_NAME
         try:
             _, _, video, _ = _probe_json(raw)
-            codec = ["copy"] if video.get("codec_name") == "h264" else ["libx264", "-preset", "veryfast", "-crf", "18"]
+            codec = ["copy"] if video.get("codec_name") == "h264" else list(_REENCODE_ARGS)
             cmd = ["ffmpeg", "-v", "error", "-y", "-i", str(raw), "-map", "0:v:0", "-an", "-sn", "-dn"]
             _run([*cmd, "-map_metadata", "-1", "-c:v", *codec, "-movflags", "+faststart", str(out)])
             _, _, video, duration = _probe_json(out)

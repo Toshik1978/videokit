@@ -285,6 +285,25 @@ describe('video generation job page', () => {
     wrapper.unmount();
   });
 
+  it('shows the delivered clip as reported when it differs from the usual choices', async () => {
+    jobReplies = [
+      () =>
+        json(
+          200,
+          doneJob({
+            result: { width: 480, height: 848, aspect_ratio: '9:16', resolution: '480p' },
+          }),
+        ),
+    ];
+    stubFetch();
+    const wrapper = await mountJob();
+    expect(wrapper.get('[data-test="orientation"]').text()).toBe(
+      en.videoGeneration.options.vertical,
+    );
+    expect(wrapper.get('[data-test="resolution"]').text()).toBe('480p');
+    wrapper.unmount();
+  });
+
   it('offers Share when the browser can share files', async () => {
     jobReplies = [() => json(200, doneJob())];
     stubFetch();

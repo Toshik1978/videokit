@@ -534,6 +534,20 @@ def test_finalize_clip_reencodes_hevc_to_h264(tmp_path: Path, make_clip: MakeCli
     assert [(s["codec_type"], s["codec_name"]) for s in streams] == [("video", "h264")]
 
 
+@pytest.mark.parametrize("pix_fmt", ["yuv444p", "yuv420p10le"])
+def test_finalize_clip_reencodes_to_8_bit_420_so_phone_galleries_play_it(tmp_path: Path, pix_fmt: str) -> None:
+    raw = tmp_path / "wide-gamut.mkv"  # lossless FFV1 keeps the source pixel format; libx264 would keep it too
+    subprocess.run(
+        ["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=duration=1:size=160x120:rate=15",
+         "-pix_fmt", pix_fmt, "-c:v", "ffv1", str(raw)],
+        check=True, capture_output=True,
+    )  # fmt: skip
+    assert _ffprobe(raw, "stream=pix_fmt")["streams"][0]["pix_fmt"] == pix_fmt
+    _, job = _finalize(tmp_path, raw)
+    stream = _ffprobe(job / "clip.mp4", "stream=codec_name,pix_fmt")["streams"][0]
+    assert (stream["codec_name"], stream["pix_fmt"]) == ("h264", "yuv420p")
+
+
 def test_finalize_clip_without_audio_input(tmp_path: Path, make_clip: MakeClip) -> None:
     _, job = _finalize(tmp_path, make_clip(with_audio=False))
     assert [s["codec_type"] for s in _ffprobe(job / "clip.mp4", "stream=codec_type")["streams"]] == ["video"]

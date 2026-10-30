@@ -173,6 +173,17 @@ def _charge(
     job.add_usage(usage, estimate(usage, model, ctx.settings.pricing_overrides))
 
 
+def _orientation(width: int, height: int) -> str:
+    """The delivered clip's orientation as ``9:16`` (taller than wide) or ``16:9``; the provider may not honour the
+    request, so this comes from the probed size."""
+    return "9:16" if height > width else "16:9"
+
+
+def _resolution(width: int, height: int) -> str:
+    """The delivered clip's resolution from its short side: 1080 -> ``1080p``, 720 -> ``720p``, n -> ``<n>p``."""
+    return f"{min(width, height)}p"
+
+
 async def run(job: JobHandle, ctx: CoreContext) -> None:
     video = ctx.video
     if video is None:  # unreachable while the tool is only enabled with a provider; fail readably if it happens
@@ -195,8 +206,8 @@ async def run(job: JobHandle, ctx: CoreContext) -> None:
             "duration_s": clip.duration_s,
             "width": clip.width,
             "height": clip.height,
-            "aspect_ratio": fields.aspect_ratio,
-            "resolution": fields.resolution,
+            "aspect_ratio": _orientation(clip.width, clip.height),
+            "resolution": _resolution(clip.width, clip.height),
             "size_bytes": clip.size_bytes,
         },
     )

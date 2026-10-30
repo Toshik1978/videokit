@@ -288,6 +288,44 @@ describe('picture picker', () => {
     wrapper.unmount();
   });
 
+  it('reorders by dropping a picture on another and sends them in that order', async () => {
+    const { wrapper } = await mountAt();
+    await pick(wrapper, picture('a.png'), picture('b.png'), picture('c.png'));
+    const items = () => wrapper.findAll('[data-test="picture"]');
+    expect(items().every((item) => item.attributes('draggable') === 'true')).toBe(true);
+
+    await items()[0]!.trigger('dragstart');
+    await items()[2]!.trigger('dragover');
+    expect(items()[2]!.classes()).toContain('drop-target');
+    await items()[2]!.trigger('drop');
+    expect(names(wrapper)).toEqual(['b.png', 'c.png', 'a.png']);
+    expect(items().some((item) => item.classes().includes('drop-target'))).toBe(false);
+
+    await items()[2]!.trigger('dragstart');
+    await items()[0]!.trigger('drop');
+    expect(names(wrapper)).toEqual(['a.png', 'b.png', 'c.png']);
+
+    // Dropping on itself, or a drop that did not start from a picture, changes nothing.
+    await items()[1]!.trigger('dragstart');
+    await items()[1]!.trigger('drop');
+    await items()[1]!.trigger('dragend');
+    await items()[0]!.trigger('drop');
+    expect(names(wrapper)).toEqual(['a.png', 'b.png', 'c.png']);
+
+    await items()[0]!.trigger('dragstart');
+    await items()[1]!.trigger('drop');
+    await type(wrapper, 'picture 2 then picture 1');
+    await wrapper.get('[data-test="generate"]').trigger('click');
+    await flushPromises();
+    const form = posts()[0]![1].body as FormData;
+    expect((form.getAll('pictures') as File[]).map((f) => f.name)).toEqual([
+      'b.png',
+      'a.png',
+      'c.png',
+    ]);
+    wrapper.unmount();
+  });
+
   it('disables the edge moves so a picture cannot leave the list', async () => {
     const { wrapper } = await mountAt();
     await pick(wrapper, picture('a.png'), picture('b.png'));
