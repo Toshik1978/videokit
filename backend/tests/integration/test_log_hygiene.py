@@ -596,7 +596,8 @@ def test_video_generation_resume_impossible_logs_no_prompt_picture_or_message(
     dying = Dying()
 
     with TestClient(_video_app(tmp_path, dying)) as client:
-        job_id = _start_video_job(client, picture, lambda d: (d / "submit.json").exists())
+        # submit.json is written before submit() runs, so also wait for the request to reach the provider.
+        job_id = _start_video_job(client, picture, lambda d: (d / "submit.json").exists() and bool(dying.requests))
 
     fresh = FakeVideoGenerator()
     with TestClient(_video_app(tmp_path, fresh)) as client:
