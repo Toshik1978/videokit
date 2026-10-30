@@ -8,7 +8,10 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.responses import FileResponse, Response
+from fastapi.routing import APIRoute
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.routing import Match
+from starlette.types import Scope
 
 from videokit.core import api, uploads
 from videokit.core import providers as providers_module
@@ -62,6 +65,40 @@ def _mount_spa(app: FastAPI, static_dir: Path) -> None:
         raise StarletteHTTPException(404)
 
 
+class _UnknownApiRoute(APIRoute):
+    """Matches only `/api/...` paths no other API route knows, so a mounted path keeps its 405 + `Allow`."""
+
+    def matches(self, scope: Scope) -> tuple[Match, Scope]:
+        match, child = super().matches(scope)
+        if match is Match.FULL:
+            for route in scope["app"].router.routes:
+                # The SPA catch-all (`/{path:path}`) partially matches every path; it does not make one mounted.
+                if route is self or getattr(route, "path", None) == "/{path:path}":
+                    continue
+                if route.matches(scope)[0] is not Match.NONE:
+                    return Match.NONE, {}
+        return match, child
+
+
+def _mount_unknown_api(app: FastAPI) -> None:
+    """An unmounted `/api/...` path (e.g. a disabled tool's) answers 404 for every method, not the SPA's 405.
+
+    Added at startup so it is the last `/api` route, whatever was mounted before.
+    """
+
+    async def unknown_api(path: str) -> Response:
+        raise StarletteHTTPException(404)
+
+    app.router.routes.append(
+        _UnknownApiRoute(
+            "/api/{path:path}",
+            unknown_api,
+            methods=["POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"],
+            include_in_schema=False,
+        )
+    )
+
+
 def create_app(
     settings: Settings,
     providers: Providers | None = None,
@@ -77,6 +114,7 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         configure_logging(settings.log_level)
+        _mount_unknown_api(app)
         problems = await asyncio.to_thread(validate, settings)
         if problems:
             raise _fail(problems)

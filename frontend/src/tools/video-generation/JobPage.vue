@@ -8,7 +8,9 @@ import { isTerminal, type JobSummary, type Usage } from '@/components/job';
 import JobStatus from '@/components/JobStatus.vue';
 import ShareButton from '@/components/ShareButton.vue';
 import { useMessages } from '@/i18n/messages';
+import NotFoundPage from '@/pages/NotFoundPage.vue';
 
+import { isToolHidden } from './availability';
 import { formatCost } from './estimate';
 import type { JobInputs, VideoResult } from './types';
 
@@ -35,6 +37,9 @@ const tryAgainTo = `/tools/video-generation?from=${encodeURIComponent(jobId)}`;
 
 const job = ref<Job | null>(null);
 const expired = ref(false);
+/** Not configured on this server: the tool is not listed. */
+const hidden = ref(false);
+const checked = ref(false);
 const error = ref('');
 const cancelError = ref('');
 const confirmingCancel = ref(false);
@@ -161,7 +166,11 @@ watch(
   },
 );
 
-onMounted(() => void poll());
+onMounted(async () => {
+  hidden.value = await isToolHidden(TOOL_ID);
+  checked.value = true;
+  if (!hidden.value && !unmounted) void poll();
+});
 onBeforeUnmount(() => {
   unmounted = true;
   stopTimer();
@@ -169,7 +178,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section class="page">
+  <NotFoundPage v-if="hidden" />
+  <section v-else-if="checked" class="page">
     <h2>{{ t('videoGeneration.stage.heading') }}</h2>
     <p v-if="expired">{{ t('videoGeneration.expired') }}</p>
     <template v-else>

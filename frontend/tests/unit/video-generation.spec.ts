@@ -53,6 +53,7 @@ const SOURCE_INPUTS = {
 };
 
 let optionsReply: () => Response;
+let toolsReply: () => Response;
 let configReply: () => Response;
 let jobReplies: Record<string, () => Response>;
 let createReply: () => Response;
@@ -62,6 +63,7 @@ let fetchMock: ReturnType<typeof vi.fn>;
 
 function stubFetch() {
   fetchMock = vi.fn((url: string, init?: RequestInit) => {
+    if (url === '/api/tools') return Promise.resolve(toolsReply());
     if (url === '/api/tools/video_generation/options') return Promise.resolve(optionsReply());
     if (url === '/api/tools/video_generation/jobs' && init?.method === 'POST') {
       return Promise.resolve(createReply());
@@ -124,6 +126,8 @@ const names = (wrapper: VueWrapper) =>
 beforeEach(() => {
   localStorage.clear();
   optionsReply = () => json(200, OPTIONS);
+  toolsReply = () =>
+    json(200, [{ id: 'video_generation', name: 'Video Generation', description: 'x' }]);
   configReply = () => json(200, { job_ttl_hours: TTL_HOURS });
   jobReplies = {};
   createReply = () => json(201, { job_id: 'j1' });
@@ -216,6 +220,34 @@ describe('video generation form', () => {
     const { wrapper } = await mountAt();
     expect(wrapper.get('[role="alert"]').text()).toBe(en.errors.codes.internal_error);
     expect(wrapper.find('[data-test="generate"]').exists()).toBe(false);
+    wrapper.unmount();
+  });
+});
+
+describe('video generation when the tool is not configured', () => {
+  it('shows the not-found page when /api/tools does not list the tool', async () => {
+    toolsReply = () => json(200, [{ id: 'youtube_prep', name: 'YouTube Prep', description: 'x' }]);
+    const { wrapper } = await mountAt();
+    expect(wrapper.text()).toContain(en.notFound.title);
+    expect(wrapper.text()).not.toContain(en.videoGeneration.heading);
+    expect(wrapper.find('[data-test="generate"]').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it('shows the not-found page when the options answer 404', async () => {
+    optionsReply = () => json(404, { error: { code: 'not_found', message: 'x' } });
+    const { wrapper } = await mountAt();
+    expect(wrapper.text()).toContain(en.notFound.title);
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false);
+    expect(wrapper.find('[data-test="generate"]').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it('still shows the form when the tool list cannot be read', async () => {
+    toolsReply = () => json(500, { error: { code: 'internal_error', message: 'boom' } });
+    const { wrapper } = await mountAt();
+    expect(wrapper.find('[data-test="generate"]').exists()).toBe(true);
+    expect(wrapper.text()).not.toContain(en.notFound.title);
     wrapper.unmount();
   });
 });

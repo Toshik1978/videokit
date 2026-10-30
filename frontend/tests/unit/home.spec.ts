@@ -121,6 +121,42 @@ describe('HomePage', () => {
     expect(audio?.text()).toContain("Get a video's audio as an MP3.");
   });
 
+  it('lists three cards in the order the API gives them, Video Generation linking to its page', async () => {
+    const modules = Object.values(
+      import.meta.glob<ToolModule>('@/tools/*/index.ts', { eager: true }),
+    );
+    respond(200, [
+      backendTool('youtube_prep', 'API yt', 'x'),
+      backendTool('audio_extract', 'API audio', 'x'),
+      backendTool('video_generation', 'API video', 'x'),
+    ]);
+    const wrapper = await mountHome(modules);
+    await flushPromises();
+    const cards = wrapper.findAll('[data-test="tool-card"]');
+    expect(cards.map((c) => c.attributes('href'))).toEqual([
+      '/tools/youtube-prep',
+      '/tools/audio-extract',
+      '/tools/video-generation',
+    ]);
+    expect(cards[2].text()).toContain(en.tools.video_generation.name);
+    expect(cards[2].text()).toContain(en.tools.video_generation.description);
+  });
+
+  it('shows two cards, no Video Generation, when the API does not list it', async () => {
+    const modules = Object.values(
+      import.meta.glob<ToolModule>('@/tools/*/index.ts', { eager: true }),
+    );
+    respond(200, [
+      backendTool('youtube_prep', 'API yt', 'x'),
+      backendTool('audio_extract', 'API audio', 'x'),
+    ]);
+    const wrapper = await mountHome(modules);
+    await flushPromises();
+    const cards = wrapper.findAll('[data-test="tool-card"]');
+    expect(cards).toHaveLength(2);
+    expect(wrapper.text()).not.toContain(en.tools.video_generation.name);
+  });
+
   it('shows a test-only tool without any shared-code change', async () => {
     respond(200, [backendTool('test_tool', 'Test Tool', 'Only for tests.')]);
     const wrapper = await mountHome([yt, makeTool('test_tool', '/tools/test-tool')]);

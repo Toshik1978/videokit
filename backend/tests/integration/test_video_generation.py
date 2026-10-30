@@ -927,6 +927,13 @@ def test_the_routes_are_not_found_when_the_tool_is_disabled(tmp_path: Path) -> N
     with TestClient(create_app(config, providers, static_dir=tmp_path / "static")) as c:
         assert c.get(OPTIONS).status_code == 404
         assert c.get(_file_url("any-job", "clip")).status_code == 404
+        listed = {tool["id"] for tool in c.get("/api/tools").json()}
+        assert "video_generation" not in listed
+        for response in (c.post(CREATE, data=FORM), c.put(CREATE), c.patch(CREATE), c.delete(CREATE), c.head(OPTIONS)):
+            assert response.status_code == 404
+        assert c.post("/api/health").status_code == 405  # a mounted path keeps its 405
+        body = c.post(CREATE, data=FORM).json()
+        assert body["error"]["code"] == "not_found"
 
 
 # --- clip and thumbnail ---------------------------------------------------------------------------------------

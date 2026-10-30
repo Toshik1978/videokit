@@ -5,7 +5,9 @@ import { useRoute, useRouter } from 'vue-router';
 
 import { ApiError, getJson, postForm } from '@/api/client';
 import { useMessages } from '@/i18n/messages';
+import NotFoundPage from '@/pages/NotFoundPage.vue';
 
+import { isToolHidden } from './availability';
 import { estimateCost, formatCost } from './estimate';
 import PicturePicker from './PicturePicker.vue';
 import { addRecentClip, listRecentClips, removeRecentClip } from './recentClips';
@@ -34,6 +36,9 @@ const { errorMessage } = useMessages();
 const router = useRouter();
 const route = useRoute();
 
+/** Not configured on this server: the tool is not listed or its options answer 404. */
+const hidden = ref(false);
+const checked = ref(false);
 const options = ref<VideoOptions | null>(null);
 const loadError = ref('');
 const submitError = ref('');
@@ -123,12 +128,13 @@ function jobRoute(jobId: string): string {
   return `/tools/video-generation/jobs/${encodeURIComponent(jobId)}`;
 }
 
-onMounted(() => {
-  void loadRecent();
-  void start();
-});
+onMounted(() => void start());
 
 async function start(): Promise<void> {
+  hidden.value = await isToolHidden('video_generation');
+  checked.value = true;
+  if (hidden.value) return;
+  void loadRecent();
   await loadOptions();
   const from = route.query.from;
   if (options.value !== null && typeof from === 'string' && from !== '') await prefill(from);
@@ -181,7 +187,8 @@ async function loadOptions(): Promise<void> {
     resolution.value = preferred(loaded.resolutions, DEFAULT_RESOLUTION);
     options.value = loaded;
   } catch (err) {
-    loadError.value = errorMessage(err);
+    if (err instanceof ApiError && err.status === 404) hidden.value = true;
+    else loadError.value = errorMessage(err);
   }
 }
 
@@ -215,7 +222,8 @@ async function submit(): Promise<void> {
 </script>
 
 <template>
-  <section class="page">
+  <NotFoundPage v-if="hidden" />
+  <section v-else-if="checked" class="page">
     <h2>{{ t('videoGeneration.heading') }}</h2>
     <p>{{ t('videoGeneration.intro') }}</p>
     <section v-if="recentLoaded && jobTtlHours !== null" class="recent" aria-labelledby="vg-recent">

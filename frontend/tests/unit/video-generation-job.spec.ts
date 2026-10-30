@@ -65,6 +65,7 @@ function json(status: number, body: unknown): Response {
 type Reply = () => Response;
 let jobReplies: Reply[];
 let inputsReply: Reply;
+let toolsReply: Reply;
 let fetchMock: ReturnType<typeof vi.fn>;
 
 function stubFetch() {
@@ -73,6 +74,7 @@ function stubFetch() {
       return Promise.resolve(json(202, job({ state: 'cancelled', queue_position: null })));
     }
     if (url === INPUTS_URL) return Promise.resolve(inputsReply());
+    if (url === '/api/tools') return Promise.resolve(toolsReply());
     const reply = jobReplies.length > 1 ? jobReplies.shift()! : jobReplies[0];
     return Promise.resolve(reply());
   });
@@ -103,12 +105,28 @@ function stubNavigator(canShare: boolean) {
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
+  toolsReply = () =>
+    json(200, [{ id: 'video_generation', name: 'Video Generation', description: 'x' }]);
   jobReplies = [() => json(200, job())];
   inputsReply = () => json(404, { error: { code: 'job_not_found', message: 'x' } });
 });
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
+});
+
+describe('video generation job page when the tool is not configured', () => {
+  it('shows the not-found page and never asks for the job when /api/tools does not list the tool', async () => {
+    toolsReply = () => json(200, [{ id: 'youtube_prep', name: 'YouTube Prep', description: 'x' }]);
+    stubFetch();
+    const wrapper = await mountJob();
+    expect(wrapper.text()).toContain(en.notFound.title);
+    expect(wrapper.text()).not.toContain(en.videoGeneration.expired);
+    expect(jobGets()).toBe(0);
+    await tick(6000);
+    expect(jobGets()).toBe(0);
+    wrapper.unmount();
+  });
 });
 
 describe('video generation job page', () => {

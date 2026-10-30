@@ -206,7 +206,7 @@ starts normally.
 **Independent Test**: With a fake video provider the card is shown and opens the tool; with
 `VIDEO_PROVIDERS` empty startup succeeds, no card, the tool's link shows not-found.
 
-- [ ] T030 [US4] Show the card and the hidden state in `frontend/src/tools/video-generation/VideoGenerationPage.vue` and `frontend/src/pages/HomePage.vue`
+- [x] T030 [US4] Show the card and the hidden state in `frontend/src/tools/video-generation/VideoGenerationPage.vue` and `frontend/src/pages/HomePage.vue`
   - Home lists the card from `/api/tools` (existing logic; verify ordering with three tools); the tool page and job page render the existing `NotFoundPage` when `/api/tools` does not list `video_generation` or `/options` answers 404.
   - Tests: `frontend/tests/unit/home.spec.ts` (three cards), `frontend/tests/unit/video-generation.spec.ts` (hidden → not-found), `backend/tests/integration/test_video_generation.py` (`VIDEO_PROVIDERS` empty: not listed, every tool route 404, startup OK).
 

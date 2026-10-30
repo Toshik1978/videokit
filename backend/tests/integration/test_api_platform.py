@@ -355,6 +355,22 @@ def test_spa_serving(client: TestClient) -> None:
     assert r.json()["error"]["code"] == "not_found"
 
 
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [("POST", "/api/health"), ("DELETE", "/api/jobs/abc"), ("HEAD", "/api/jobs/abc"), ("POST", "/api/tools")],
+)
+def test_wrong_method_on_a_mounted_api_path_is_405(client: TestClient, method: str, path: str) -> None:
+    assert client.request(method, path).status_code == 405
+
+
+@pytest.mark.parametrize("method", ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"])
+def test_every_method_on_an_unmounted_api_path_is_404(client: TestClient, method: str) -> None:
+    r = client.request(method, "/api/tools/not_a_tool/jobs")
+    assert r.status_code == 404
+    if method != "HEAD":
+        assert r.json()["error"]["code"] == "not_found"
+
+
 def test_missing_static_dir_404(settings: Settings, tools_pkg: str, tmp_path: Path) -> None:
     app = create_app(settings, tools_package=tools_pkg, static_dir=tmp_path / "absent")
     with TestClient(app) as c:
