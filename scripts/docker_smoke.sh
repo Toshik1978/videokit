@@ -12,7 +12,7 @@
 # SQLite DB and caches were written there, owned by that uid.
 # Also (Video Generation) decode a HEIC sample generated during the run through MediaService.normalize_picture
 # (ffmpeg has no HEIF muxer, so backend/tests/heic_sample.py assembles the sample, mounted read-only) and remux a
-# generated H.264 + AAC clip to a silent MP4 with MediaService.finalize_clip (research V6, V7). The HEIC samples
+# generated H.264 + AAC clip to a silent MP4 plus a JPEG thumbnail with MediaService.finalize_clip (research V6, V7). The HEIC samples
 # are a single image and a 2x2 tile grid (how phones store photos): the grid must come out as the whole picture.
 # Usage: scripts/docker_smoke.sh [image]   (default: videokit:ci)
 set -euo pipefail
@@ -70,13 +70,12 @@ with tempfile.TemporaryDirectory() as tmp:
 print("codecs ok")
 ' || { echo "the image cannot decode every common video codec" >&2; exit 1; }
 
-# Video Generation: normalize a HEIC picture to JPEG and finalize an H.264 + AAC clip to a silent MP4.
+# Video Generation: normalize a HEIC picture to JPEG.
 docker run --rm -v "$tests_dir:/tests:ro" --entrypoint python "$image" -c '
 import subprocess, sys, tempfile
 from pathlib import Path
 
 sys.path.insert(0, "/tests")
-from fakes_videogen import write_clip
 from heic_sample import write_heic
 
 from videokit.core.config import Settings
@@ -102,16 +101,44 @@ with tempfile.TemporaryDirectory() as tmp:
             # The exception type only: its message may carry ffmpeg output or paths.
             print(f"picture check failed: {name} ({type(exc).__name__})", file=sys.stderr)
             sys.exit(1)
+print("pictures ok")
+' || { echo "the image cannot normalize a HEIC picture" >&2; exit 1; }
+
+# Video Generation: finalize a generated H.264 + AAC clip. The result must be an MP4 with exactly one H.264 video
+# stream and no audio, a non-empty JPEG thumbnail, and the raw download must be gone (research V6).
+docker run --rm -v "$tests_dir:/tests:ro" --entrypoint python "$image" -c '
+import subprocess, sys, tempfile
+from pathlib import Path
+
+sys.path.insert(0, "/tests")
+from fakes_videogen import write_clip
+
+from videokit.core.config import Settings
+from videokit.core.media import MediaService
+
+
+def probe(path, show):
+    cmd = ["ffprobe", "-v", "error", "-show_entries", show, "-of", "csv=p=0", str(path)]
+    return subprocess.run(cmd, check=True, capture_output=True, text=True).stdout.split()
+
+
+with tempfile.TemporaryDirectory() as tmp:
+    job_dir = Path(tmp)
     try:
-        write_clip(job_dir / "raw.mp4")
-        clip = media.finalize_clip(job_dir / "raw.mp4", job_dir)
-        assert streams(job_dir / clip.file) == ["h264,video"]
-        assert clip.thumbnail and (job_dir / clip.thumbnail).stat().st_size > 0 and not (job_dir / "raw.mp4").exists()
+        raw = write_clip(job_dir / "raw.mp4")
+        assert probe(raw, "stream=codec_name") == ["h264", "aac"]
+        clip = MediaService(Settings(_env_file=None)).finalize_clip(raw, job_dir)
+        out, thumbnail = job_dir / clip.file, job_dir / clip.thumbnail
+        assert out.suffix == ".mp4" and "mp4" in probe(out, "format=format_name")[0]
+        assert probe(out, "stream=codec_type,codec_name") == ["h264,video"]
+        assert probe(thumbnail, "stream=codec_name") == ["mjpeg"]
+        assert thumbnail.stat().st_size > 0 and clip.size_bytes == out.stat().st_size and not raw.exists()
     except Exception as exc:
-        print(f"clip check failed: h264-aac ({type(exc).__name__})", file=sys.stderr)
+        # The exception type only: its message may carry ffmpeg output or paths.
+        print(f"clip check failed ({type(exc).__name__})", file=sys.stderr)
         sys.exit(1)
-print("pictures and clips ok")
-' || { echo "the image cannot normalize a HEIC picture or finalize a clip" >&2; exit 1; }
+print("clips ok")
+' || { echo "the image cannot finalize a generated clip to a silent MP4 with a thumbnail" >&2; exit 1; }
 
 # Audio Extract encodes MP3 with libmp3lame at 192k: encode a generated tone and probe the result.
 docker run --rm --entrypoint sh "$image" -c '

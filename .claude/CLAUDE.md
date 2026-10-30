@@ -5,11 +5,15 @@ Open-source, self-hosted toolbox of video tools served as one Docker container. 
 timings (`0:00 "Arrival and lobby"`) in the video's spoken language, with per-section regenerate.
 **Audio Extract** — upload a video, download or share its audio as a 192 kbps MP3 named after the
 video (no AI, no cost).
+**Video Generation** — a prompt plus up to 7 pictures (5–10 s, 9:16/16:9, 1080p/720p) become one silent
+MP4 clip via Gemini Omni Flash (paid; ≈ $0.10/s 720p, ≈ $0.15/s 1080p); the tool exists only when
+`VIDEO_PROVIDERS` is non-empty.
 
 Specs are the source of truth: `specs/001-videokit-youtube-prep/` (`spec.md`, `plan.md`,
 `research.md` R1–R15, `data-model.md`, `contracts/`, `quickstart.md`, `tasks.md`) and
 `specs/002-packaging-releases/` (slim image, identity, release flow) and
-`specs/003-audio-extract/` (second tool, per-tool queue lanes) under the
+`specs/003-audio-extract/` (second tool, per-tool queue lanes) and `specs/004-video-generation/`
+(third tool, tool-owned job creation, video provider chain) under the
 constitution `.specify/memory/constitution.md`.
 
 ## Non-negotiables
@@ -68,14 +72,16 @@ backend/src/videokit/
   main.py                  create_app(settings, providers=None), app_from_env (uvicorn --factory entry)
   core/                    config, errors, db, jobs, registry, api, uploads (tus), worker, purge,
                            media (ffmpeg), pricing, providers, transcribe/{local_whisper,openai,chain},
-                           llm/{anthropic,openai,chain}
+                           llm/{anthropic,openai,chain}, videogen/{base,omni,chain}
   tools/youtube_prep/      TOOL, schema, prompt, rules, pipeline, routes (regenerate)
   tools/audio_extract/     TOOL, naming (download name), routes (GET/HEAD .../jobs/{id}/audio)
+  tools/video_generation/  TOOL, inputs (validate/store), prompt, pipeline, naming, routes (options, jobs,
+                           clip, thumbnail, inputs, pictures)
 backend/tests/             unit/, integration/, live/, fakes_transcribe.py, fakes_llm.py,
                            conftest.py (make_video fixture, autouse env isolation), e2e_app.py
 frontend/src/              App, router, i18n/{en.json,messages.ts}, api/client.ts, components/,
                            pages/, tools/<kebab-id>/ (auto-discovered via import.meta.glob;
-                           youtube-prep, audio-extract)
+                           youtube-prep, audio-extract, video-generation)
 Dockerfile, compose.yaml, scripts/{docker_smoke.sh,image_size_guard.sh,gpu_check.py,changelog.sh}
 .cliff.toml, CHANGELOG.md, CONTRIBUTING.md, docs/RELEASING.md, .github/scripts/*
 .github/workflows/{ci,commit-lint,release}.yml
@@ -102,14 +108,32 @@ Dockerfile, compose.yaml, scripts/{docker_smoke.sh,image_size_guard.sh,gpu_check
   validate → at most one repair call → readable failure. Chapters: first at 0:00, ≥ 3, gaps ≥ 10 s,
   ascending, last chapter ≥ 10 s before the end, no dashes/emojis/decorative symbols, never damage
   non-Latin scripts; `m:ss` below 1 h, `h:mm:ss` from 1 h. Videos < 30 s get no chapters + notice.
-- **Queue lanes**: one lane per tool — `JobStore.next_queued(tool_id)`, queue position counts only
-  the tool's own jobs, one worker lane per registered tool with `tool.concurrency` slots (each claims the oldest queued
-  job not in `Worker._current`, under the worker lock) — so a slow tool never blocks another.
+- **Tool-owned job creation**: there is no shared `POST /api/jobs`. Each tool mounts its own
+  `POST /api/tools/<id>/jobs` and builds on `JobAccess` (`create`, `job_dir`, `complete`, `discard`);
+  every job starts `uploading` ("inputs not complete") and `Worker.complete_inputs` — reached by the
+  last tus byte or by `JobAccess.complete` — calls the tool's `accept(job, ctx)` hook, then queues it.
+  YouTube Prep and Audio Extract use the `core.uploads.create_upload_job` helper; Video Generation
+  takes `multipart/form-data` (prompt, options, pictures), writes `inputs.json` last and completes
+  straight to `queued`. A new input kind needs no core change.
+- **Queue lanes**: one lane per enabled tool — `JobStore.next_queued(tool_id)`, queue position counts only
+  the tool's own jobs, each lane runs `tool.concurrency` slots (YouTube Prep 1, Audio Extract 1,
+  Video Generation 3; each slot claims the oldest queued job not in `Worker._current`, under the worker
+  lock) — so a slow tool never blocks another.
+- **Restart behaviour is per tool** (`Tool.resume_after_restart`): `False` (YouTube Prep, Audio Extract)
+  fails waiting/running jobs with `server_restarted`; `True` (Video Generation) keeps them. Never pay
+  twice: the run writes `submit.json` before submitting and `operation.json` (`{provider, ref}`) once the
+  provider accepted; on re-run `operation.json` → poll it, only `submit.json` → fail `resume_impossible`,
+  neither → fresh submit. Fallback to the next video provider happens only before one accepted.
+- **`Tool.enabled(settings)`** hides a tool: not mounted, not in `GET /api/tools`, no lane (its direct
+  link shows the not-found page). Video Generation is enabled iff `VIDEO_PROVIDERS` is non-empty; a
+  listed but unusable provider still fails startup. The clip is always silent
+  (`MediaService.finalize_clip` strips audio), pictures are normalized to JPEG without metadata and kept
+  with the job until expiry (Try again), and the provider's stored request is deleted after the download.
 - **Single-stage tools** go `extracting → done` (no transcribing/generating). Audio Extract encodes
   via `MediaService.extract_mp3` (main audio track: default-flagged, else first; 192 kbps CBR;
   mono stays mono, >2 channels → stereo, >48 kHz → 48 kHz, <32 kHz → 44.1 kHz so 192 kbps holds;
   metadata stripped; `no_audio` failure).
-- **`jobs.source_name`**: the original file name from `POST /api/jobs` `file_name`, sanitized,
+- **`jobs.source_name`**: the original file name from the upload tools' `POST /api/tools/<id>/jobs` `file_name`, sanitized,
   exposed to tools as `JobHandle.source_name`; never logged and never returned by the job API.
 - **Output language** = the language detected by transcription (`result.language =
   media.language`); no speech → English.
@@ -129,7 +153,8 @@ Dockerfile, compose.yaml, scripts/{docker_smoke.sh,image_size_guard.sh,gpu_check
   server English as primary UI text. Mobile-first: no horizontal scroll at 360 px, touch targets
   ≥ 44×44 px (checked by the e2e suite).
 - **Costs**: `core/pricing.py` (+ `PRICING_OVERRIDES`). Job cost is the sum of known parts; local
-  transcription is free; unknown model → `cost_usd: null`. Verify prices against Anthropic's
+  transcription is free; Omni video output is billed per token (`video_output`: 5792 tokens/s at 720p,
+  8688 at 1080p); unknown model → `cost_usd: null`. Verify prices against Anthropic's
   official pricing page before changing them.
 
 ## Gotchas

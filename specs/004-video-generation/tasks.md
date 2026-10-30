@@ -214,9 +214,9 @@ starts normally.
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T031 [P] Check the finished clip path in the image in `scripts/docker_smoke.sh`
+- [x] T031 [P] Check the finished clip path in the image in `scripts/docker_smoke.sh`
   - Inside the image: `finalize_clip` turns a generated H.264+AAC clip into an MP4 with no audio stream and a thumbnail; `task docker:size` stays under 1.25 GB.
-- [ ] T032 [P] Document the tool in `README.md`, `.env.example` and `.claude/CLAUDE.md`
+- [x] T032 [P] Document the tool in `README.md`, `.env.example` and `.claude/CLAUDE.md`
   - README: tool section, `VIDEO_PROVIDERS`/`GEMINI_API_KEY`/`OMNI_MODEL`, cost per clip (≈ $0.10/s 720p, ≈ $0.15/s 1080p), prepaid billing and Tier 1 spend cap, provider retention and that VideoKit deletes each stored request, the endpoint-protection reminder; breaking change: `POST /api/jobs` replaced by `POST /api/tools/<id>/jobs`.
   - `.env.example`: placeholders only (`GEMINI_API_KEY=<your-api-key>`).
   - `CLAUDE.md`: tools list, layout (`core/videogen/`, `tools/video_generation/`, `frontend/src/tools/video-generation/`), architecture rules for tool-owned creation, lane width, restart behaviour, `enabled()`.
