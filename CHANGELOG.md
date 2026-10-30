@@ -19,7 +19,8 @@ GPU, no `--gpus` flag and no model cache. An install still set up for 0.3
 (`TRANSCRIBE_PROVIDERS=local`) refuses to start with a message saying what to change. Follow
 [Upgrading from 0.3](README.md#upgrading-from-03) before you update. Also fixed: an
 `OPENAI_BASE_URL`, `ANTHROPIC_BASE_URL` or `GOOGLE_GEMINI_BASE_URL` set in the environment can no
-longer send an API key to another host.
+longer send an API key to another host. Dependencies are up to date, including the Anthropic SDK 2.x
+and a certifi CA bundle without the compromised emSign root (PYSEC-2026-4320).
 
 ### Features
 
@@ -31,6 +32,8 @@ longer send an API key to another host.
 
 - fix: harden transcription address handling and failure logs ([f9df31f](https://github.com/toshik1978/videokit/commit/f9df31fce88830468dc1bc60c98155270feda61d))
 - fix: never let SDK base-URL env vars redirect provider keys ([fedc7cf](https://github.com/toshik1978/videokit/commit/fedc7cf28d66e39eecebe1c91e5091f1e441b90b))
+- fix: build role-specific Anthropic messages for SDK 2.x types ([8b88b6f](https://github.com/toshik1978/videokit/commit/8b88b6fe938267d2aaafa60b450f9249869aad36))
+- fix(deps): bump certifi to 2026.10.23 for PYSEC-2026-4320 ([8b24082](https://github.com/toshik1978/videokit/commit/8b240825467d2884718038d0bdd5c6778ae63414))
 
 ### Others
 
