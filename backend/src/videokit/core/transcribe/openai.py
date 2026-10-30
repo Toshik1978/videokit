@@ -7,11 +7,14 @@ import threading
 from pathlib import Path
 
 import openai
+from pydantic import SecretStr
 
-from videokit.core.config import Settings
+from videokit.core.config import Settings, is_openai_api
 from videokit.core.transcribe.base import AudioFiles, ProviderError, ProviderStatus, Segment, Transcript
 
 MAX_UPLOAD_BYTES = 24 * 1024 * 1024  # the API rejects uploads above 25 MB
+REQUEST_TIMEOUT_S = 1800  # a long upload on a slow or busy server must not be cut off at the SDK default
+SELF_HOSTED_PLACEHOLDER_KEY = "not-needed"  # the SDK refuses an empty key; servers without auth ignore it
 CHUNK_FILL = 0.9  # chunks are planned at 90 % of the limit to absorb bitrate variation
 
 # `verbose_json` returns the language as an English name ("english"), not an ISO 639-1 code. These are the
@@ -158,6 +161,11 @@ def _duration(path: Path) -> float:
     return duration
 
 
+def _secret(value: SecretStr | None) -> str | None:
+    text = value.get_secret_value().strip() if value is not None else ""
+    return text or None
+
+
 class OpenAITranscriber:
     """Uploads ``audio.mp3`` (split into time chunks above the upload limit) and restores the segment offsets."""
 
@@ -165,20 +173,32 @@ class OpenAITranscriber:
 
     def __init__(self, settings: Settings, client: openai.OpenAI | None = None) -> None:
         self.model = settings.openai_transcribe_model
-        self._api_key = settings.openai_api_key
+        self._url = (settings.openai_transcribe_url or "").strip()
+        self._self_hosted = not is_openai_api(self._url)
+        self._transcribe_key = _secret(settings.openai_transcribe_api_key)
+        self._openai_key = _secret(settings.openai_api_key)
         self._client = client
         self._lock = threading.Lock()
 
     def check(self) -> ProviderStatus:
-        if self._api_key is None or not self._api_key.get_secret_value().strip():
+        if self._self_hosted:
+            return ProviderStatus(ready=True, detail=f"model={self.model}, self-hosted")
+        if not (self._transcribe_key or self._openai_key):
             return ProviderStatus(ready=False, detail="missing OPENAI_API_KEY")
         return ProviderStatus(ready=True, detail=f"model={self.model}")
 
     def _sdk(self) -> openai.OpenAI:
         with self._lock:
             if self._client is None:
-                key = self._api_key.get_secret_value() if self._api_key is not None else None
-                self._client = openai.OpenAI(api_key=key)  # SDK default retries handle 429/5xx
+                if self._self_hosted:  # never send the operator's OpenAI key to another host
+                    key = self._transcribe_key or SELF_HOSTED_PLACEHOLDER_KEY
+                else:
+                    key = self._transcribe_key or self._openai_key or ""
+                # SDK default retries handle 429/5xx
+                if self._url:
+                    self._client = openai.OpenAI(api_key=key, base_url=self._url, timeout=REQUEST_TIMEOUT_S)
+                else:
+                    self._client = openai.OpenAI(api_key=key, timeout=REQUEST_TIMEOUT_S)
             return self._client
 
     def _upload(self, path: Path) -> tuple[list[Segment], float, str | None]:
@@ -228,4 +248,5 @@ class OpenAITranscriber:
             no_speech=not segments,
             provider=self.name,
             model=self.model,
+            self_hosted=self._self_hosted,
         )

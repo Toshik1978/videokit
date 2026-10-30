@@ -53,6 +53,7 @@ class Transcript:
     no_speech: bool
     provider: str  # name of the provider that produced it, e.g. "local"
     model: str = ""  # the model that produced it, e.g. "whisper-1" (prices cloud transcription)
+    self_hosted: bool = False  # produced by a self-hosted OpenAI-compatible server (free of charge)
 
 
 @runtime_checkable

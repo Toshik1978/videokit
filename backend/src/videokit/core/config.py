@@ -5,6 +5,7 @@ import os
 import re
 from pathlib import Path
 from typing import Annotated, Any
+from urllib.parse import urlparse
 
 from pydantic import SecretStr, ValidationError, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
@@ -33,6 +34,8 @@ class Settings(BaseSettings):
     whisper_model: str = "large-v3-turbo"
     whisper_device: str = "auto"
     openai_transcribe_model: str = "whisper-1"
+    openai_transcribe_url: str | None = None
+    openai_transcribe_api_key: SecretStr | None = None
     llm_providers: Annotated[list[str], NoDecode] = ["anthropic"]
     anthropic_api_key: SecretStr | None = None
     anthropic_model: str = "claude-opus-5-5"
@@ -86,6 +89,17 @@ def cuda_available() -> bool:
         return False
 
 
+def is_openai_api(url: str | None) -> bool:
+    """True when the transcription address is OpenAI's own API: empty, or host `api.openai.com`."""
+    if not url or not url.strip():
+        return True
+    try:
+        host = urlparse(url.strip()).hostname
+    except ValueError:  # malformed address: reported by validate(), never a crash
+        return False
+    return (host or "").lower() == "api.openai.com"
+
+
 def _has(secret: SecretStr | None) -> bool:
     return secret is not None and bool(secret.get_secret_value().strip())
 
@@ -116,10 +130,20 @@ def validate(settings: Settings) -> list[str]:
 
     if "anthropic" in settings.llm_providers and not _has(settings.anthropic_api_key):
         problems.append("ANTHROPIC_API_KEY is required when 'anthropic' is listed in LLM_PROVIDERS")
-    if ("openai" in settings.llm_providers or "openai" in settings.transcribe_providers) and not _has(
-        settings.openai_api_key
+    if "openai" in settings.llm_providers and not _has(settings.openai_api_key):
+        problems.append("OPENAI_API_KEY is required when 'openai' is listed in LLM_PROVIDERS")
+    url = (settings.openai_transcribe_url or "").strip()
+    if url and not url.lower().startswith(("http://", "https://")):
+        problems.append("OPENAI_TRANSCRIBE_URL must start with http:// or https://")
+    if (
+        "openai" in settings.transcribe_providers
+        and is_openai_api(url)
+        and not (_has(settings.openai_api_key) or _has(settings.openai_transcribe_api_key))
     ):
-        problems.append("OPENAI_API_KEY is required when 'openai' is listed in a providers variable")
+        problems.append(
+            "OPENAI_API_KEY or OPENAI_TRANSCRIBE_API_KEY is required when TRANSCRIBE_PROVIDERS lists 'openai' "
+            "without a self-hosted OPENAI_TRANSCRIBE_URL"
+        )
     if "omni" in settings.video_providers and not _has(settings.gemini_api_key):
         problems.append("GEMINI_API_KEY is required when 'omni' is listed in VIDEO_PROVIDERS")
     if "openai" in settings.llm_providers and not (settings.openai_model or "").strip():

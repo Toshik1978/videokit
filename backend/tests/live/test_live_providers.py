@@ -5,6 +5,7 @@ usable CUDA GPU. Fixtures are tiny to keep cost minimal. Nothing here prints key
 """
 
 import os
+import shutil
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
@@ -31,6 +32,9 @@ requires_openai_llm = pytest.mark.skipif(
     reason="OPENAI_API_KEY and OPENAI_MODEL not set",
 )
 requires_openai_key = pytest.mark.skipif(not os.environ.get("OPENAI_API_KEY"), reason="OPENAI_API_KEY not set")
+requires_self_hosted = pytest.mark.skipif(
+    not os.environ.get("OPENAI_TRANSCRIBE_URL"), reason="OPENAI_TRANSCRIBE_URL not set"
+)
 requires_cuda = pytest.mark.skipif(not cuda_available(), reason="no usable CUDA GPU")
 
 TRANSCRIPT = "[0:00] Welcome to a short demo of a tiny colorful clip.\n[0:03] Now the screen turns blue."
@@ -108,4 +112,34 @@ def test_local_whisper_on_cuda_handles_speech_free_clip(make_video: MakeVideo, t
     transcript = LocalWhisperTranscriber(settings).transcribe(_speech_free_audio(make_video, tmp_path))
     assert transcript.no_speech is True
     assert transcript.provider == "local"
+    assert transcript.audio_minutes > 0
+
+
+def _spoken_audio(tmp_path: Path) -> AudioFiles:
+    """A few seconds of synthesized English speech (needs espeak-ng on the host), as WAV and MP3."""
+    espeak = shutil.which("espeak-ng") or shutil.which("espeak")
+    if espeak is None:
+        pytest.skip("espeak-ng not installed (needed to generate a spoken fixture)")
+    speech = tmp_path / "speech.wav"
+    text = "Welcome to a short demo. Today we look at how a small video tool works. Thank you for watching."
+    subprocess.run([espeak, "-v", "en", "-s", "140", "-w", str(speech), text], check=True, capture_output=True)
+    wav, mp3 = tmp_path / "audio.wav", tmp_path / "audio.mp3"
+    for out, args in ((wav, ["-ar", "16000", "-ac", "1"]), (mp3, ["-ac", "1", "-b:a", "32k"])):
+        subprocess.run(
+            ["ffmpeg", "-v", "error", "-y", "-i", str(speech), *args, str(out)], check=True, capture_output=True
+        )
+    return AudioFiles(wav=wav, mp3=mp3)
+
+
+@requires_self_hosted
+def test_self_hosted_server_transcribes_speech(tmp_path: Path) -> None:
+    transcript = OpenAITranscriber(Settings()).transcribe(_spoken_audio(tmp_path))
+    assert transcript.self_hosted is True
+    assert transcript.provider == "openai"
+    assert transcript.no_speech is False
+    assert transcript.segments
+    starts = [seg.start for seg in transcript.segments]
+    assert starts == sorted(starts)
+    assert all(seg.end >= seg.start for seg in transcript.segments)
+    assert transcript.language == "en"
     assert transcript.audio_minutes > 0

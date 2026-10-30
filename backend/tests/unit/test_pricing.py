@@ -86,6 +86,38 @@ def test_local_transcription_is_free() -> None:
     assert transcription_cost(_transcript("local", "large-v3-turbo")) == 0.0
 
 
+def test_self_hosted_transcription_is_free_whatever_the_model_id() -> None:
+    hosted = Transcript(
+        language="en",
+        language_probability=1.0,
+        segments=[],
+        audio_minutes=30.0,
+        no_speech=True,
+        provider="openai",
+        model="whisper-1",
+        self_hosted=True,
+    )
+    assert transcription_cost(hosted) == 0.0
+    assert transcription_cost(hosted, {"whisper-1": {"per_minute": 0.5}}) == 0.0
+    unknown = Transcript(
+        language="en",
+        language_probability=1.0,
+        segments=[],
+        audio_minutes=2.0,
+        no_speech=True,
+        provider="openai",
+        model="some-server-model",
+        self_hosted=True,
+    )
+    assert transcription_cost(unknown) == 0.0
+
+
+def test_openai_transcription_is_still_priced_when_not_self_hosted() -> None:
+    cloud = _transcript("openai", "whisper-1")
+    assert cloud.self_hosted is False
+    assert transcription_cost(cloud) == pytest.approx(2.0 * 0.006)
+
+
 def test_cloud_transcription_is_priced_per_minute_of_its_model() -> None:
     assert transcription_cost(_transcript("openai", "whisper-1")) == pytest.approx(2.0 * 0.006)
     overrides = {"whisper-1": {"per_minute": 0.01}}

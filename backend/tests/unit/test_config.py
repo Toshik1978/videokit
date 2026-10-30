@@ -266,3 +266,64 @@ def test_polluted_host_environment_does_not_leak_into_tests() -> None:
     assert s.video_providers == []
     assert s.gemini_api_key is None
     assert s.omni_model == "gemini-omni-1.1-flash"
+
+
+def test_transcribe_settings_default_to_none() -> None:
+    s = Settings()
+    assert s.openai_transcribe_url is None
+    assert s.openai_transcribe_api_key is None
+
+
+def test_is_openai_api() -> None:
+    assert config.is_openai_api(None)
+    assert config.is_openai_api("")
+    assert config.is_openai_api("https://api.openai.com/v1")
+    assert not config.is_openai_api("http://whisper.example.com:8000/v1")
+    assert not config.is_openai_api("https://api.openai.com.example.com/v1")
+
+
+def test_transcribe_url_must_be_http(ok_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENAI_TRANSCRIBE_URL", "ftp://secret-host.example.com")
+    problems = validate(Settings())
+    assert "OPENAI_TRANSCRIBE_URL must start with http:// or https://" in problems
+    assert not any("secret-host" in p for p in problems)
+
+
+def test_self_hosted_transcription_needs_no_key(ok_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TRANSCRIBE_PROVIDERS", "openai")
+    monkeypatch.setenv("OPENAI_TRANSCRIBE_URL", "http://whisper.example.com:8000/v1")
+    assert not any("OPENAI" in p for p in validate(Settings()))
+
+
+def test_openai_api_address_needs_a_key(ok_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TRANSCRIBE_PROVIDERS", "openai")
+    monkeypatch.setenv("OPENAI_TRANSCRIBE_URL", "https://api.openai.com/v1")
+    expected = (
+        "OPENAI_API_KEY or OPENAI_TRANSCRIBE_API_KEY is required when TRANSCRIBE_PROVIDERS lists 'openai' "
+        "without a self-hosted OPENAI_TRANSCRIBE_URL"
+    )
+    assert expected in validate(Settings())
+    monkeypatch.setenv("OPENAI_TRANSCRIBE_API_KEY", "sk-tr-secret")
+    problems = validate(Settings())
+    assert not any("OPENAI" in p for p in problems)
+    assert not any("sk-tr-secret" in p for p in problems)
+
+
+def test_either_key_satisfies_openai_transcription(ok_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TRANSCRIBE_PROVIDERS", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-llm-secret")
+    assert not any("OPENAI" in p for p in validate(Settings()))
+
+
+def test_llm_openai_key_message_is_separate(ok_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LLM_PROVIDERS", "openai")
+    monkeypatch.setenv("OPENAI_MODEL", "m")
+    monkeypatch.setenv("OPENAI_TRANSCRIBE_API_KEY", "sk-tr-secret")
+    assert "OPENAI_API_KEY is required when 'openai' is listed in LLM_PROVIDERS" in validate(Settings())
+
+
+def test_malformed_transcribe_url_is_a_config_error_not_a_crash(ok_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    assert not config.is_openai_api("http://[bad")
+    monkeypatch.setenv("TRANSCRIBE_PROVIDERS", "openai")
+    monkeypatch.setenv("OPENAI_TRANSCRIBE_URL", "http://[bad")
+    assert validate(Settings()) == []

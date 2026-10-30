@@ -51,7 +51,10 @@ def estimate(usage: Usage, model: str, overrides: Mapping[str, Mapping[str, floa
 def transcription_cost(
     transcript: Transcript, overrides: Mapping[str, Mapping[str, float]] | None = None
 ) -> float | None:
-    """Cost of producing ``transcript``: 0 for local transcription, else its model's per-minute price (or ``None``)."""
-    if transcript.provider in FREE_TRANSCRIPTION_PROVIDERS:
+    """Cost of producing ``transcript``: 0 when self-hosted or local, else its model's per-minute price (or ``None``).
+
+    The address decides who pays (research T8), not the model id: a self-hosted server may call its model ``whisper-1``.
+    """
+    if transcript.self_hosted or transcript.provider in FREE_TRANSCRIPTION_PROVIDERS:
         return 0.0
     return estimate(Usage(audio_minutes=transcript.audio_minutes), transcript.model, overrides)

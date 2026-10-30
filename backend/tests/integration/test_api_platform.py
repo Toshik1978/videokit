@@ -139,6 +139,26 @@ def test_health(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     assert "sk-test-secret" not in response.text
 
 
+def test_health_shows_a_self_hosted_transcriber_without_its_address_or_key(
+    settings: Settings, tools_pkg: str, static_dir: Path
+) -> None:
+    hosted = settings.model_copy(
+        update={
+            "transcribe_providers": ["openai"],
+            "openai_api_key": None,
+            "openai_transcribe_url": "http://stt.example.com/v1",
+            "openai_transcribe_api_key": SecretStr("stt-test-secret"),
+        }
+    )
+    app = create_app(hosted, tools_package=tools_pkg, static_dir=static_dir)
+    with TestClient(app) as client:
+        response = client.get("/api/health")
+    expected = {"name": "openai", "ready": True, "detail": "model=whisper-1, self-hosted"}
+    assert response.json()["providers"]["transcription"] == [expected]
+    assert "example.com" not in response.text
+    assert "stt-test-secret" not in response.text
+
+
 def _fake_video_provider(monkeypatch: pytest.MonkeyPatch, **kwargs: Any) -> None:
     monkeypatch.setitem(providers_module.VIDEOS, "omni", lambda _settings: FakeVideoGenerator(name="omni", **kwargs))
 

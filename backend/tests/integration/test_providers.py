@@ -214,7 +214,8 @@ def test_missing_key_for_a_listed_provider_stops_startup(
     env.setenv("TRANSCRIBE_PROVIDERS", "openai")
     env.setenv("ANTHROPIC_API_KEY", PLACEHOLDER)
     assert _exit_lines(capsys) == [
-        "Configuration error: OPENAI_API_KEY is required when 'openai' is listed in a providers variable"
+        "Configuration error: OPENAI_API_KEY or OPENAI_TRANSCRIBE_API_KEY is required when TRANSCRIBE_PROVIDERS "
+        "lists 'openai' without a self-hosted OPENAI_TRANSCRIBE_URL"
     ]
 
 

@@ -169,4 +169,72 @@ def test_lazy_client_uses_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     assert created == []
     first = transcriber._sdk()
     assert transcriber._sdk() is first
-    assert created == [{"api_key": "test-key"}]
+    assert created == [{"api_key": "test-key", "timeout": 1800}]
+
+
+def _created(monkeypatch: pytest.MonkeyPatch, **overrides: Any) -> dict[str, Any]:
+    created: list[dict[str, Any]] = []
+
+    class FakeOpenAI:
+        def __init__(self, **kwargs: Any) -> None:
+            created.append(kwargs)
+
+    monkeypatch.setattr(openai, "OpenAI", FakeOpenAI)
+    OpenAITranscriber(_settings(**overrides))._sdk()
+    return created[0]
+
+
+def test_client_for_openai_prefers_transcribe_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    kwargs = _created(monkeypatch, openai_transcribe_api_key=SecretStr("t-key"))
+    assert kwargs == {"api_key": "t-key", "timeout": 1800}
+
+
+def test_client_for_openai_address_uses_openai_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    kwargs = _created(monkeypatch, openai_transcribe_url="https://api.openai.com/v1")
+    assert kwargs["api_key"] == "test-key"
+    assert kwargs["base_url"] == "https://api.openai.com/v1"
+
+
+def test_client_for_self_hosted_never_gets_openai_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    kwargs = _created(monkeypatch, openai_transcribe_url="http://stt.example.com:8000/v1")
+    assert kwargs["base_url"] == "http://stt.example.com:8000/v1"
+    assert kwargs["timeout"] == 1800
+    assert kwargs["api_key"] != "test-key"
+    assert kwargs["api_key"]  # a fixed placeholder: the SDK refuses an empty key
+
+
+def test_client_for_self_hosted_uses_transcribe_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    kwargs = _created(
+        monkeypatch, openai_transcribe_url="http://stt.example.com/v1", openai_transcribe_api_key=SecretStr("t-key")
+    )
+    assert kwargs["api_key"] == "t-key"
+
+
+def test_self_hosted_transcript_flag(tmp_path: Path) -> None:
+    audio = _audio(tmp_path)
+    audio.mp3.write_bytes(b"x" * 100)
+    hosted = OpenAITranscriber(
+        _settings(openai_transcribe_url="http://stt.example.com/v1"),
+        client=_client(_verbose([_seg(0.0, 1.0, "hi")])),
+    ).transcribe(audio)
+    assert hosted.self_hosted is True
+    assert (hosted.provider, hosted.model) == ("openai", "whisper-1")
+    cloud = OpenAITranscriber(_settings(), client=_client(_verbose([_seg(0.0, 1.0, "hi")]))).transcribe(audio)
+    assert cloud.self_hosted is False
+
+
+def test_check_self_hosted_needs_no_key_and_hides_address() -> None:
+    settings = _settings(openai_api_key=None, openai_transcribe_url="http://stt.example.com/v1")
+    status = OpenAITranscriber(settings).check()
+    assert status == ProviderStatus(ready=True, detail="model=whisper-1, self-hosted")
+    assert "example.com" not in status.detail
+
+
+def test_check_openai_address_without_key_is_missing() -> None:
+    settings = _settings(openai_api_key=None, openai_transcribe_url="https://api.openai.com/v1")
+    assert OpenAITranscriber(settings).check() == ProviderStatus(ready=False, detail="missing OPENAI_API_KEY")
+
+
+def test_check_openai_accepts_transcribe_key_only() -> None:
+    settings = _settings(openai_api_key=None, openai_transcribe_api_key=SecretStr("t-key"))
+    assert OpenAITranscriber(settings).check().ready is True

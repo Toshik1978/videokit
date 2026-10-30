@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+import openai
 import pytest
 import uvicorn
 from fastapi import FastAPI
@@ -35,6 +36,7 @@ from videokit.core.config import Settings
 from videokit.core.jobs import JobStore
 from videokit.core.llm import LLMChain, ProviderError
 from videokit.core.transcribe import Segment, TranscriberChain
+from videokit.core.transcribe.openai import OpenAITranscriber
 from videokit.core.videogen import PollResult, Usage, VideoChain, VideoError
 from videokit.core.worker import Providers, Worker
 from videokit.main import create_app
@@ -186,6 +188,58 @@ def test_full_run_logs_no_transcript_frames_hints_or_keys(
         forbidden += [base64.b64encode(jpeg).decode(), base64.b64encode(jpeg[63:159]).decode(), repr(jpeg[:64])[2:-1]]
     leaks = [s[:40] for s in forbidden if s in log]
     assert leaks == [], f"secrets or private data in the logs: {leaks}"
+
+
+SERVER_URL = "http://whisper.example.com:8000/v1"
+SERVER_KEY = "sk-test-loghygiene-server-key-8c1p"
+
+
+class _FailingTranscriptions:
+    def create(self, **_: Any) -> Any:
+        request = httpx.Request("POST", f"{SERVER_URL}/audio/transcriptions")
+        raise openai.APIConnectionError(
+            message=f"cannot reach {SERVER_URL} with key {SERVER_KEY} / {OPENAI_KEY}",
+            request=request,  # type: ignore[arg-type]
+        )
+
+
+class _FailingClient:
+    class audio:  # noqa: N801 - mirrors the SDK attribute path
+        transcriptions = _FailingTranscriptions()
+
+
+@needs_ffmpeg
+def test_self_hosted_transcription_logs_and_exposes_no_address_key_or_server_message(
+    tmp_path: Path, make_video: MakeVideo, captured: Capture
+) -> None:
+    settings = Settings(
+        data_dir=tmp_path / "data",
+        anthropic_api_key=SecretStr(ANTHROPIC_KEY),
+        openai_api_key=SecretStr(OPENAI_KEY),
+        openai_transcribe_url=SERVER_URL,
+        openai_transcribe_api_key=SecretStr(SERVER_KEY),
+        log_level="DEBUG",
+        max_upload_gb=1,
+    )
+    remote = OpenAITranscriber(settings, client=_FailingClient())  # type: ignore[arg-type]
+    providers = Providers(
+        transcriber=TranscriberChain([remote, FakeTranscriber(name="local")]),
+        llm=LLMChain([FakeLLM([RESULT])]),
+    )
+    data = make_video(audio=True, colors=("red", "blue"), segment_s=12.0).read_bytes()
+
+    with TestClient(create_app(settings, providers, static_dir=tmp_path / "static")) as client:
+        job_id = client.post("/api/tools/youtube_prep/jobs", json={"size": len(data)}).json()["job_id"]
+        assert client.patch(f"/api/uploads/{job_id}", content=data, headers=TUS_PATCH).status_code == 204
+        job = _wait_done(client, job_id)
+        health = client.get("/api/health")
+
+    assert job["state"] == "done"
+    log = "\n".join(captured.lines)
+    assert "Transcription provider openai failed (ProviderError)" in log
+    exposed = log + health.text + str(job)
+    leaks = [s for s in (SERVER_URL, SERVER_KEY, OPENAI_KEY, "whisper.example.com") if s in exposed]
+    assert leaks == [], f"address or keys exposed: {leaks}"
 
 
 def _quiet_app(tmp_path: Path) -> FastAPI:
