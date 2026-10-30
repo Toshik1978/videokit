@@ -5,6 +5,7 @@ import json
 import sqlite3
 import subprocess
 import sys
+import threading
 import time
 from collections.abc import Callable, Iterator
 from contextlib import closing
@@ -13,6 +14,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
@@ -24,6 +26,7 @@ from videokit.core.config import Settings
 from videokit.core.jobs import Job, JobState, JobStore
 from videokit.core.llm import LLMChain
 from videokit.core.llm.base import Usage
+from videokit.core.media import MediaService
 from videokit.core.transcribe import TranscriberChain
 from videokit.core.videogen import PollResult, VideoChain, VideoError
 from videokit.core.worker import Providers
@@ -443,7 +446,10 @@ def test_a_failed_generation_does_not_forget_or_leave_a_clip(tmp_path: Path) -> 
     fake = FakeVideoGenerator(model=FAKE_MODEL, polls=[VideoError("video_failed")])
     with _client(tmp_path, fake) as client:
         job = _wait(client, _submit(client), JobState.FAILED, JobState.DONE)
-        assert not (_store(client).job_dir(job.id) / "result.json").exists()
+        job_dir = _store(client).job_dir(job.id)
+        assert not (job_dir / "result.json").exists()
+        assert not (job_dir / "clip.mp4").exists()
+    assert fake.forgotten == []
 
 
 # --- cancel ---------------------------------------------------------------------------------------------------
@@ -654,6 +660,116 @@ def test_a_resumed_job_can_be_cancelled(tmp_path: Path) -> None:
     assert after.cancelled == ["op-A"]
 
 
+def _wait_for(condition: Callable[[], bool], what: str) -> None:
+    deadline = time.monotonic() + 15
+    while not condition():
+        assert time.monotonic() < deadline, what
+        time.sleep(0.005)
+
+
+def _stop_while_forgetting(tmp_path: Path) -> tuple[str, dict[str, Any]]:
+    """A job whose run stopped after `result.json`, while the stored interaction was being deleted; its usage."""
+
+    class Dying(FakeVideoGenerator):
+        def forget(self, ref: str) -> None:
+            super().forget(ref)
+            raise _Crash  # the delete went out, then the process died before the job was marked done
+
+    before = Dying(model=FAKE_MODEL, submits=["op-A"])
+    with _client(tmp_path, before) as client:
+        job_id = _submit(client, duration_s=8, resolution="1080p")
+        _wait_for(lambda: before.forgotten == ["op-A"], "the job never finished its clip")
+        charged = _job(client, job_id).usage
+        assert _job(client, job_id).state is JobState.GENERATING
+    assert charged["video_output_tokens"] == 8 * 8688
+    return job_id, charged
+
+
+def test_a_restart_after_the_clip_was_finished_completes_the_job_without_polling_or_charging_again(
+    tmp_path: Path,
+) -> None:
+    """The server stopped after `result.json` and while the stored interaction was being deleted: the clip exists
+    and is paid for, so the job ends done; polling again would find the interaction gone (a 404, `video_failed`)."""
+    job_id, charged = _stop_while_forgetting(tmp_path)
+
+    after = FakeVideoGenerator(model=FAKE_MODEL, polls=[VideoError("video_failed")])  # the interaction is deleted
+    with _client(tmp_path, after) as client:
+        job = _wait(client, job_id, JobState.DONE, JobState.FAILED)
+        assert job.state is JobState.DONE
+        assert _json(client, job_id, "result.json")["file"] == "clip.mp4"
+        assert client.get(f"/api/tools/video_generation/jobs/{job_id}/clip").status_code == 200
+    assert after.submit_count == 0
+    assert after.poll_refs == []  # nothing left to poll
+    assert after.forgotten == ["op-A"]  # the delete is retried, best-effort
+    assert job.usage == charged  # counted once
+
+
+def test_a_finished_clip_with_an_unreadable_operation_still_completes_without_a_provider_call(tmp_path: Path) -> None:
+    job_id, charged = _stop_while_forgetting(tmp_path)
+    (tmp_path / "data" / "jobs" / job_id / "operation.json").write_text("not json", encoding="utf-8")
+
+    after = FakeVideoGenerator(model=FAKE_MODEL, polls=[])
+    with _client(tmp_path, after) as client:
+        job = _wait(client, job_id, JobState.DONE, JobState.FAILED)
+    assert job.state is JobState.DONE
+    assert (after.submit_count, after.poll_refs, after.forgotten) == (0, [], [])
+    assert job.usage == charged
+
+
+def test_a_restart_after_the_charge_but_before_the_result_finalizes_without_charging_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The server stopped while the paid clip was being finalized: the next run collects it again but does not add
+    its usage a second time."""
+    finalizing = threading.Event()
+
+    def dying(self: MediaService, raw: Path, job_dir: Path) -> None:
+        finalizing.set()
+        raise _Crash
+
+    real = MediaService.finalize_clip
+    monkeypatch.setattr(MediaService, "finalize_clip", dying)
+    before = FakeVideoGenerator(model=FAKE_MODEL, submits=["op-A"])
+    with _client(tmp_path, before) as client:
+        job_id = _submit(client, duration_s=8, resolution="1080p")
+        _wait_for(finalizing.is_set, "the job never reached finalizing")
+        charged = _job(client, job_id).usage
+        assert _job(client, job_id).state is JobState.GENERATING
+    assert charged["video_output_tokens"] == 8 * 8688
+    monkeypatch.setattr(MediaService, "finalize_clip", real)
+
+    after = FakeVideoGenerator(model=FAKE_MODEL)  # reports no usage: the estimate would be added again
+    with _client(tmp_path, after) as client:
+        job = _wait(client, job_id, JobState.DONE, JobState.FAILED)
+        assert job.state is JobState.DONE
+        assert (_store(client).job_dir(job_id) / "clip.mp4").is_file()
+    assert after.submit_count == 0
+    assert after.poll_refs == ["op-A"]
+    assert after.forgotten == ["op-A"]
+    assert job.usage == charged  # counted once
+
+
+# --- creation interrupted (research V1) -----------------------------------------------------------------------
+
+
+def test_a_creation_left_uploading_by_a_stop_is_discarded_at_startup_and_never_generated(tmp_path: Path) -> None:
+    """The process died after the inputs were stored but before the job was queued: no client ever received this
+    job's id (the 201 is sent after queueing), so generating it would be a paid clip nobody can find."""
+    config = Settings(data_dir=tmp_path / "data")
+    store = JobStore(config.data_dir, config.job_ttl_hours, config.max_upload_bytes)
+    orphan = store.create("video_generation", 0)
+    fields = CreationInputs(PROMPT, 8, "9:16", "1080p")
+    store_inputs(store.job_dir(orphan.id), MediaService(config), fields, [])
+    assert (store.job_dir(orphan.id) / "inputs.json").is_file()
+
+    fake = FakeVideoGenerator(model=FAKE_MODEL)
+    with _client(tmp_path, fake) as client:
+        assert _store(client).get(orphan.id) is None
+        assert not _store(client).job_dir(orphan.id).exists()
+        time.sleep(0.1)  # a queued job would have been claimed by now
+    assert fake.submit_count == 0
+
+
 # --- creation route -------------------------------------------------------------------------------------------
 
 OMNI_CAPS = replace(CAPABILITIES, max_pictures=7)  # what the Omni adapter reports
@@ -820,6 +936,50 @@ def test_an_unexpected_storage_failure_discards_the_job(omni: TestClient, monkey
     r = omni.post(CREATE, data=FORM, files=_picture_files(b"\xff\xd8\xff" + b"\x00" * 64))
     assert r.status_code == 500
     assert "secret" not in r.text
+    _nothing_left(omni)
+
+
+def test_an_interrupted_creation_request_discards_the_job(omni: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A cancelled request (`CancelledError` is a `BaseException`) must not leave an `uploading` job behind."""
+
+    def interrupted(*_: Any, **__: Any) -> None:
+        raise _Crash
+
+    monkeypatch.setattr(omni.app.state.job_access.ctx.media, "normalize_picture", interrupted)  # type: ignore[attr-defined]
+    request = httpx.Request(
+        "POST", f"http://testserver{CREATE}", data=FORM, files=_picture_files(b"\xff\xd8\xff" + b"\x00" * 64)
+    )
+    body = request.read()
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "http",
+        "path": CREATE,
+        "raw_path": CREATE.encode(),
+        "query_string": b"",
+        "root_path": "",
+        "headers": [(k.lower().encode(), v.encode()) for k, v in request.headers.items()],
+        "client": ("testclient", 5000),
+        "server": ("testserver", 80),
+    }
+    raised: list[BaseException] = []
+
+    async def receive() -> dict[str, Any]:
+        return {"type": "http.request", "body": body, "more_body": False}
+
+    async def send(_message: dict[str, Any]) -> None:
+        pass
+
+    async def run() -> None:
+        try:
+            await omni.app(scope, receive, send)  # type: ignore[arg-type]
+        except _Crash as exc:  # caught here: a BaseException escaping into the portal would stop it
+            raised.append(exc)
+
+    omni.portal.call(run)  # type: ignore[union-attr]
+    assert len(raised) == 1
     _nothing_left(omni)
 
 

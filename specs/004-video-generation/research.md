@@ -25,17 +25,23 @@ Provider facts were checked against Google's official documentation on 2026-10-2
   tool inputs (`inputs: [video]`, `[images, text]`) — core must learn every input kind, so each new
   kind is a core change; (c) pictures bundled through the existing tus upload — the video probe
   rejects them and a format quirk hides in a generic path; (d) a new `preparing` state for
-  upload-less jobs — `uploading` with `upload_length = 0` already means "inputs not complete" and
-  the restart re-fire of finished uploads (`finished_uploads`) covers a crash between writing inputs
-  and queueing.
+  upload-less jobs — `uploading` with `upload_length = 0` already means "inputs not complete".
+- **Interrupted creation** (final review): the restart re-fire of finished uploads
+  (`finished_uploads`) covers only tus uploads (`upload_length > 0`), whose client already holds the
+  job id. A tool-owned creation answers with the id only after the job is queued, so a job still
+  `uploading` with `upload_length = 0` at startup was never acknowledged to anyone: startup deletes
+  it with its directory (`JobStore.discard_abandoned_creations`) instead of queueing paid work no one
+  can find, and the creation route discards the job on any interruption, a cancelled request
+  included.
 
 ## V2. Provider: Gemini Omni 1.1 Flash via the Interactions API
 
 - **Decision**: Model `gemini-omni-1.1-flash` (GA on the Gemini API since 2026-08-27, paid tier
   only) through the official `google-genai` SDK (`>=2.28`, the first release that knows the model;
   current 2.34). Requests use `client.interactions.create(model=…, input=[text, images…],
-  response_format={"type": "video", "aspect_ratio": …, "resolution": …, "duration": …},
-  background=True, store=True)`; the returned interaction `id` is the provider reference.
+  response_format={"type": "video", "aspect_ratio": …, "resolution": …, "duration": …,
+  "delivery": …}, background=True, store=True)`; the returned interaction `id` is the provider
+  reference.
   Configuration: `VIDEO_PROVIDERS` (default empty; allowed `omni`), `GEMINI_API_KEY`,
   `OMNI_MODEL` (default `gemini-omni-1.1-flash`). `check()` is local only — key present, model
   named — like the Anthropic provider; `models.get` is free but a network call on every
@@ -51,6 +57,18 @@ Provider facts were checked against Google's official documentation on 2026-10-2
   (~15 MB), `requests`, `tenacity`, `pyasn1`, `distro` (`httpx`, `pydantic`, `anyio`, `websockets`
   are already locked). The `local-tokenizer` extra (torch) MUST NOT be installed. The image size
   guard (`task docker:size`, 1.25 GB) stays the gate.
+- **Delivery** (final review, 2026-10-30): Google's Omni page advises `delivery="uri"` for videos
+  larger than 4 MB (above 720p). The adapter asks for `inline` (base64 in the interaction) at 720p
+  and `uri` at 1080p, the form's default. `poll` accepts either: inline data is decoded; a URI is
+  downloaded inside `omni.py` with `httpx` (the SDK offers no download for interaction outputs, and
+  `files.download` expects Files API names), the API key attached only for `https` hosts under
+  `googleapis.com` and re-checked on every redirect hop, streamed to `raw.mp4.part` and renamed to
+  `raw.mp4`, the same contract as inline. A failed or empty download is `provider_unavailable`,
+  which the tool treats as transient: the stored interaction is polled and downloaded again until
+  the wait cap. A completed interaction with neither data nor URI is `video_failed`.
+  **Live-verify**: the 1080p path (the URI's form, whether the file needs time to become available,
+  the key handling) is unexercised until the live run (quickstart section 3 adds a 10 s 1080p case);
+  inline delivery at 720p is likewise unconfirmed live.
 - **SDK gotcha**: `interactions.*` raises `google.genai._interactions.APIStatusError` subclasses
   (`BadRequestError`, `RateLimitError`, `PermissionDeniedError`, …) which are *not*
   `google.genai.errors.APIError`; the adapter catches both families and maps by HTTP status and
@@ -64,7 +82,12 @@ Provider facts were checked against Google's official documentation on 2026-10-2
   `operation.json` `{provider, ref}` atomically right after the provider accepted. On a re-run:
   `operation.json` present → poll it; only `submit.json` → fail `resume_impossible` (a request may
   have been accepted; never resubmit); neither → fresh submit. Lanes re-run resumable jobs found in
-  a running state before taking queued ones.
+  a running state before taking queued ones. After the provider finished (final review): a re-run
+  that finds `result.json` naming a clip on disk finishes the job without polling (the stored
+  interaction may already be deleted, and a poll would fail a paid clip) and only retries the
+  delete; the usage is added once, guarded by `charged.json` written right after it, so a restart
+  while the clip is finalized does not double the cost. The remaining window is one SQLite commit
+  plus one rename.
 - **Rationale**: Stored interactions are kept 55 days on the paid tier (operator may shorten to
   7/14/28 days in AI Studio), so polling by id after hours is supported. The two-file protocol
   makes "maybe charged" detectable without a provider-side idempotency key (none is documented).
@@ -103,7 +126,8 @@ Provider facts were checked against Google's official documentation on 2026-10-2
   The prompt gets no audio wording; instead `MediaService.finalize_clip` writes `clip.mp4` with
   `ffmpeg -i raw -map 0:v:0 -an -sn -dn -map_metadata -1 -c:v copy -movflags +faststart` (re-encode
   with libx264 only if the stream is not H.264), probes the actual duration/size, and grabs
-  `thumbnail.jpg` (frame at 0.5 s, ≤ 480 px). After a successful download the tool deletes the
+  `thumbnail.jpg` (frame at 0.5 s, ≤ 480 px). The raw clip reaches the job directory inline or as
+  a URI download, by resolution (V2). After a successful download the tool deletes the
   stored interaction (`interactions.delete`, best-effort) so Google does not keep the prompt and
   pictures for the retention window.
 - **Rationale**: Audio removal must be guaranteed (SC-002), so it is done locally; copy keeps it
@@ -165,6 +189,10 @@ Provider facts were checked against Google's official documentation on 2026-10-2
   (`"8s"` vs `"8"`) is undocumented — **live-verify** before release; the adapter owns the format
   (`omni._duration`, currently `"<n>s"`; `tests/live/test_omni_live.py` fails at submit if it is rejected).
   If a value is rejected, `capabilities().durations_s` narrows the list and the form follows it.
+  Google's Omni page lists no `duration` field in `response_format` (it steers length through the
+  prompt), but the installed SDK (`google-genai` 2.34) declares `duration: str` on the interactions
+  `VideoResponseFormat`, so the adapter keeps sending it and the live run decides. 1080p clips come
+  as a URI (V2); that path, at 10 s, awaits the same live run.
 - **Rationale**: Matches the spec range; the form reads the list from `/options`, so a provider
   limit never needs a frontend change.
 

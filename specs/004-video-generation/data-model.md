@@ -36,6 +36,8 @@ uploading ──inputs complete + tool accepts──▶ queued ──▶ <tool s
 | `pictures/<n>.jpg` | creation route | normalized picture `n` (1-based): JPEG, metadata stripped, long side ≤ 2048 px (V7) |
 | `submit.json` | `run`, atomically, **before** calling the provider | `{started_at}` — marks "a request may be in flight" |
 | `operation.json` | `run`, atomically, right after the provider accepted | `{provider, ref, submitted_at}` — the provider's reference (Omni: the stored interaction id, V2/V3) |
+| `raw.mp4` | the provider adapter, as `raw.mp4.part` then renamed | the clip as delivered: inline bytes (720p) or the download of the delivery URI (1080p) (V2) |
+| `charged.json` | `run`, atomically, right after the clip's usage was added | `{charged_at}`: the usage is never added twice (V3) |
 | `clip.mp4` | `run` | final clip: H.264 MP4, no audio track, `+faststart` (V6) |
 | `thumbnail.jpg` | `run` | first-second frame of the clip, ≤ 480 px long side |
 | `result.json` | `run`, atomically, last | `{file, thumbnail, download_name, duration_s, width, height, aspect_ratio, resolution, size_bytes}` |
@@ -55,9 +57,14 @@ Validation rules (enforced in the creation route; the form mirrors them):
 
 | On `run` the job dir has … | Action |
 |----------------------------|--------|
+| `result.json` naming a clip on disk | finish the job: delete the stored operation (best-effort), never poll or charge again |
 | neither `submit.json` nor `operation.json` | write `submit.json`, submit, write `operation.json`, poll |
 | `operation.json` | poll that operation (resume); never submit again |
 | `submit.json` only | fail `resume_impossible` — a request may have been accepted, so resubmitting could charge twice |
+
+A collected clip adds its usage only while `charged.json` is absent, so a resume that collects it
+again does not charge twice. A job still `uploading` with `upload_length = 0` at startup is deleted
+with its directory (V1).
 
 ## Recent clip entry (device only, `localStorage`)
 

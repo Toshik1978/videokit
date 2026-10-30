@@ -1,5 +1,9 @@
 """Gemini Omni through the Interactions API of the Gemini SDK (research V2, V8, V9, V10).
 
+A 720p clip is delivered inline (base64 in the interaction); a 1080p clip, which typically passes the 4 MB Google
+advises for inline delivery, as a URI that is downloaded here with the API key (research V2). Both end up as
+``raw.mp4`` in the job directory.
+
 ``interactions.*`` raises the ``google.genai._interactions`` error family (status-code subclasses that are *not*
 ``google.genai.errors.APIError``); other SDK paths raise the latter. Both are mapped to a user-safe ``VideoError``
 code from the HTTP status and the error ``code``/``status``. Provider messages are inspected only to tell an
@@ -13,11 +17,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import httpx
 from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types as genai_types
 from google.genai._interactions import APIError as InteractionsAPIError
-from google.genai.interactions import Interaction, ModalityTokens
+from google.genai.interactions import Interaction, ModalityTokens, VideoContent
 
 from videokit.core.config import Settings
 from videokit.core.videogen.base import (
@@ -46,11 +51,20 @@ _CREDIT_CODES = ("payment_required", "quota_exceeded", "failed_precondition")
 _PICTURE_WORDS = ("image", "picture")
 _NESTED_KEYS = ("error", "errors", "details")
 _CODE_KEYS = ("code", "status", "type", "reason")
+_INLINE_RESOLUTIONS = frozenset({"720p"})  # larger clips are delivered as a URI (Google: inline up to 4 MB)
+_KEY_HEADER = "x-goog-api-key"
+_KEY_DOMAIN = "googleapis.com"  # the key goes only to Google API hosts, never to a redirect target elsewhere
+_DOWNLOAD_TIMEOUT = httpx.Timeout(30.0, read=120.0)
+_DOWNLOAD_CHUNK = 1024 * 1024
 
 
 def _duration(seconds: int) -> str:
     """The ``duration`` string of ``response_format``; its exact format ("8s" vs "8") is live-verified (V9)."""
     return f"{seconds}s"
+
+
+class _EmptyDownload(Exception):
+    """The delivery URI answered with no bytes."""
 
 
 @dataclass(frozen=True)
@@ -137,12 +151,21 @@ def _decode(data: str | None) -> bytes | None:
         return None
 
 
+def _delivery(resolution: str) -> str:
+    return "inline" if resolution in _INLINE_RESOLUTIONS else "uri"
+
+
 def _write(out_dir: Path, data: bytes) -> Path:
     target = out_dir / "raw.mp4"
     partial = out_dir / "raw.mp4.part"
     partial.write_bytes(data)
     partial.replace(target)
     return target
+
+
+def _google_host(url: httpx.URL) -> bool:
+    host = url.host.lower()
+    return url.scheme == "https" and (host == _KEY_DOMAIN or host.endswith(f".{_KEY_DOMAIN}"))
 
 
 def _usage(interaction: Interaction, derive_for: _Requested | None) -> Usage:
@@ -171,13 +194,17 @@ class OmniProvider:
         client: genai.Client | None = None,
         *,
         http_options: genai_types.HttpOptions | None = None,
+        download_transport: httpx.BaseTransport | None = None,
     ) -> None:
-        """``client`` replaces both SDK clients (tests); ``http_options`` feeds the ones built lazily (tests)."""
+        """``client`` replaces both SDK clients (tests); ``http_options`` feeds the ones built lazily (tests);
+        ``download_transport`` carries the clip downloads (tests)."""
         self.model = settings.omni_model
         self._api_key = settings.gemini_api_key
         self._client = client
         self._create_client = client
         self._http_options = http_options
+        self._download_transport = download_transport
+        self._downloader: httpx.Client | None = None
         self._lock = threading.Lock()
         self._requested: dict[str, _Requested] = {}
 
@@ -234,7 +261,7 @@ class OmniProvider:
                 "aspect_ratio": req.aspect_ratio,
                 "resolution": req.resolution,
                 "duration": _duration(req.duration_s),
-                "delivery": "inline",  # the clip arrives as base64 in the response, not as a URI to fetch
+                "delivery": _delivery(req.resolution),  # inline base64 at 720p, a URI to download above
             },
             "background": True,
             "store": True,
@@ -260,16 +287,63 @@ class OmniProvider:
         if interaction.status not in _FAILED | {"completed"}:  # still running (or a status this adapter does not know)
             return PollResult(done=False, video=None, usage=Usage(), error=None)
 
+        output = interaction.output_video if interaction.status == "completed" else None
+        video = self._collect(output, out_dir)  # a failed download raises; the request is kept for the next poll
         with self._lock:
             requested = self._requested.pop(ref, None)
-        output = interaction.output_video if interaction.status == "completed" else None
-        clip = _decode(output.data if output else None)
-        if clip:
-            return PollResult(done=True, video=_write(out_dir, clip), usage=_usage(interaction, requested), error=None)
+        if video is not None:
+            return PollResult(done=True, video=video, usage=_usage(interaction, requested), error=None)
 
         code = _from_codes(_interaction_codes(interaction)) or "video_failed"
         logger.warning("Omni interaction ended without a clip (%s: %s)", interaction.status, code)
         return PollResult(done=True, video=None, usage=_usage(interaction, None), error=VideoError(code))
+
+    def _collect(self, output: VideoContent | None, out_dir: Path) -> Path | None:
+        """``raw.mp4`` from inline data or else the delivery URI; None when the interaction carries neither."""
+        clip = _decode(output.data if output else None)
+        if clip:
+            return _write(out_dir, clip)
+        if output is not None and output.uri:
+            return self._download(output.uri, out_dir)
+        return None
+
+    def _http(self) -> httpx.Client:
+        with self._lock:
+            if self._downloader is None:
+                self._downloader = httpx.Client(
+                    transport=self._download_transport,
+                    timeout=_DOWNLOAD_TIMEOUT,
+                    follow_redirects=True,
+                    event_hooks={"request": [self._authorize]},
+                )
+            return self._downloader
+
+    def _authorize(self, request: httpx.Request) -> None:
+        """Runs for every hop, redirects included: the key is attached for Google API hosts and removed elsewhere."""
+        if self._api_key is not None and _google_host(request.url):
+            request.headers[_KEY_HEADER] = self._api_key.get_secret_value()
+        else:
+            request.headers.pop(_KEY_HEADER, None)
+
+    def _download(self, uri: str, out_dir: Path) -> Path:
+        """Stream the clip into ``raw.mp4.part``, then rename. Any failure is ``provider_unavailable``: the
+        interaction stays stored, so the next poll downloads it again (the tool's wait cap still applies)."""
+        target = out_dir / "raw.mp4"
+        partial = out_dir / "raw.mp4.part"
+        try:
+            with self._http().stream("GET", uri) as response, partial.open("wb") as file:
+                response.raise_for_status()
+                for chunk in response.iter_bytes(_DOWNLOAD_CHUNK):
+                    file.write(chunk)
+            if partial.stat().st_size == 0:
+                raise _EmptyDownload
+            partial.replace(target)
+        except (httpx.HTTPError, httpx.InvalidURL, _EmptyDownload) as exc:
+            logger.warning("Omni clip download failed (%s)", type(exc).__name__)
+            raise VideoError("provider_unavailable") from None
+        finally:
+            partial.unlink(missing_ok=True)  # gone after the rename; a leftover of any failure otherwise
+        return target
 
     def cancel(self, ref: str) -> None:
         self._best_effort("cancel", ref)

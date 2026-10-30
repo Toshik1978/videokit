@@ -121,7 +121,35 @@ def test_create_rejects_bad_length(store: JobStore) -> None:
 def test_create_accepts_zero_length_for_tools_without_an_upload(store: JobStore) -> None:
     job = store.create("t", 0)
     assert (job.state, job.upload_length, job.upload_offset) == (JobState.UPLOADING, 0, 0)
-    assert store.finished_uploads() == [job.id]
+
+
+def test_finished_uploads_leave_out_jobs_without_an_upload(store: JobStore) -> None:
+    """A tool-owned creation is completed inside its creation request, never by the startup re-fire (research V1)."""
+    store.create("t", 0)
+    uploaded = store.create("t", 4)
+    store.set_upload_offset(uploaded.id, 4)
+    assert store.finished_uploads() == [uploaded.id]
+
+
+def test_abandoned_creations_are_deleted_with_their_directories(store: JobStore) -> None:
+    """`uploading` jobs without an upload were never acknowledged to a client: rows and files go (research V1)."""
+    abandoned = store.create("t", 0)
+    abandoned_dir = store.job_dir(abandoned.id)
+    (abandoned_dir / "pictures").mkdir(parents=True)
+    (abandoned_dir / "inputs.json").write_text("{}", encoding="utf-8")
+    without_dir = store.create("t", 0)
+    uploading = store.create("t", 4)
+    queued = store.create("t", 0)
+    store.set_state(queued.id, JobState.QUEUED)
+
+    assert store.discard_abandoned_creations() == 2
+
+    assert store.get(abandoned.id) is None
+    assert not abandoned_dir.exists()
+    assert store.get(without_dir.id) is None
+    assert store.get(uploading.id) is not None  # a tus upload: its client holds the id and may resume it
+    assert store.get(queued.id) is not None
+    assert store.discard_abandoned_creations() == 0
 
 
 def test_get_missing_is_none_and_set_state_missing_raises(store: JobStore) -> None:

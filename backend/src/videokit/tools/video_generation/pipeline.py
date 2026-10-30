@@ -36,6 +36,7 @@ logger = logging.getLogger("videokit")
 SUBMIT_JSON = "submit.json"
 OPERATION_JSON = "operation.json"
 RESULT_JSON = "result.json"
+CHARGED_JSON = "charged.json"
 POLL_INTERVAL_S = 10.0
 WAIT_CAP_S = 20 * 60.0
 
@@ -164,13 +165,42 @@ async def _wait(job: JobHandle, video: VideoChain, accepted: Accepted, waited_s:
 def _charge(
     job: JobHandle, ctx: CoreContext, video: VideoChain, accepted: Accepted, stored: StoredInputs, reported: Usage
 ) -> None:
-    """Add the clip's usage and cost. A provider that reports no video tokens (e.g. polled again after a restart)
-    is billed at the documented rate for the stored inputs."""
+    """Add the clip's usage and cost, once: `charged.json` marks it done, so a run resumed after a restart that
+    collects the clip again does not add it a second time. A provider that reports no video tokens (e.g. polled
+    again after a restart) is billed at the documented rate for the stored inputs."""
+    marker = job.dir / CHARGED_JSON
+    if marker.exists():
+        return
     usage = reported
     if usage.video_output_tokens == 0:
         usage = estimated_usage(stored.fields, len(stored.pictures), video.capabilities())
     model = accepted.provider.partition(":")[2]
     job.add_usage(usage, estimate(usage, model, ctx.settings.pricing_overrides))
+    _write_json(marker, {"charged_at": _now()})
+
+
+def _finished(job_dir: Path) -> bool:
+    """Whether a previous run already wrote `result.json` for a clip that is on disk (it stopped before `done`)."""
+    try:
+        result = json.loads((job_dir / RESULT_JSON).read_text(encoding="utf-8"))
+    except OSError, ValueError:
+        return False
+    name = result.get("file") if isinstance(result, dict) else None
+    return isinstance(name, str) and bool(name) and Path(name).name == name and (job_dir / name).is_file()
+
+
+def _stored_operation(job_dir: Path) -> Accepted | None:
+    try:
+        return _read_operation(job_dir / OPERATION_JSON)[0]
+    except OSError, ValueError, KeyError, TypeError:
+        return None
+
+
+async def _forget_stored_operation(job: JobHandle, video: VideoChain) -> None:
+    """Delete the stored interaction of a clip that is already finished (best-effort; it may be gone already)."""
+    accepted = await asyncio.to_thread(_stored_operation, job.dir)
+    if accepted is not None:
+        await asyncio.to_thread(video.forget, accepted)
 
 
 def _orientation(width: int, height: int) -> str:
@@ -190,6 +220,11 @@ async def run(job: JobHandle, ctx: CoreContext) -> None:
         raise _failure("provider_unavailable")
     job.set_state("generating")
     stored = await asyncio.to_thread(load_inputs, job.dir)
+    if await asyncio.to_thread(_finished, job.dir):
+        # A restart after the clip was finalized: it is paid for and on disk, and its stored interaction may already
+        # be deleted (polling would fail it). Finish the job; never poll or charge again.
+        await _forget_stored_operation(job, video)
+        return
     accepted, waited_s = await _accept(job, video, stored)
     result = await _wait(job, video, accepted, waited_s)
     assert result.video is not None  # _wait only returns finished results that carry the video

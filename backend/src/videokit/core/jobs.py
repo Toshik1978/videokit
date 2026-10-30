@@ -4,6 +4,7 @@ import contextlib
 import json
 import re
 import secrets
+import shutil
 import sqlite3
 import time
 from collections.abc import Callable, Iterator
@@ -296,15 +297,35 @@ class JobStore:
         return int(ahead) + 1
 
     def finished_uploads(self) -> list[str]:
-        """Ids of `uploading` jobs that already received every byte (their completion has not run yet)."""
+        """Ids of `uploading` jobs that already received every uploaded byte (their completion has not run yet).
+
+        Jobs without an upload (`upload_length = 0`, tool-owned creation) are not among them: their creation request
+        completes them before it answers, so one still `uploading` was never acknowledged (see
+        `discard_abandoned_creations`)."""
         conn = db.connect(self._db_path)
         try:
             rows = conn.execute(
-                "SELECT id FROM jobs WHERE state = 'uploading' AND upload_offset = upload_length ORDER BY rowid"
+                "SELECT id FROM jobs WHERE state = 'uploading' AND upload_length > 0"
+                " AND upload_offset = upload_length ORDER BY rowid"
             ).fetchall()
         finally:
             conn.close()
         return [str(row["id"]) for row in rows]
+
+    def discard_abandoned_creations(self) -> int:
+        """At startup: delete every `uploading` job without an upload, with its directory; returns how many.
+
+        A tool-owned creation answers with the job id only after the job is queued, so such a job was interrupted
+        mid-request and no client knows its id. Running it could start paid work nobody can find (research V1)."""
+        with self._tx() as conn:
+            ids = [
+                str(row["id"])
+                for row in conn.execute("SELECT id FROM jobs WHERE state = 'uploading' AND upload_length = 0")
+            ]
+            conn.executemany("DELETE FROM jobs WHERE id = ?", [(job_id,) for job_id in ids])
+        for job_id in ids:
+            shutil.rmtree(self.job_dir(job_id), ignore_errors=True)
+        return len(ids)
 
     def queue_length(self) -> int:
         """Number of jobs currently waiting, over every tool's lane."""

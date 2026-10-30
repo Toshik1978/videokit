@@ -183,8 +183,8 @@ async def create_job(request: Request) -> dict[str, str]:
                 store_inputs, access.job_dir(job.id), access.ctx.media, fields, [p.file for p in pictures]
             )
             await access.complete(job.id)
-        except Exception:
-            await access.discard(job.id)
+        except BaseException:  # also a cancelled request: never leave an `uploading` job nobody holds
+            await asyncio.shield(access.discard(job.id))
             raise
     finally:
         await form.close()

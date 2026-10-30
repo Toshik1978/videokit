@@ -1,9 +1,9 @@
 """Opt-in smoke tests against the real Gemini Omni API (`pytest -m live -k omni`, quickstart section 3).
 
-Skipped unless ``GEMINI_API_KEY`` is set. Each run costs about $0.60 (one 5 s 720p clip). These tests confirm the
-**live-verify** items of research.md: the accepted ``duration`` format (V9), reported video usage (V8), how a
-safety refusal surfaces (V10) and that a stored interaction can be deleted (V6). Nothing here prints keys,
-prompts or provider messages.
+Skipped unless ``GEMINI_API_KEY`` is set. Each run costs about $2.10 (a 5 s 720p clip delivered inline and a 10 s
+1080p clip delivered as a URI). These tests confirm the **live-verify** items of research.md: the accepted
+``duration`` format (V9), both delivery modes (V2), reported video usage (V8), how a safety refusal surfaces (V10)
+and that a stored interaction can be deleted (V6). Nothing here prints keys, prompts or provider messages.
 """
 
 import os
@@ -16,6 +16,7 @@ import pytest
 from videokit.core.config import Settings
 from videokit.core.media import MediaService
 from videokit.core.videogen import Picture, PollResult, VideoError, VideoRequest
+from videokit.core.videogen.base import Resolution
 from videokit.core.videogen.omni import OmniProvider
 
 pytestmark = [
@@ -46,15 +47,21 @@ def _wait(provider: OmniProvider, ref: str, out_dir: Path) -> PollResult:
     pytest.fail("the interaction did not finish within the wait cap")
 
 
-def test_omni_generates_a_clip_from_a_prompt_and_a_picture_and_forgets_it(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("duration_s", "resolution"),
+    [(5, "720p"), (10, "1080p")],  # inline delivery; URI delivery (larger than 4 MB), the form's default resolution
+)
+def test_omni_generates_a_clip_from_a_prompt_and_a_picture_and_forgets_it(
+    tmp_path: Path, duration_s: int, resolution: Resolution
+) -> None:
     provider = OmniProvider(Settings())
     assert provider.check().ready
     req = VideoRequest(
         prompt="A slow camera pan over the colorful test pattern in the picture.",
         pictures=[_picture(tmp_path)],
-        duration_s=5,
+        duration_s=duration_s,
         aspect_ratio="16:9",
-        resolution="720p",
+        resolution=resolution,
     )
 
     ref = provider.submit(req)  # raising here means the `duration` format ("5s") was rejected: see research.md V9
@@ -62,7 +69,7 @@ def test_omni_generates_a_clip_from_a_prompt_and_a_picture_and_forgets_it(tmp_pa
         result = _wait(provider, ref, tmp_path)
         assert result.error is None
         assert result.video is not None
-        assert result.video.stat().st_size > 0  # inline delivery: the bytes arrived in the response itself
+        assert result.video.stat().st_size > 0  # inline bytes, or the download of the delivery URI
         assert b"ftyp" in result.video.read_bytes()[:64]  # an MP4 container, not a URI or an error body
         assert result.usage.video_output_tokens > 0  # reported, or derived at the documented rate
         assert result.usage.input_tokens > 0

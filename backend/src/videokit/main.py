@@ -125,6 +125,9 @@ def create_app(
             recovered = store.recover_after_restart(resumable)
             if recovered:
                 logger.info("Marked %d interrupted job(s) as failed after restart", recovered)
+            abandoned = store.discard_abandoned_creations()
+            if abandoned:
+                logger.info("Discarded %d job(s) whose creation was interrupted", abandoned)
             return store
 
         if app.state.providers is None:

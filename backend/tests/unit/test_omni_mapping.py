@@ -70,7 +70,10 @@ def _client(handler: Handler) -> genai.Client:
 
 
 def _provider(handler: Handler, **overrides: Any) -> OmniProvider:
-    return OmniProvider(_settings(**overrides), http_options=_options(handler))
+    """The SDK calls and the clip download (``delivery: "uri"``) both go to ``handler``."""
+    return OmniProvider(
+        _settings(**overrides), http_options=_options(handler), download_transport=httpx.MockTransport(handler)
+    )
 
 
 def _error(status: int, code: str | None = None, message: str = "provider text") -> Handler:
@@ -177,7 +180,7 @@ def test_submit_sends_text_then_pictures_in_position_order_and_returns_the_inter
         "aspect_ratio": "9:16",
         "resolution": "1080p",
         "duration": "8s",
-        "delivery": "inline",
+        "delivery": "uri",  # 1080p clips pass 4 MB: Google advises a URI above 720p
     }
     (turn,) = body["input"]
     parts = [(part["type"], part.get("text"), part.get("data"), part.get("mime_type")) for part in turn["content"]]
@@ -359,6 +362,137 @@ def test_poll_uses_the_last_video_of_a_completed_interaction(tmp_path: Path) -> 
 
 def _dispatch(*, submit: Handler, get: Handler) -> Handler:
     return lambda request: (submit if request.method == "POST" else get)(request)
+
+
+# --- poll: a clip delivered as a URI (1080p) ------------------------------------------------------------------
+
+CLIP_URI = "https://generativelanguage.googleapis.com/v1beta/files/clip-1:download?alt=media"
+
+
+def _uri_step(uri: str = CLIP_URI) -> dict[str, Any]:
+    return {"type": "model_output", "content": [{"type": "video", "mime_type": "video/mp4", "uri": uri}]}
+
+
+def _served(clip: Handler, interaction: Handler) -> Handler:
+    """Interaction calls go to ``interaction``; every other request is the clip download."""
+    return lambda request: (interaction if "/interactions" in request.url.path else clip)(request)
+
+
+def test_poll_downloads_a_clip_delivered_as_a_uri_into_raw_mp4_with_the_key(tmp_path: Path) -> None:
+    downloads: list[httpx.Request] = []
+
+    def clip(request: httpx.Request) -> httpx.Response:
+        downloads.append(request)
+        return httpx.Response(200, content=VIDEO_BYTES)
+
+    usage = {"output_tokens_by_modality": [{"modality": "video", "tokens": 86_880}], "total_input_tokens": 40}
+    result = _poll(_served(clip, _interaction(steps=[_uri_step()], usage=usage)), tmp_path)
+
+    assert (result.done, result.error) == (True, None)
+    assert result.video == tmp_path / "raw.mp4"
+    assert result.video.read_bytes() == VIDEO_BYTES
+    assert [p.name for p in tmp_path.iterdir()] == ["raw.mp4"]  # written as raw.mp4.part, then renamed
+    assert result.usage == Usage(input_tokens=40, video_output_tokens=86_880)
+    (request,) = downloads
+    assert (request.method, str(request.url)) == ("GET", CLIP_URI)
+    assert request.headers["x-goog-api-key"] == KEY
+
+
+def test_poll_prefers_inline_data_and_downloads_nothing(tmp_path: Path) -> None:
+    def clip(_request: httpx.Request) -> httpx.Response:
+        raise AssertionError("inline data needs no download")
+
+    step = {"type": "model_output", "content": [{"type": "video", "data": _b64(VIDEO_BYTES), "uri": CLIP_URI}]}
+    result = _poll(_served(clip, _interaction(steps=[step])), tmp_path)
+    assert result.video is not None
+    assert result.video.read_bytes() == VIDEO_BYTES
+
+
+def test_the_key_is_not_sent_where_a_download_is_redirected_outside_google(tmp_path: Path) -> None:
+    signed = "https://storage.example.com/clip-1?signature=abc"
+    hops: list[httpx.Request] = []
+
+    def clip(request: httpx.Request) -> httpx.Response:
+        hops.append(request)
+        if str(request.url) == CLIP_URI:
+            return httpx.Response(302, headers={"location": signed})
+        return httpx.Response(200, content=VIDEO_BYTES)
+
+    result = _poll(_served(clip, _interaction(steps=[_uri_step()])), tmp_path)
+
+    assert result.video is not None
+    assert result.video.read_bytes() == VIDEO_BYTES
+    assert [str(hop.url) for hop in hops] == [CLIP_URI, signed]
+    assert hops[0].headers["x-goog-api-key"] == KEY
+    assert "x-goog-api-key" not in hops[1].headers
+
+
+def test_the_key_is_not_sent_to_a_uri_outside_google(tmp_path: Path) -> None:
+    sent: list[httpx.Request] = []
+
+    def clip(request: httpx.Request) -> httpx.Response:
+        sent.append(request)
+        return httpx.Response(200, content=VIDEO_BYTES)
+
+    _poll(_served(clip, _interaction(steps=[_uri_step("https://googleapis.com.example.com/files/clip-1")])), tmp_path)
+    assert "x-goog-api-key" not in sent[0].headers
+
+
+def _broken(failure: str) -> Handler:
+    def clip(request: httpx.Request) -> httpx.Response:
+        if failure == "connect":
+            raise httpx.ConnectError("lost", request=request)
+        if failure == "timeout":
+            raise httpx.ReadTimeout("slow", request=request)
+        if failure == "empty":
+            return httpx.Response(200, content=b"")
+        return httpx.Response(int(failure), text="SECRET-PROVIDER-TEXT")
+
+    return clip
+
+
+@pytest.mark.parametrize("failure", ["404", "403", "500", "connect", "timeout", "empty"])
+def test_a_failed_download_is_provider_unavailable_and_leaves_no_file(
+    failure: str, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.DEBUG)
+    with pytest.raises(VideoError) as exc:
+        _poll(_served(_broken(failure), _interaction(steps=[_uri_step()])), tmp_path)
+    assert exc.value.code == "provider_unavailable"  # transient for the tool: the next poll downloads again
+    assert list(tmp_path.iterdir()) == []
+    assert "SECRET-PROVIDER-TEXT" not in caplog.text
+    assert KEY not in caplog.text
+
+
+def test_a_download_that_fails_once_still_derives_the_usage_of_the_request(tmp_path: Path) -> None:
+    attempts: list[int] = []
+
+    def clip(request: httpx.Request) -> httpx.Response:
+        attempts.append(1)
+        return _broken("500")(request) if len(attempts) == 1 else httpx.Response(200, content=VIDEO_BYTES)
+
+    interactions = _dispatch(submit=_interaction("in_progress"), get=_interaction(steps=[_uri_step()]))
+    provider = _provider(_served(clip, interactions))
+    ref = provider.submit(REQUEST)  # 8 s at 1080p, two pictures
+    with pytest.raises(VideoError):
+        provider.poll(ref, tmp_path)
+
+    result = provider.poll(ref, tmp_path)
+
+    assert result.video is not None
+    assert result.usage == Usage(input_tokens=2 * 1120, video_output_tokens=8 * 8688)
+
+
+def test_a_completed_interaction_with_neither_data_nor_uri_is_video_failed(tmp_path: Path) -> None:
+    def clip(_request: httpx.Request) -> httpx.Response:
+        raise AssertionError("nothing to download")
+
+    step = {"type": "model_output", "content": [{"type": "video", "mime_type": "video/mp4", "uri": ""}]}
+    result = _poll(_served(clip, _interaction(steps=[step])), tmp_path)
+    assert (result.done, result.video) == (True, None)
+    assert result.error is not None
+    assert result.error.code == "video_failed"
+    assert list(tmp_path.iterdir()) == []
 
 
 # --- poll: failures -------------------------------------------------------------------------------------------

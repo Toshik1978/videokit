@@ -44,14 +44,15 @@ task docker:size
 Expected: the smoke test also decodes a HEIC fixture and a tiled (grid) HEIC fixture through `normalize_picture` (research V7) and
 remuxes a generated H.264 + AAC clip to a silent MP4; the compressed image stays under 1.25 GB.
 
-## 3. Live (opt-in, real key, costs ≈ $0.60)
+## 3. Live (opt-in, real key, costs ≈ $2.10)
 
 ```bash
-cd backend && GEMINI_API_KEY=<your-api-key> uv run pytest -m live -k video
+cd backend && GEMINI_API_KEY=<your-api-key> uv run pytest -m live -k omni
 ```
 
-One 5 s 720p clip from a prompt and one PNG. Confirms the **live-verify** items of research.md:
-the `duration` format (V9), usage reported for video (V8), how a safety refusal surfaces (V10,
+A 5 s 720p clip (inline delivery) and a 10 s 1080p clip (URI delivery), each from a prompt and one
+PNG. Confirms the **live-verify** items of research.md: the `duration` format (V9), both delivery
+modes (V2), usage reported for video (V8), how a safety refusal surfaces (V10,
 using a deliberately refused prompt that costs nothing if blocked), and that the interaction can be
 deleted afterwards (V6).
 
