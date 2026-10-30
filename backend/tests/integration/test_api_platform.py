@@ -11,7 +11,7 @@ from pydantic import SecretStr
 
 from fakes_videogen import FakeVideoGenerator
 from videokit.core import providers as providers_module
-from videokit.core.config import Settings
+from videokit.core.config import VIDEO_PROVIDER_NAMES, Settings
 from videokit.core.jobs import JobState, JobStore
 from videokit.core.transcribe import local_whisper
 from videokit.core.videogen import ProviderStatus
@@ -147,14 +147,17 @@ def _video_settings(settings: Settings) -> Settings:
     return settings.model_copy(update={"video_providers": ["omni"], "gemini_api_key": SecretStr("gm-test-secret")})
 
 
-def test_health_lists_the_configured_video_provider(
-    settings: Settings, tools_pkg: str, static_dir: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    _fake_video_provider(monkeypatch, model="gemini-omni-1.1-flash")
+def test_every_allowed_video_provider_name_has_an_adapter() -> None:
+    assert set(providers_module.VIDEOS) == set(VIDEO_PROVIDER_NAMES)
+
+
+def test_health_lists_the_configured_video_provider(settings: Settings, tools_pkg: str, static_dir: Path) -> None:
+    """The real Omni adapter: its check is local, so health needs no network and no fake."""
     app = create_app(_video_settings(settings), tools_package=tools_pkg, static_dir=static_dir)
     with TestClient(app) as client:
         response = client.get("/api/health")
-    assert response.json()["providers"]["video"] == [{"name": "omni", "ready": True, "detail": "gemini-omni-1.1-flash"}]
+    expected = {"name": "omni", "ready": True, "detail": "model=gemini-omni-1.1-flash"}
+    assert response.json()["providers"]["video"] == [expected]
     assert "gm-test-secret" not in response.text
     assert app.state.providers.video is not None
 
@@ -200,8 +203,13 @@ def test_unready_video_provider_stops_startup_with_one_line(
 
 
 def test_video_provider_without_an_adapter_stops_startup_with_one_line(
-    settings: Settings, tools_pkg: str, static_dir: Path, capsys: pytest.CaptureFixture[str]
+    settings: Settings,
+    tools_pkg: str,
+    static_dir: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.delitem(providers_module.VIDEOS, "omni")  # config accepts the name; the registry lost its adapter
     app = create_app(_video_settings(settings), tools_package=tools_pkg, static_dir=static_dir)
     with pytest.raises(StartupError) as exc, TestClient(app):
         pass

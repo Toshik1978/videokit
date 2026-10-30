@@ -7,6 +7,7 @@ from videokit.core.config import ConfigurationError, Settings
 from videokit.core.llm import AnthropicProvider, LLMChain, LLMProvider, OpenAIProvider
 from videokit.core.transcribe import LocalWhisperTranscriber, OpenAITranscriber, Transcriber, TranscriberChain
 from videokit.core.videogen import VideoChain, VideoGenerator
+from videokit.core.videogen.omni import OmniProvider
 from videokit.core.worker import Providers
 
 TRANSCRIBERS: dict[str, Callable[[Settings], Transcriber]] = {
@@ -17,7 +18,9 @@ LLMS: dict[str, Callable[[Settings], LLMProvider]] = {
     "anthropic": AnthropicProvider,
     "openai": OpenAIProvider,
 }
-VIDEOS: dict[str, Callable[[Settings], VideoGenerator]] = {}  # "omni" is registered with its adapter
+VIDEOS: dict[str, Callable[[Settings], VideoGenerator]] = {
+    "omni": OmniProvider,
+}
 _ORDER_VARS = {"transcription": "TRANSCRIBE_PROVIDERS", "llm": "LLM_PROVIDERS", "video": "VIDEO_PROVIDERS"}
 
 ProviderStatusView = dict[str, list[dict[str, Any]]]

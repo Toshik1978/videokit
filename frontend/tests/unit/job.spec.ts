@@ -154,6 +154,13 @@ describe('job status and polling', () => {
     'generation_failed',
     'generation_invalid',
     'internal_error',
+    'provider_out_of_credit',
+    'content_blocked',
+    'provider_timeout',
+    'invalid_picture',
+    'provider_unavailable',
+    'resume_impossible',
+    'video_failed',
   ] as const)('renders failure code %s from the catalog', async (code) => {
     jobReplies = [
       () => json(200, job({ state: 'failed', failure_code: code, failure_reason: 'x' })),

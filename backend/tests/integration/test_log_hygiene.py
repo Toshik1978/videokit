@@ -9,6 +9,7 @@ message (Constitution VI).
 """
 
 import base64
+import io
 import logging
 import shutil
 import socket
@@ -29,12 +30,16 @@ from pydantic import SecretStr
 
 from fakes_llm import FakeLLM
 from fakes_transcribe import FakeTranscriber
+from fakes_videogen import FakeVideoGenerator
 from videokit.core.config import Settings
 from videokit.core.jobs import JobStore
 from videokit.core.llm import LLMChain, ProviderError
 from videokit.core.transcribe import Segment, TranscriberChain
+from videokit.core.videogen import PollResult, Usage, VideoChain, VideoError
 from videokit.core.worker import Providers, Worker
 from videokit.main import create_app
+from videokit.tools.video_generation import pipeline as video_pipeline
+from videokit.tools.video_generation.inputs import CreationInputs, store_inputs
 
 MakeVideo = Callable[..., Path]
 needs_ffmpeg = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")
@@ -290,3 +295,150 @@ def test_shutdown_failure_under_uvicorn_logs_no_traceback_or_message(
     assert "uvicorn.error ERROR Shutdown failed (RuntimeError)" in log
     assert "uvicorn.error ERROR Application shutdown failed. Exiting." in log
     _assert_no_traceback_or_message(log, secret)
+
+
+# --- Video Generation -----------------------------------------------------------------------------------------
+
+VIDEO_PROMPT_MARKER = "Axolotl-prompt-8h3q"
+VIDEO_MESSAGE_MARKER = "Capybara-provider-message-6t1c"
+GEMINI_KEY = "AIza-loghygiene-gemini-key-9p2b"
+VIDEO_CODES = ["provider_out_of_credit", "content_blocked", "invalid_picture", "provider_unavailable", "video_failed"]
+
+
+def _video_run(
+    tmp_path: Path,
+    make_picture: Callable[..., Path],
+    monkeypatch: pytest.MonkeyPatch,
+    fake: FakeVideoGenerator,
+    *,
+    cancel: bool = False,
+) -> tuple[dict[str, Any], bytes]:
+    """Run one Video Generation job (marker prompt, one picture) to its end; return its API body and the
+    normalized picture bytes the provider received."""
+    monkeypatch.setattr(video_pipeline, "POLL_INTERVAL_S", 0.01)
+    monkeypatch.setattr(video_pipeline, "WAIT_CAP_S", 0.3)
+    settings = Settings(
+        data_dir=tmp_path / "data",
+        anthropic_api_key=SecretStr(ANTHROPIC_KEY),
+        gemini_api_key=SecretStr(GEMINI_KEY),
+        video_providers=["omni"],
+        log_level="DEBUG",
+    )
+    providers = Providers(
+        transcriber=TranscriberChain([FakeTranscriber(name="local", segments=[])]),
+        llm=LLMChain([FakeLLM([])]),
+        video=VideoChain([fake]),
+    )
+    picture = make_picture("png", 80, 60).read_bytes()
+    with TestClient(create_app(settings, providers, static_dir=tmp_path / "static")) as client:
+        access = client.app.state.job_access  # type: ignore[attr-defined]
+        job = access.create("video_generation")
+        fields = CreationInputs(f"{VIDEO_PROMPT_MARKER} on a hill", 5, "9:16", "1080p")
+        store_inputs(access.job_dir(job.id), access.ctx.media, fields, [io.BytesIO(picture)])
+        client.portal.call(access.complete, job.id)  # type: ignore[union-attr]
+        if cancel:
+            deadline = time.monotonic() + 10
+            while not fake.poll_refs:
+                assert time.monotonic() < deadline, "the job never started polling"
+                time.sleep(0.005)
+            assert client.post(f"/api/jobs/{job.id}/cancel").status_code == 202
+        body = _wait_done(client, job.id)
+    assert len(fake.requests) == 1
+    assert VIDEO_PROMPT_MARKER in fake.requests[0].prompt  # the provider really received the prompt
+    return body, fake.requests[0].pictures[0].jpeg
+
+
+def _assert_video_log_clean(log: str, jpeg: bytes) -> None:
+    forbidden = [
+        VIDEO_PROMPT_MARKER,
+        VIDEO_MESSAGE_MARKER,
+        GEMINI_KEY,
+        ANTHROPIC_KEY,
+        "/9j/",
+        base64.b64encode(jpeg).decode(),
+        base64.b64encode(jpeg[20:100]).decode(),
+        repr(jpeg[:64])[2:-1],
+    ]
+    leaks = [s[:40] for s in forbidden if s in log]
+    assert leaks == [], f"secrets or private data in the logs: {leaks}"
+
+
+def _leaky(code: str) -> VideoError:
+    message = f"provider echoed {VIDEO_PROMPT_MARKER} {VIDEO_MESSAGE_MARKER} key {GEMINI_KEY}"
+    return VideoError(code, message)  # type: ignore[arg-type]
+
+
+@needs_ffmpeg
+def test_video_generation_success_logs_no_prompt_picture_or_key(
+    tmp_path: Path, make_picture: Callable[..., Path], monkeypatch: pytest.MonkeyPatch, captured: Capture
+) -> None:
+    fake = FakeVideoGenerator(model="gemini-omni-1.1-flash", polls=["pending", "done"])
+    body, jpeg = _video_run(tmp_path, make_picture, monkeypatch, fake)
+    assert body["state"] == "done"
+    _assert_video_log_clean("\n".join(captured.lines), jpeg)
+
+
+@needs_ffmpeg
+@pytest.mark.parametrize("code", VIDEO_CODES)
+def test_video_generation_failures_log_no_prompt_picture_provider_message_or_key(
+    tmp_path: Path,
+    make_picture: Callable[..., Path],
+    monkeypatch: pytest.MonkeyPatch,
+    captured: Capture,
+    code: str,
+) -> None:
+    scenarios = {
+        "raised-at-submit": FakeVideoGenerator(submits=[_leaky(code)]),
+        "returned-by-poll": FakeVideoGenerator(
+            polls=[PollResult(done=True, video=None, usage=Usage(), error=_leaky(code))]
+        ),
+        "raised-by-poll": FakeVideoGenerator(polls=["pending", _leaky(code)] * 50),
+    }
+    for name, fake in scenarios.items():
+        captured.lines.clear()
+        body, jpeg = _video_run(tmp_path / name, make_picture, monkeypatch, fake)
+        assert body["state"] == "failed"
+        assert body["failure_code"] == (
+            "provider_timeout" if code == "provider_unavailable" and name == "raised-by-poll" else code
+        )
+        _assert_video_log_clean("\n".join(captured.lines), jpeg)
+
+
+@needs_ffmpeg
+def test_video_generation_timeout_and_unexpected_errors_log_no_prompt_picture_or_message(
+    tmp_path: Path, make_picture: Callable[..., Path], monkeypatch: pytest.MonkeyPatch, captured: Capture
+) -> None:
+    timeout = FakeVideoGenerator(polls=["pending"] * 1000)
+    body, jpeg = _video_run(tmp_path / "timeout", make_picture, monkeypatch, timeout)
+    assert (body["state"], body["failure_code"]) == ("failed", "provider_timeout")
+    _assert_video_log_clean("\n".join(captured.lines), jpeg)
+
+    captured.lines.clear()
+    oserror = FakeVideoGenerator(polls=[OSError(f"{VIDEO_MESSAGE_MARKER} {VIDEO_PROMPT_MARKER}")])
+    body, jpeg = _video_run(tmp_path / "oserror", make_picture, monkeypatch, oserror)
+    assert (body["state"], body["failure_code"]) == ("failed", "video_failed")
+    log = "\n".join(captured.lines)
+    assert "OSError" in log  # the type is logged ...
+    _assert_video_log_clean(log, jpeg)  # ... never the message
+
+    captured.lines.clear()
+    crashed = FakeVideoGenerator(submits=[RuntimeError(f"{VIDEO_MESSAGE_MARKER} {GEMINI_KEY}")])
+    body, jpeg = _video_run(tmp_path / "crashed", make_picture, monkeypatch, crashed)
+    assert body["state"] == "failed"
+    _assert_video_log_clean("\n".join(captured.lines), jpeg)
+
+
+@needs_ffmpeg
+def test_video_generation_cancel_logs_no_prompt_picture_or_key(
+    tmp_path: Path, make_picture: Callable[..., Path], monkeypatch: pytest.MonkeyPatch, captured: Capture
+) -> None:
+    def broken_cancel(self: FakeVideoGenerator, ref: str) -> None:
+        raise OSError(VIDEO_MESSAGE_MARKER)
+
+    monkeypatch.setattr(FakeVideoGenerator, "cancel", broken_cancel)
+    fake = FakeVideoGenerator(polls=["pending"] * 1000)
+    body, jpeg = _video_run(tmp_path, make_picture, monkeypatch, fake, cancel=True)
+    assert body["state"] == "cancelled"
+    log = "\n".join(captured.lines)
+    assert "OSError" in log  # a failed best-effort cancel is logged by type only
+    _assert_video_log_clean(log, jpeg)

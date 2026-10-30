@@ -6,7 +6,16 @@ import type { JobSummary } from '@/components/job';
 import { isTerminal } from '@/components/job';
 import { useMessages } from '@/i18n/messages';
 
-const props = defineProps<{ job: JobSummary }>();
+// `stageLabels` lets a tool word a stage its own way (state -> text); `showDetail` false hides the
+// server's English failure reason for tools whose reason must never reach the screen.
+const props = withDefaults(
+  defineProps<{
+    job: JobSummary;
+    stageLabels?: Partial<Record<string, string>>;
+    showDetail?: boolean;
+  }>(),
+  { stageLabels: () => ({}), showDetail: true },
+);
 defineEmits<{ cancel: [] }>();
 
 const { t } = useI18n();
@@ -21,14 +30,14 @@ const uploadPercent = computed(() => {
 
 <template>
   <section class="job-status" aria-live="polite">
-    <p class="stage">{{ t(`job.state.${job.state}`) }}</p>
+    <p class="stage">{{ stageLabels[job.state] ?? t(`job.state.${job.state}`) }}</p>
     <p v-if="job.state === 'uploading'">{{ t('job.uploadPercent', { percent: uploadPercent }) }}</p>
-    <p v-if="job.state === 'queued' && job.queue_position !== null">
+    <p v-if="job.state === 'queued' && job.queue_position !== null && job.queue_position > 0">
       {{ t('job.queuePosition', { position: job.queue_position }) }}
     </p>
     <template v-if="job.state === 'failed'">
       <p class="error" data-test="failure">{{ failureMessage(job.failure_code) }}</p>
-      <p v-if="job.failure_reason" class="detail" data-test="failure-detail">
+      <p v-if="showDetail && job.failure_reason" class="detail" data-test="failure-detail">
         {{ t('job.failureDetail', { detail: job.failure_reason }) }}
       </p>
     </template>

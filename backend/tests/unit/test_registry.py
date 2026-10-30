@@ -131,10 +131,15 @@ def test_tool_with_valid_members_accepted(tmp_path: Path, monkeypatch: pytest.Mo
 
 
 def test_shipped_tools_declare_the_lane_members() -> None:
-    for tool in discover_tools().values():
-        assert tool.concurrency == 1
-        assert tool.resume_after_restart is False
-        assert tool.enabled(None) is True  # type: ignore[arg-type]
+    tools = discover_tools()
+    assert {tid: (t.concurrency, t.resume_after_restart) for tid, t in tools.items()} == {
+        "youtube_prep": (1, False),
+        "audio_extract": (1, False),
+        "video_generation": (3, True),
+    }
+    for tid, tool in tools.items():
+        if tid != "video_generation":  # that one is hidden until a video provider is configured
+            assert tool.enabled(None) is True  # type: ignore[arg-type]
 
 
 def test_job_cancelled_is_exception() -> None:

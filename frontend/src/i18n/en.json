@@ -30,7 +30,10 @@
       "job_not_done": "This job is not finished yet, so it cannot be regenerated.",
       "regeneration_in_progress": "This job is already being regenerated. Please wait and try again.",
       "invalid_section": "This section cannot be regenerated.",
-      "generation_failed": "Generating a new version failed. The previous text was kept."
+      "generation_failed": "Generating a new version failed. The previous text was kept.",
+      "too_many_pictures": "Too many pictures. Remove some and try again.",
+      "picture_too_large": "One of the pictures is too large. Choose a smaller one.",
+      "invalid_picture": "One of the files is not a supported picture. Use JPEG, PNG, WebP or HEIC."
     }
   },
   "tools": {
@@ -41,6 +44,10 @@
     "audio_extract": {
       "name": "Audio Extract",
       "description": "Get a video's audio as an MP3."
+    },
+    "video_generation": {
+      "name": "Video Generation",
+      "description": "Generate a short silent clip from a prompt and pictures."
     }
   },
   "youtubePrep": {
@@ -53,6 +60,74 @@
     "duration": "Duration",
     "size": "Size",
     "download": "Download MP3"
+  },
+  "videoGeneration": {
+    "heading": "Video Generation",
+    "intro": "Describe a short clip, add pictures if you like, and get a silent video.",
+    "retention": "Clips are deleted after {hours} h.",
+    "prompt": {
+      "label": "Prompt",
+      "placeholder": "e.g. slow zoom into picture 1, then picture 3 fades in over it",
+      "count": "{count} / {max}"
+    },
+    "pictures": {
+      "label": "Pictures (optional)",
+      "hint": "Up to {max} pictures. Refer to them in the prompt as picture 1, picture 2 and so on.",
+      "add": "Add pictures",
+      "item": "Picture {position}",
+      "moveUp": "Move picture {position} up",
+      "moveDown": "Move picture {position} down",
+      "remove": "Remove picture {position}",
+      "tooMany": "You can add up to {max} pictures.",
+      "tooLarge": "This picture is too large. The maximum size is {limit}.",
+      "unsupported": "This file is not a supported picture. Use JPEG, PNG, WebP or HEIC.",
+      "loading": "Loading the pictures…",
+      "loadFailed": "The earlier pictures could not be loaded. Add them again."
+    },
+    "options": {
+      "duration": "Duration",
+      "seconds": "{seconds} s",
+      "orientation": "Orientation",
+      "vertical": "Vertical 9:16",
+      "horizontal": "Horizontal 16:9",
+      "resolution": "Resolution",
+      "p1080": "1080p",
+      "p720": "720p"
+    },
+    "estimate": "Estimated cost: about {cost}",
+    "estimateUnknown": "Estimated cost: unknown for these options",
+    "generate": "Generate",
+    "submitting": "Starting…",
+    "stage": {
+      "heading": "Your clip",
+      "generating": "Generating your clip"
+    },
+    "expired": "This clip has expired or does not exist. Make a new clip.",
+    "cancelWarning": "The provider may still charge for this attempt.",
+    "cancelConfirm": "Cancel anyway",
+    "cancelKeep": "Keep generating",
+    "result": {
+      "preview": "Clip preview",
+      "duration": "Duration",
+      "orientation": "Orientation",
+      "resolution": "Resolution",
+      "cost": "Cost",
+      "download": "Download clip",
+      "tryAgain": "Try again",
+      "newClip": "Make another clip"
+    },
+    "recent": {
+      "heading": "Recent clips",
+      "empty": "Clips you start on this device appear here.",
+      "thumbnail": "Thumbnail of the clip",
+      "status": {
+        "queued": "Waiting",
+        "generating": "Generating",
+        "done": "Ready",
+        "failed": "Failed",
+        "cancelled": "Cancelled"
+      }
+    }
   },
   "share": {
     "label": "Share",
@@ -82,7 +157,14 @@
       "transcription_failed": "Transcription failed: no transcription provider could process the audio. Please try again later.",
       "generation_failed": "Generating the metadata failed: no AI provider could answer. Please try again later.",
       "generation_invalid": "The generated metadata still broke the YouTube rules after a repair attempt. Please try again.",
-      "internal_error": "Something went wrong while processing the video. Please try again."
+      "internal_error": "Something went wrong while processing the video. Please try again.",
+      "provider_out_of_credit": "The video provider account is out of credit. Top up the provider account and try again.",
+      "content_blocked": "The provider refused this content. Change the prompt or the pictures and try again.",
+      "provider_timeout": "The provider took too long to generate the clip. Please try again.",
+      "invalid_picture": "The provider could not use one of the pictures. Try different pictures.",
+      "provider_unavailable": "The video provider is not available right now. Please try again later.",
+      "resume_impossible": "The server restarted before the provider confirmed this clip. It was not sent again, to avoid a second charge. Please try again.",
+      "video_failed": "The provider did not return a usable clip. Please try again."
     },
     "cancel": "Cancel job",
     "copy": "Copy",

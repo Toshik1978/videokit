@@ -44,3 +44,12 @@ export function postJson<T>(path: string, body?: unknown): Promise<T> {
     body: body === undefined ? undefined : JSON.stringify(body),
   });
 }
+
+/** POST a multipart form. No Content-Type: the browser adds it, with the multipart boundary. */
+export function postForm<T>(path: string, form: FormData): Promise<T> {
+  return request<T>(path, {
+    method: 'POST',
+    headers: { Accept: 'application/json' },
+    body: form,
+  });
+}

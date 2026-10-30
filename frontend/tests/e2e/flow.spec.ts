@@ -1,8 +1,9 @@
 import { expect, type Locator, type Page, test } from '@playwright/test';
 
+import { expectNoHorizontalScroll, expectTouchTargets, NARROW } from './helpers';
+
 const SECTIONS = ['cover_titles', 'title', 'description', 'tags', 'hashtags', 'chapters'];
 const MAX_CLICKS = 9; // SC-005
-const NARROW = { width: 360, height: 740 }; // FR-038
 
 const video = process.env.VIDEOKIT_E2E_VIDEO ?? '';
 
@@ -36,29 +37,6 @@ async function uploadAndWaitForResult(page: Page): Promise<void> {
   await input.setInputFiles(video);
   await page.waitForURL(/\/tools\/youtube-prep\/jobs\//);
   await expect(page.getByTestId('card-chapters')).toBeVisible({ timeout: 60_000 });
-}
-
-async function expectNoHorizontalScroll(page: Page): Promise<void> {
-  const overflow = await page.evaluate(
-    () => document.documentElement.scrollWidth - window.innerWidth,
-  );
-  expect(overflow).toBeLessThanOrEqual(0);
-}
-
-async function expectTouchTargets(page: Page): Promise<void> {
-  const small = await page
-    .locator('button, a, input, textarea, summary, select')
-    .evaluateAll((elements) =>
-      elements.flatMap((el) => {
-        const box = el.getBoundingClientRect();
-        if (box.width === 0 || box.height === 0 || getComputedStyle(el).visibility === 'hidden') {
-          return [];
-        }
-        if (box.width >= 44 && box.height >= 44) return [];
-        return [`${el.tagName.toLowerCase()} ${Math.round(box.width)}x${Math.round(box.height)}`];
-      }),
-    );
-  expect(small).toEqual([]);
 }
 
 test('home to six copied sections in at most 9 clicks, with an edit', async ({ page }) => {

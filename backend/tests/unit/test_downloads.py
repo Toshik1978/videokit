@@ -46,3 +46,25 @@ def test_ascii_fallback_cannot_smuggle_header_syntax(name: str, fallback: str) -
     assert "/" not in match.group(1)
     assert disposition.count("filename=") == 1
     assert disposition.count("filename*=") == 1
+
+
+@pytest.mark.parametrize(
+    ("name", "fallback", "disposition"),
+    [
+        (
+            "Поездка.mp4",
+            "clip.mp4",
+            "attachment; filename=\"clip.mp4\"; filename*=UTF-8''%D0%9F%D0%BE%D0%B5%D0%B7%D0%B4%D0%BA%D0%B0.mp4",
+        ),
+        (
+            "Café au lait.mp4",
+            "clip.mp4",
+            "attachment; filename=\"Cafe au lait.mp4\"; filename*=UTF-8''Caf%C3%A9%20au%20lait.mp4",
+        ),
+        ("my clip.mp4", "clip.mp4", 'attachment; filename="my clip.mp4"'),
+    ],
+)
+def test_content_disposition_takes_the_ascii_fallback_from_the_caller(
+    name: str, fallback: str, disposition: str
+) -> None:
+    assert content_disposition(name, fallback=fallback) == disposition

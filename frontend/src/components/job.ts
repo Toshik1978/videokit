@@ -12,6 +12,7 @@ export interface Usage {
   cache_read_tokens: number;
   cache_write_tokens: number;
   audio_minutes: number;
+  video_output_tokens: number;
   cost_usd: number | null;
 }
 

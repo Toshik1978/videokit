@@ -3,7 +3,8 @@
     uv run python tests/e2e_app.py --static ../frontend/dist --video /tmp/clip.mp4 --port 8765
 
 Not a pytest module. It generates a tiny fixture video with ffmpeg, then serves the app with a fake
-transcriber and a scripted LLM, a temporary DATA_DIR and no network access.
+transcriber, a scripted LLM and a fake video provider (Video Generation enabled without any key), a
+temporary DATA_DIR and no network access.
 """
 
 import argparse
@@ -17,11 +18,14 @@ from pydantic import SecretStr
 
 from fakes_llm import FakeLLM
 from fakes_transcribe import FakeTranscriber
+from fakes_videogen import FakeVideoGenerator, write_clip
 from videokit.core.config import Settings
 from videokit.core.llm import LLMChain
 from videokit.core.transcribe import TranscriberChain
+from videokit.core.videogen import PollResult, Usage, VideoChain
 from videokit.core.worker import Providers
 from videokit.main import create_app
+from videokit.tools.video_generation import pipeline as video_pipeline
 
 RESULT: dict[str, Any] = {
     "language": "en",
@@ -37,6 +41,35 @@ RESULT: dict[str, Any] = {
     ],
 }
 SCRIPT_LENGTH = 200  # enough answers for every upload and regeneration of a whole test run
+
+
+VIDEO_POLL_INTERVAL_S = 0.05  # the real 10 s wait would make every Video Generation test slow
+SLOW_PROMPT_MARKER = "slow"  # a prompt containing it never finishes, so a test can reach Cancel
+
+
+class E2EVideoGenerator(FakeVideoGenerator):
+    """Accepts every request and finishes it on the first poll, unless its prompt contains ``slow``.
+
+    Unscripted on purpose: the Playwright projects run in parallel against one app, so the number of
+    jobs is not known in advance.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(model="e2e-video")
+        self._slow: set[str] = set()
+
+    def submit(self, req: Any) -> str:
+        ref = super().submit(req)
+        if SLOW_PROMPT_MARKER in req.prompt.lower():
+            self._slow.add(ref)
+        return ref
+
+    def poll(self, ref: str, out_dir: Path) -> PollResult:
+        self.poll_refs.append(ref)
+        if ref in self._slow:
+            return PollResult(done=False, video=None, usage=Usage(), error=None)
+        video = write_clip(out_dir / "raw.mp4")
+        return PollResult(done=True, video=video, usage=self._usage(), error=None)
 
 
 def make_video(out: Path) -> None:
@@ -61,10 +94,17 @@ def main() -> None:
     make_video(args.video)
 
     with tempfile.TemporaryDirectory(prefix="videokit-e2e-") as data_dir:
-        settings = Settings(data_dir=Path(data_dir), anthropic_api_key=SecretStr("e2e-placeholder"))
+        video_pipeline.POLL_INTERVAL_S = VIDEO_POLL_INTERVAL_S
+        settings = Settings(
+            data_dir=Path(data_dir),
+            anthropic_api_key=SecretStr("e2e-placeholder"),
+            gemini_api_key=SecretStr("e2e-placeholder"),
+            video_providers=["omni"],
+        )
         providers = Providers(
             transcriber=TranscriberChain([FakeTranscriber()]),
             llm=LLMChain([FakeLLM([RESULT] * SCRIPT_LENGTH)]),
+            video=VideoChain([E2EVideoGenerator()]),
         )
         app = create_app(settings, providers, static_dir=args.static)
         uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")

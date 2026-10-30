@@ -159,7 +159,8 @@ Provider facts were checked against Google's official documentation on 2026-10-2
 
 - **Decision**: Offer whole seconds 5–10 (Omni supports 3–10 s at 24 fps), `9:16`/`16:9`,
   `1080p`/`720p` (1080p is upscaled by Google). The `duration` field is a string whose format
-  (`"8s"` vs `"8"`) is undocumented — **live-verify** before release; the adapter owns the format.
+  (`"8s"` vs `"8"`) is undocumented — **live-verify** before release; the adapter owns the format
+  (`omni._duration`, currently `"<n>s"`; `tests/live/test_omni_live.py` fails at submit if it is rejected).
   If a value is rejected, `capabilities().durations_s` narrows the list and the form follows it.
 - **Rationale**: Matches the spec range; the form reads the list from `/options`, so a provider
   limit never needs a frontend change.

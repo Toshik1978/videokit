@@ -108,18 +108,18 @@ and shares.
 each goes `queued → generating → done`, the clip has the chosen duration/orientation/resolution,
 no audio, and downloads with the prompt-based name (quickstart §1).
 
-- [ ] T015 [P] [US1] Validate and store creation inputs in `backend/src/videokit/tools/video_generation/inputs.py` (data-model.md validation rules, research V7, V14)
+- [x] T015 [P] [US1] Validate and store creation inputs in `backend/src/videokit/tools/video_generation/inputs.py` (data-model.md validation rules, research V7, V14)
   - `prompt`: "required, trimmed, 1–2,000 characters"; `duration_s`: "a whole number of seconds from 5 to 10 that the provider supports"; `aspect_ratio`: "`9:16` (default) or `16:9`"; `resolution`: "`1080p` (default) or `720p`"; `pictures`: "0–7 files, each ≤ 10 MB (decimal), detected by content as JPEG, PNG, WebP or HEIC/HEIF".
   - Errors: `422 invalid_request`, `422 too_many_pictures`, `413 picture_too_large`, `422 invalid_picture`.
   - Writes `pictures/<n>.jpg` via `ctx.media.normalize_picture` and `inputs.json` atomically (tmp + `os.replace`) last.
   - Tests: `backend/tests/unit/test_video_generation_inputs.py` (each rule and boundary: 0 and 2,000/2,001 chars, 7/8 pictures, 10,000,000/10,000,001 bytes, magic-byte sniffing ignores the client's content type).
-- [ ] T016 [P] [US1] Build the provider prompt with picture references in `backend/src/videokit/tools/video_generation/prompt.py` (research V7)
+- [x] T016 [P] [US1] Build the provider prompt with picture references in `backend/src/videokit/tools/video_generation/prompt.py` (research V7)
   - No pictures → the user's prompt unchanged. With N pictures → `[# References <IMAGE_REF_0>@Picture1 … <IMAGE_REF_{N-1}>@PictureN]` + newline + the user's prompt unchanged.
   - Tests: `backend/tests/unit/test_video_generation_prompt.py` (0, 1, 7 pictures; non-Latin prompt untouched).
-- [ ] T017 [P] [US1] Derive the download name in `backend/src/videokit/tools/video_generation/naming.py` (research V13)
+- [x] T017 [P] [US1] Derive the download name in `backend/src/videokit/tools/video_generation/naming.py` (research V13)
   - "First 60 characters of the prompt (whitespace collapsed), cut at a word boundary", file-unsafe characters replaced, non-Latin kept, `.mp4`; fallback `clip.mp4`.
   - Tests: `backend/tests/unit/test_video_generation_naming.py` (long prompt, Cyrillic, only symbols → `clip.mp4`, slashes/quotes).
-- [ ] T018 [US1] Implement the Omni adapter in `backend/src/videokit/core/videogen/omni.py` and register it in `core/providers.py` (research V2, V8, V9, V10)
+- [x] T018 [US1] Implement the Omni adapter in `backend/src/videokit/core/videogen/omni.py` and register it in `core/providers.py` (research V2, V8, V9, V10)
   - `check()`: local only — key present, `detail="model=<OMNI_MODEL>"`; never a network call.
   - `capabilities()`: `durations_s=[5..10]`, `max_pictures=7`, `video_tokens_per_second={"720p": 5792, "1080p": 8688}`, `tokens_per_image=1120`.
   - `submit()`: lazily created `genai.Client`; `client.interactions.create(model, input=[text, *inline base64 JPEG images], response_format={"type": "video", "aspect_ratio", "resolution", "duration"}, background=True, store=True)` → interaction id. The `duration` string format lives here only.
@@ -128,31 +128,31 @@ no audio, and downloads with the prompt-based name (quickstart §1).
   - `cancel(ref)`, `forget(ref)` (`interactions.cancel` / `interactions.delete`), best-effort.
   - Tests: `backend/tests/unit/test_omni_mapping.py` with a stubbed SDK client (request shape incl. image order and `background/store`; each row of the V10 table; usage present vs absent; no network).
   - Live (opt-in, quickstart §3): `backend/tests/live/test_omni_live.py` behind the `live` marker and `GEMINI_API_KEY` — one 5 s 720p clip from a short prompt and one PNG: done, usage reported or derived, the accepted `duration` format recorded in research.md V9, a deliberately refused prompt surfaces as `content_blocked`, `forget` succeeds.
-- [ ] T019 [US1] Implement the tool and its generation pipeline in `backend/src/videokit/tools/video_generation/{__init__,pipeline}.py` (research V3, V5, V6)
+- [x] T019 [US1] Implement the tool and its generation pipeline in `backend/src/videokit/tools/video_generation/{__init__,pipeline}.py` (research V3, V5, V6)
   - `TOOL`: `id = "video_generation"`, `name = "Video Generation"`, `description = "Generate a short silent clip from a prompt and pictures."`, `concurrency = 3`, `resume_after_restart = True`, `enabled(settings)` = `VIDEO_PROVIDERS` non-empty, `accept()` = `inputs.json` present and complete.
   - `run`: `set_state("generating")`; write `submit.json` atomically before `ctx.video.submit`; write `operation.json` `{provider, ref, submitted_at}` atomically right after; record `providers={"video": accepted.provider}`.
   - Poll every 10 s with `asyncio.sleep` (no thread held), `check_cancelled` each round (on cancel: `ctx.video.cancel`, best-effort); cap 20 minutes → `AppError("provider_timeout", …)`; `VideoError` → `AppError(code, catalog-safe message)`.
   - On completion: `add_usage` with the pricing estimate; `ctx.media.finalize_clip`; `result.json` `{file, thumbnail, download_name, duration_s, width, height, aspect_ratio, resolution, size_bytes}` atomically; `ctx.video.forget`, best-effort.
   - Tests: `backend/tests/integration/test_video_generation.py` with the fake provider and a fast poll interval (happy path with and without pictures; result fields; clip has no audio stream; usage and cost recorded; each VideoError → its failure code; timeout; cancel while generating calls `cancel` and deletes the job data), `backend/tests/integration/test_log_hygiene.py` (a marker prompt, marker picture bytes and fake provider messages appear in no log record across success, every failure code and cancel).
-- [ ] T020 [US1] Add the creation, options and file routes in `backend/src/videokit/tools/video_generation/routes.py` (contracts/http-api.md)
+- [x] T020 [US1] Add the creation, options and file routes in `backend/src/videokit/tools/video_generation/routes.py` (contracts/http-api.md)
   - `GET /options` (durations, aspect ratios, resolutions, limits, `price_per_second_usd` per resolution and `price_per_picture_usd` from capabilities × price table, `null` when unknown).
   - `POST /jobs` multipart behind a body-size guard (7 × 10 MB + 1 MB) using `request.form(max_files=7, max_fields=8, max_part_size=10_000_000)`: `access.create(TOOL_ID)` → `inputs.store(...)` → `access.complete(job_id)`; on validation error `access.discard(job_id)` then raise. `201 {"job_id"}`.
   - `GET|HEAD /jobs/{id}/clip` (attachment via `core.downloads.content_disposition`, byte ranges), `GET /jobs/{id}/thumbnail`; `404 job_not_found` for unknown/expired/other tool, `409 job_not_done`.
   - Tests: `backend/tests/integration/test_video_generation.py` (create → queued without upload; 413 before the whole oversized body is read; validation errors leave no job row or dir; options with and without known price; clip download name and ranges; 404/409 cases).
-- [ ] T021 [P] [US1] Add a multipart helper to `frontend/src/api/client.ts` and the tool's catalog strings to `frontend/src/i18n/en.json`
+- [x] T021 [P] [US1] Add a multipart helper to `frontend/src/api/client.ts` and the tool's catalog strings to `frontend/src/i18n/en.json`
   - `postForm<T>(path, form: FormData)` with the same error envelope handling as `postJson`.
   - Strings: `tools.video_generation.{name,description}`, `videoGeneration.*` (form labels, defaults, estimate incl. "cost unknown", generate, cancel warning "the provider may still charge for this attempt", result labels, retention note), `job.states.generating` if missing, `job.failures.{provider_out_of_credit,content_blocked,provider_timeout,invalid_picture,provider_unavailable,resume_impossible,video_failed}`, `errors.{too_many_pictures,picture_too_large,invalid_picture}`.
   - Tests: `frontend/tests/unit/client.spec.ts` (`postForm` success and error envelope), the existing catalog-completeness test covers the new failure codes.
-- [ ] T022 [US1] Build the form page with picture picker and estimate in `frontend/src/tools/video-generation/{index,types,estimate}.ts`, `VideoGenerationPage.vue` and `PicturePicker.vue` (research V12)
+- [x] T022 [US1] Build the form page with picture picker and estimate in `frontend/src/tools/video-generation/{index,types,estimate}.ts`, `VideoGenerationPage.vue` and `PicturePicker.vue` (research V12)
   - `index.ts`: `id = 'video_generation'`, routes `/tools/video-generation` and `/tools/video-generation/jobs/:id`, labels `tools.video_generation.name/description`.
   - Picker: add from gallery/files (`accept` = `options.picture_types`), thumbnails in order with position numbers, move up/down and remove buttons ≥ 44×44 px, client-side limits from `/options` with catalog messages.
   - Form: prompt (counter, max 2,000), duration select from `options.durations_s` (default 8), orientation 9:16 default / 16:9, resolution 1080p default / 720p; live estimate `duration × price_per_second[resolution] + pictures × price_per_picture`, "cost unknown" when null; Generate disabled for an empty prompt; submit via `postForm`, then navigate to the job page.
   - Tests: `frontend/tests/unit/video-generation.spec.ts` (reorder/remove keeps order sent in FormData; limits; estimate math and unknown price; disabled Generate), `frontend/tests/unit/estimate.spec.ts`.
-- [ ] T023 [US1] Build the job page in `frontend/src/tools/video-generation/JobPage.vue`
+- [x] T023 [US1] Build the job page in `frontend/src/tools/video-generation/JobPage.vue`
   - Stage via the existing `JobStatus` component (queued with position, generating, done, failed with catalog message, cancelled); Cancel with the provider-charge warning while generating.
   - Done: `<video playsinline muted controls>` preview from `…/clip`, duration/orientation/resolution/actual cost, Download (`…/clip`), shared `ShareButton` (MP4, `download_name`).
   - Tests: `frontend/tests/unit/video-generation-job.spec.ts` (each state; failure codes map to catalog keys, never server text; Share hidden when unsupported).
-- [ ] T024 [US1] Cover the flow end-to-end in `frontend/tests/e2e/video-generation.spec.ts` and `backend/tests/e2e_app.py`
+- [x] T024 [US1] Cover the flow end-to-end in `frontend/tests/e2e/video-generation.spec.ts` and `backend/tests/e2e_app.py`
   - `e2e_app.py` enables the tool with the fake video provider (fast polling).
   - Pick two pictures, reorder, remove one, generate, see `done`, download; no horizontal scroll at 360 px and targets ≥ 44×44 px on all four projects.
 

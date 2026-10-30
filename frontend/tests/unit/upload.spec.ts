@@ -200,6 +200,9 @@ describe('upload page', () => {
       'regeneration_in_progress',
       'invalid_section',
       'generation_failed',
+      'too_many_pictures',
+      'picture_too_large',
+      'invalid_picture',
     ];
     const catalog: Record<string, string> = en.errors.codes;
     for (const code of codes) expect(catalog[code], code).toBeTruthy();

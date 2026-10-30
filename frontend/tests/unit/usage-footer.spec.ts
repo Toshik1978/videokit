@@ -15,6 +15,7 @@ const USAGE = {
   cache_read_tokens: 10,
   cache_write_tokens: 48000,
   audio_minutes: 12.5,
+  video_output_tokens: 0,
   cost_usd: 0.31,
 };
 const PROVIDERS = { transcription: 'local', llm: 'anthropic:claude-opus-5-5' };
