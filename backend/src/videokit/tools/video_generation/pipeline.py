@@ -47,6 +47,7 @@ _MESSAGES = {
     "provider_unavailable": "The video provider is not available right now.",
     "video_failed": "The video could not be generated.",
     "provider_timeout": "The video provider took too long to finish.",
+    "resume_impossible": "The server restarted before the provider confirmed this clip, so it was not sent again.",
 }
 
 
@@ -99,9 +100,38 @@ async def _submit(job: JobHandle, video: VideoChain, stored: StoredInputs) -> Ac
     return accepted
 
 
-async def _wait(job: JobHandle, video: VideoChain, accepted: Accepted) -> PollResult:
-    """Poll until the provider finishes. A cancel or the wait cap stops the generation at the provider too."""
-    deadline = time.monotonic() + WAIT_CAP_S
+def _read_operation(path: Path) -> tuple[Accepted, float]:
+    """The operation a previous run stored, and how long ago it was accepted (the wait the cap has already used)."""
+    document = json.loads(path.read_text(encoding="utf-8"))
+    accepted = Accepted(provider=document["provider"], ref=document["ref"])
+    try:
+        waited = (datetime.now(UTC) - datetime.fromisoformat(document["submitted_at"])).total_seconds()
+    except KeyError, TypeError, ValueError:
+        waited = 0.0  # no usable timestamp: give the operation a full wait rather than fail it
+    return accepted, max(waited, 0.0)
+
+
+async def _accept(job: JobHandle, video: VideoChain, stored: StoredInputs) -> tuple[Accepted, float]:
+    """The provider's operation for this job and the seconds it has already been waited on (research V3).
+
+    A stored operation is polled, never submitted again. `submit.json` without an operation means a request may
+    have been accepted whose reference was lost: resubmitting could charge twice, so the job fails instead.
+    """
+    operation = job.dir / OPERATION_JSON
+    if await asyncio.to_thread(operation.exists):
+        return await asyncio.to_thread(_read_operation, operation)
+    if await asyncio.to_thread((job.dir / SUBMIT_JSON).exists):
+        raise AppError("resume_impossible", _MESSAGES["resume_impossible"], 502)
+    return await _submit(job, video, stored), 0.0
+
+
+async def _wait(job: JobHandle, video: VideoChain, accepted: Accepted, waited_s: float = 0.0) -> PollResult:
+    """Poll until the provider finishes. A cancel or the wait cap stops the generation at the provider too.
+
+    The cap counts from the original submission (`waited_s` is already spent), so restarts cannot stretch it; a
+    resumed job past the cap still gets one poll, because its clip may have finished while the server was down.
+    """
+    deadline = time.monotonic() + max(WAIT_CAP_S - waited_s, 0.0)
     while True:
         try:
             await asyncio.to_thread(job.check_cancelled)
@@ -149,8 +179,8 @@ async def run(job: JobHandle, ctx: CoreContext) -> None:
         raise _failure("provider_unavailable")
     job.set_state("generating")
     stored = await asyncio.to_thread(load_inputs, job.dir)
-    accepted = await _submit(job, video, stored)
-    result = await _wait(job, video, accepted)
+    accepted, waited_s = await _accept(job, video, stored)
+    result = await _wait(job, video, accepted, waited_s)
     assert result.video is not None  # _wait only returns finished results that carry the video
     await asyncio.to_thread(_charge, job, ctx, video, accepted, stored, result.usage)  # paid even if finalizing fails
     clip = await asyncio.to_thread(ctx.media.finalize_clip, result.video, job.dir)

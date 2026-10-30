@@ -442,3 +442,83 @@ def test_video_generation_cancel_logs_no_prompt_picture_or_key(
     log = "\n".join(captured.lines)
     assert "OSError" in log  # a failed best-effort cancel is logged by type only
     _assert_video_log_clean(log, jpeg)
+
+
+class _ProcessDied(BaseException):
+    """Passes every `except Exception`, so the job stays exactly as the dying process left it."""
+
+
+def _video_app(tmp_path: Path, fake: FakeVideoGenerator) -> FastAPI:
+    settings = Settings(
+        data_dir=tmp_path / "data",
+        anthropic_api_key=SecretStr(ANTHROPIC_KEY),
+        gemini_api_key=SecretStr(GEMINI_KEY),
+        video_providers=["omni"],
+        log_level="DEBUG",
+    )
+    providers = Providers(
+        transcriber=TranscriberChain([FakeTranscriber(name="local", segments=[])]),
+        llm=LLMChain([FakeLLM([])]),
+        video=VideoChain([fake]),
+    )
+    return create_app(settings, providers, static_dir=tmp_path / "static")
+
+
+def _start_video_job(client: TestClient, picture: bytes, until: Callable[[Path], bool]) -> str:
+    """Create a marker-prompt job and wait until `until(job_dir)`, i.e. the point where the test stops the app."""
+    access = client.app.state.job_access  # type: ignore[attr-defined]
+    job = access.create("video_generation")
+    fields = CreationInputs(f"{VIDEO_PROMPT_MARKER} on a hill", 5, "9:16", "1080p")
+    store_inputs(access.job_dir(job.id), access.ctx.media, fields, [io.BytesIO(picture)])
+    client.portal.call(access.complete, job.id)  # type: ignore[union-attr]
+    deadline = time.monotonic() + 10
+    while not until(access.job_dir(job.id)):
+        assert time.monotonic() < deadline, "the job never reached the point to stop at"
+        time.sleep(0.005)
+    return str(job.id)
+
+
+@needs_ffmpeg
+def test_video_generation_resume_logs_no_prompt_picture_or_message(
+    tmp_path: Path, make_picture: Callable[..., Path], monkeypatch: pytest.MonkeyPatch, captured: Capture
+) -> None:
+    monkeypatch.setattr(video_pipeline, "POLL_INTERVAL_S", 0.01)
+    monkeypatch.setattr(video_pipeline, "WAIT_CAP_S", 5.0)
+    picture = make_picture("png", 80, 60).read_bytes()
+
+    before = FakeVideoGenerator(submits=["op-A"], polls=["pending"] * 10_000)
+    with TestClient(_video_app(tmp_path, before)) as client:
+        job_id = _start_video_job(client, picture, lambda d: (d / "operation.json").exists() and bool(before.poll_refs))
+    jpeg = before.requests[0].pictures[0].jpeg
+
+    # The resumed poll fails once with a message that echoes the secrets, then the clip finishes.
+    after = FakeVideoGenerator(polls=[_leaky("provider_unavailable"), "done"])
+    with TestClient(_video_app(tmp_path, after)) as client:
+        body = _wait_done(client, job_id)
+    assert body["state"] == "done"
+    assert after.requests == [] and after.poll_refs == ["op-A", "op-A"]  # resumed, not resubmitted
+    _assert_video_log_clean("\n".join(captured.lines), jpeg)
+
+
+@needs_ffmpeg
+def test_video_generation_resume_impossible_logs_no_prompt_picture_or_message(
+    tmp_path: Path, make_picture: Callable[..., Path], captured: Capture
+) -> None:
+    picture = make_picture("png", 80, 60).read_bytes()
+
+    class Dying(FakeVideoGenerator):
+        def submit(self, req: Any) -> str:
+            self.requests.append(req)
+            raise _ProcessDied(f"{VIDEO_MESSAGE_MARKER} {VIDEO_PROMPT_MARKER}")
+
+    dying = Dying()
+
+    with TestClient(_video_app(tmp_path, dying)) as client:
+        job_id = _start_video_job(client, picture, lambda d: (d / "submit.json").exists())
+
+    fresh = FakeVideoGenerator()
+    with TestClient(_video_app(tmp_path, fresh)) as client:
+        body = _wait_done(client, job_id)
+    assert (body["state"], body["failure_code"]) == ("failed", "resume_impossible")
+    assert fresh.requests == []
+    _assert_video_log_clean("\n".join(captured.lines), dying.requests[0].pictures[0].jpeg)

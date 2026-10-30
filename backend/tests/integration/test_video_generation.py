@@ -9,6 +9,7 @@ import time
 from collections.abc import Callable, Iterator
 from contextlib import closing
 from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -444,6 +445,191 @@ def test_cancel_while_generating_cancels_at_the_provider_and_deletes_the_job_dat
             time.sleep(0.01)
     assert fake.cancelled == ["op-9"]
     assert fake.forgotten == []
+
+
+# --- resume after a restart (research V3) ---------------------------------------------------------------------
+
+
+class _Crash(BaseException):
+    """Stands in for the process dying: it passes every `except Exception`, so the job is left as it was."""
+
+
+def _wait_polling(fake: FakeVideoGenerator, count: int = 1) -> None:
+    deadline = time.monotonic() + 15
+    while len(fake.poll_refs) < count:
+        assert time.monotonic() < deadline, "the job never started polling"
+        time.sleep(0.005)
+
+
+def _back_date_submission(job_dir: Path, seconds: float) -> None:
+    path = job_dir / "operation.json"
+    operation = json.loads(path.read_text(encoding="utf-8"))
+    operation["submitted_at"] = (datetime.now(UTC) - timedelta(seconds=seconds)).isoformat()
+    path.write_text(json.dumps(operation), encoding="utf-8")
+
+
+def test_a_restart_between_accept_and_completion_polls_the_stored_operation_and_never_submits(
+    tmp_path: Path, make_picture: MakePicture
+) -> None:
+    before = FakeVideoGenerator(model=FAKE_MODEL, submits=["op-A"], polls=["pending"] * 1000)
+    with _client(tmp_path, before) as client:
+        job_id = _submit(client, [make_picture("png").read_bytes()], duration_s=7, resolution="720p")
+        _wait_polling(before)
+    assert _json(client, job_id, "operation.json")["ref"] == "op-A"
+    assert _job(client, job_id).state is JobState.GENERATING  # the stop left it mid-run
+
+    after = FakeVideoGenerator(model=FAKE_MODEL)  # reports no usage: it never saw the request
+    with _client(tmp_path, after) as client:
+        job = _wait(client, job_id, JobState.DONE, JobState.FAILED)
+        assert job.state is JobState.DONE
+        assert (_store(client).job_dir(job_id) / "clip.mp4").is_file()
+        assert _json(client, job_id, "result.json")["file"] == "clip.mp4"
+    assert before.submit_count == 1
+    assert after.submit_count == 0  # never paid twice
+    assert after.poll_refs == ["op-A"]
+    assert after.forgotten == ["op-A"]
+    assert job.providers == {"video": f"fake:{FAKE_MODEL}"}
+
+
+def test_a_resumed_poll_without_reported_usage_is_billed_from_the_stored_inputs(
+    tmp_path: Path, make_picture: MakePicture
+) -> None:
+    before = FakeVideoGenerator(model=FAKE_MODEL, submits=["op-A"], polls=["pending"] * 1000)
+    with _client(tmp_path, before) as client:
+        job_id = _submit(client, [make_picture("png").read_bytes()] * 2, duration_s=8, resolution="1080p")
+        _wait_polling(before)
+    with _client(tmp_path, FakeVideoGenerator(model=FAKE_MODEL)) as client:
+        job = _wait(client, job_id, JobState.DONE)
+    assert job.usage["video_output_tokens"] == 8 * 8688
+    assert job.usage["input_tokens"] == 2 * 1120
+    assert job.usage["cost_usd"] == pytest.approx(2 * 1120 * 1.5 / 1e6 + 8 * 8688 * 17.5 / 1e6)
+
+
+def test_a_restart_with_only_submit_json_fails_resume_impossible_without_submitting(tmp_path: Path) -> None:
+    class Dying(FakeVideoGenerator):
+        def submit(self, req: Any) -> str:
+            raise _Crash  # after submit.json, before any operation.json
+
+    with _client(tmp_path, Dying(model=FAKE_MODEL)) as client:
+        job_id = _submit(client)
+        _wait(client, job_id, JobState.GENERATING)
+        deadline = time.monotonic() + 10
+        job_dir = _store(client).job_dir(job_id)
+        while not (job_dir / "submit.json").exists():
+            assert time.monotonic() < deadline
+            time.sleep(0.005)
+    assert not (job_dir / "operation.json").exists()
+
+    after = FakeVideoGenerator(model=FAKE_MODEL)
+    with _client(tmp_path, after) as client:
+        job = _wait(client, job_id, JobState.FAILED, JobState.DONE)
+        assert (job.state, job.failure_code) == (JobState.FAILED, "resume_impossible")
+        assert job.failure_reason
+    assert after.submit_count == 0
+    assert after.poll_refs == []
+
+
+def test_a_job_left_generating_before_it_wrote_anything_is_submitted_fresh(tmp_path: Path) -> None:
+    class Dying(FakeVideoGenerator):
+        def poll(self, ref: str, out_dir: Path) -> PollResult:
+            raise _Crash
+
+    # Leave a job `generating` with no submit.json and no operation.json: it stopped before the first write.
+    with _client(tmp_path, Dying(model=FAKE_MODEL)) as client:
+        job_id = _submit(client)
+        _wait(client, job_id, JobState.GENERATING)
+        job_dir = _store(client).job_dir(job_id)
+        deadline = time.monotonic() + 10
+        while not (job_dir / "operation.json").exists():
+            assert time.monotonic() < deadline
+            time.sleep(0.005)
+    (job_dir / "operation.json").unlink()
+    (job_dir / "submit.json").unlink()
+
+    after = FakeVideoGenerator(model=FAKE_MODEL)
+    with _client(tmp_path, after) as client:
+        assert _wait(client, job_id, JobState.DONE, JobState.FAILED).state is JobState.DONE
+    assert after.submit_count == 1
+
+
+def test_a_queued_video_job_survives_a_restart_and_runs(tmp_path: Path) -> None:
+    # Three slots hold generating jobs; the fourth job waits in the queue when the server stops.
+    before = FakeVideoGenerator(model=FAKE_MODEL, polls=["pending"] * 10_000)
+    with _client(tmp_path, before) as client:
+        running = [_submit(client, prompt=f"{PROMPT} {n}") for n in range(3)]
+        for job_id in running:
+            _wait(client, job_id, JobState.GENERATING)
+        waiting = _submit(client, prompt=f"{PROMPT} waiting")
+        assert _job(client, waiting).state is JobState.QUEUED
+        _wait_polling(before, 3)
+    assert before.submit_count == 3
+
+    after = FakeVideoGenerator(model=FAKE_MODEL, submits=["op-new"], polls=["done"] * 4)
+    with _client(tmp_path, after) as client:
+        for job_id in [*running, waiting]:
+            assert _wait(client, job_id, JobState.DONE, JobState.FAILED).state is JobState.DONE
+    assert after.submit_count == 1  # only the job that never ran; the others were polled, not resubmitted
+    assert sorted(after.poll_refs) == sorted(["op-1", "op-2", "op-3", "op-new"])
+
+
+def test_youtube_prep_jobs_in_the_same_restart_still_fail_server_restarted(tmp_path: Path) -> None:
+    before = FakeVideoGenerator(model=FAKE_MODEL, submits=["op-A"], polls=["pending"] * 1000)
+    with _client(tmp_path, before) as client:
+        video_id = _submit(client)
+        _wait_polling(before)
+    config = Settings(data_dir=tmp_path / "data")
+    store = JobStore(config.data_dir, config.job_ttl_hours, config.max_upload_bytes)
+    prep = store.create("youtube_prep", 10)
+    store.set_upload_offset(prep.id, 10)
+    for state in (JobState.QUEUED, JobState.EXTRACTING, JobState.TRANSCRIBING):
+        store.set_state(prep.id, state)
+
+    with _client(tmp_path, FakeVideoGenerator(model=FAKE_MODEL)) as client:
+        assert _wait(client, video_id, JobState.DONE, JobState.FAILED).state is JobState.DONE
+        lost = _job(client, prep.id)
+    assert (lost.state, lost.failure_code) == (JobState.FAILED, "server_restarted")
+
+
+def test_the_wait_cap_counts_from_the_original_submission(tmp_path: Path) -> None:
+    before = FakeVideoGenerator(model=FAKE_MODEL, submits=["op-A"], polls=["pending"] * 1000)
+    with _client(tmp_path, before) as client:
+        job_id = _submit(client)
+        _wait_polling(before)
+        job_dir = _store(client).job_dir(job_id)
+    _back_date_submission(job_dir, pipeline.WAIT_CAP_S + 60)  # submitted longer ago than the cap allows
+
+    after = FakeVideoGenerator(model=FAKE_MODEL, polls=["pending"] * 1000)
+    with _client(tmp_path, after) as client:
+        job = _wait(client, job_id, JobState.FAILED, JobState.DONE)
+    assert (job.state, job.failure_code) == (JobState.FAILED, "provider_timeout")
+    assert after.poll_refs == ["op-A"]  # one last look before giving up
+    assert after.cancelled == ["op-A"]
+    assert after.submit_count == 0
+
+
+def test_a_clip_finished_while_the_server_was_down_is_collected_even_past_the_cap(tmp_path: Path) -> None:
+    before = FakeVideoGenerator(model=FAKE_MODEL, submits=["op-A"], polls=["pending"] * 1000)
+    with _client(tmp_path, before) as client:
+        job_id = _submit(client)
+        _wait_polling(before)
+        job_dir = _store(client).job_dir(job_id)
+    _back_date_submission(job_dir, pipeline.WAIT_CAP_S + 60)
+
+    with _client(tmp_path, FakeVideoGenerator(model=FAKE_MODEL)) as client:
+        assert _wait(client, job_id, JobState.DONE, JobState.FAILED).state is JobState.DONE
+
+
+def test_a_resumed_job_can_be_cancelled(tmp_path: Path) -> None:
+    before = FakeVideoGenerator(model=FAKE_MODEL, submits=["op-A"], polls=["pending"] * 1000)
+    with _client(tmp_path, before) as client:
+        job_id = _submit(client)
+        _wait_polling(before)
+    after = FakeVideoGenerator(model=FAKE_MODEL, polls=["pending"] * 10_000)
+    with _client(tmp_path, after) as client:
+        _wait_polling(after)
+        assert client.post(f"/api/jobs/{job_id}/cancel").status_code == 202
+        _wait(client, job_id, JobState.CANCELLED)
+    assert after.cancelled == ["op-A"]
 
 
 # --- creation route -------------------------------------------------------------------------------------------

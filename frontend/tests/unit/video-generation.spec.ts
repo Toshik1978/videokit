@@ -7,6 +7,7 @@ import en from '@/i18n/en.json';
 import { createAppRouter } from '@/router';
 import type { ToolModule } from '@/tools';
 import * as tool from '@/tools/video-generation/index';
+import { RECENT_CLIPS_KEY, type RecentClip } from '@/tools/video-generation/recentClips';
 
 const OPTIONS = {
   durations_s: [5, 6, 7, 8, 9, 10],
@@ -41,7 +42,11 @@ function jobBody(overrides: Record<string, unknown> = {}) {
   };
 }
 
+const TTL_HOURS = 24;
+
 let optionsReply: () => Response;
+let configReply: () => Response;
+let jobReplies: Record<string, () => Response>;
 let createReply: () => Response;
 let fetchMock: ReturnType<typeof vi.fn>;
 
@@ -51,9 +56,12 @@ function stubFetch() {
     if (url === '/api/tools/video_generation/jobs' && init?.method === 'POST') {
       return Promise.resolve(createReply());
     }
+    if (url === '/api/config') return Promise.resolve(configReply());
     if (url === '/api/jobs/j1/cancel') {
       return Promise.resolve(json(202, jobBody({ state: 'cancelled', queue_position: null })));
     }
+    const reply = jobReplies[url];
+    if (reply) return Promise.resolve(reply());
     if (url === '/api/jobs/j1') return Promise.resolve(json(200, jobBody()));
     return Promise.resolve(json(404, { error: { code: 'job_not_found', message: 'x' } }));
   });
@@ -99,7 +107,10 @@ const names = (wrapper: VueWrapper) =>
     .map((img) => img.attributes('src')?.replace('blob:', ''));
 
 beforeEach(() => {
+  localStorage.clear();
   optionsReply = () => json(200, OPTIONS);
+  configReply = () => json(200, { job_ttl_hours: TTL_HOURS });
+  jobReplies = {};
   createReply = () => json(201, { job_id: 'j1' });
   Object.assign(URL, {
     createObjectURL: vi.fn((file: File) => `blob:${file.name}`),
@@ -348,6 +359,176 @@ describe('submitting', () => {
     expect(posts()).toHaveLength(1);
     resolve(json(201, { job_id: 'j1' }));
     await flushPromises();
+    wrapper.unmount();
+  });
+});
+
+const HOUR_MS = 3_600_000;
+
+function stored(...clips: Array<[string, string, number?]>): RecentClip[] {
+  const entries = clips.map(([job_id, prompt, hoursAgo = 1]) => ({
+    job_id,
+    prompt,
+    created_at: new Date(Date.now() - hoursAgo * HOUR_MS).toISOString(),
+  }));
+  localStorage.setItem(RECENT_CLIPS_KEY, JSON.stringify(entries));
+  return entries;
+}
+
+const storedIds = () =>
+  (JSON.parse(localStorage.getItem(RECENT_CLIPS_KEY) ?? '[]') as RecentClip[]).map((c) => c.job_id);
+
+const entries = (wrapper: VueWrapper) => wrapper.findAll('[data-test="recent-clip"]');
+
+describe('recent clips', () => {
+  it('lists the stored clips newest first with prompt, status and a link to the job page', async () => {
+    stored(['j-new', 'A cat on a roof', 1], ['j-old', 'A slow sunrise', 2]);
+    jobReplies['/api/jobs/j-new'] = () => json(200, jobBody({ job_id: 'j-new', state: 'queued' }));
+    jobReplies['/api/jobs/j-old'] = () =>
+      json(200, jobBody({ job_id: 'j-old', state: 'generating', queue_position: null }));
+    const { wrapper } = await mountAt();
+
+    expect(wrapper.get('[data-test="recent-heading"]').text()).toBe(
+      en.videoGeneration.recent.heading,
+    );
+    const items = entries(wrapper);
+    expect(items).toHaveLength(2);
+    expect(items[0]!.text()).toContain('A cat on a roof');
+    expect(items[0]!.get('[data-test="recent-status"]').text()).toBe(
+      en.videoGeneration.recent.status.queued,
+    );
+    expect(items[1]!.text()).toContain('A slow sunrise');
+    expect(items[1]!.get('[data-test="recent-status"]').text()).toBe(
+      en.videoGeneration.recent.status.generating,
+    );
+    expect(items[0]!.attributes('href')).toBe('/tools/video-generation/jobs/j-new');
+    expect(items[1]!.attributes('href')).toBe('/tools/video-generation/jobs/j-old');
+    wrapper.unmount();
+  });
+
+  it('shows a thumbnail for a ready clip only, and a status label for failed and cancelled', async () => {
+    stored(['j-done', 'ready', 1], ['j-fail', 'failed', 2], ['j-cancel', 'cancelled', 3]);
+    jobReplies['/api/jobs/j-done'] = () => json(200, jobBody({ job_id: 'j-done', state: 'done' }));
+    jobReplies['/api/jobs/j-fail'] = () =>
+      json(200, jobBody({ job_id: 'j-fail', state: 'failed', failure_reason: 'x' }));
+    jobReplies['/api/jobs/j-cancel'] = () =>
+      json(200, jobBody({ job_id: 'j-cancel', state: 'cancelled' }));
+    const { wrapper } = await mountAt();
+
+    const [done, failed, cancelled] = entries(wrapper);
+    const thumb = done!.get('img');
+    expect(thumb.attributes('src')).toBe('/api/tools/video_generation/jobs/j-done/thumbnail');
+    expect(thumb.attributes('alt')).toBe(en.videoGeneration.recent.thumbnail);
+    expect(done!.get('[data-test="recent-status"]').text()).toBe(
+      en.videoGeneration.recent.status.done,
+    );
+    expect(failed!.find('img').exists()).toBe(false);
+    expect(failed!.get('[data-test="recent-status"]').text()).toBe(
+      en.videoGeneration.recent.status.failed,
+    );
+    expect(cancelled!.find('img').exists()).toBe(false);
+    expect(cancelled!.get('[data-test="recent-status"]').text()).toBe(
+      en.videoGeneration.recent.status.cancelled,
+    );
+    wrapper.unmount();
+  });
+
+  it('removes an entry whose job is gone, silently', async () => {
+    stored(['j1', 'kept', 1], ['gone', 'expired job', 2]);
+    jobReplies['/api/jobs/gone'] = () =>
+      json(404, { error: { code: 'job_not_found', message: 'x' } });
+    const { wrapper } = await mountAt();
+
+    expect(entries(wrapper)).toHaveLength(1);
+    expect(wrapper.text()).not.toContain('expired job');
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false);
+    expect(storedIds()).toEqual(['j1']);
+    wrapper.unmount();
+  });
+
+  it('keeps an entry, without a status, when its job cannot be read right now', async () => {
+    stored(['j1', 'still here', 1]);
+    jobReplies['/api/jobs/j1'] = () =>
+      json(500, { error: { code: 'internal_error', message: 'x' } });
+    const { wrapper } = await mountAt();
+
+    const [item] = entries(wrapper);
+    expect(item!.text()).toContain('still here');
+    expect(item!.find('[data-test="recent-status"]').exists()).toBe(false);
+    expect(storedIds()).toEqual(['j1']);
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it('drops entries older than the retention period without asking the server', async () => {
+    stored(['j1', 'fresh', 1], ['stale', 'too old', TTL_HOURS + 1]);
+    const { wrapper } = await mountAt();
+
+    expect(entries(wrapper)).toHaveLength(1);
+    expect(fetchMock.mock.calls.map(([url]) => url)).not.toContain('/api/jobs/stale');
+    wrapper.unmount();
+  });
+
+  it('shows the empty message when nothing is stored', async () => {
+    const { wrapper } = await mountAt();
+    expect(entries(wrapper)).toHaveLength(0);
+    expect(wrapper.get('[data-test="recent-empty"]').text()).toBe(en.videoGeneration.recent.empty);
+    wrapper.unmount();
+  });
+
+  it('shows an empty list, and the form still works, when storage throws', async () => {
+    vi.stubGlobal('localStorage', {
+      getItem: () => {
+        throw new DOMException('denied', 'SecurityError');
+      },
+      setItem: () => {
+        throw new DOMException('quota', 'QuotaExceededError');
+      },
+      removeItem: () => {
+        throw new DOMException('denied', 'SecurityError');
+      },
+    });
+    const { wrapper, current } = await mountAt();
+    expect(entries(wrapper)).toHaveLength(0);
+    expect(wrapper.find('[data-test="recent-empty"]').exists()).toBe(true);
+
+    await type(wrapper, 'a clip');
+    await wrapper.get('[data-test="generate"]').trigger('click');
+    await flushPromises();
+    await vi.waitFor(() => expect(current()).toBe('/tools/video-generation/jobs/j1'));
+    wrapper.unmount();
+  });
+
+  it('states the retention period from the server configuration', async () => {
+    configReply = () => json(200, { job_ttl_hours: 48 });
+    const { wrapper } = await mountAt();
+    expect(wrapper.get('[data-test="retention"]').text()).toBe('Clips are deleted after 48 h.');
+    wrapper.unmount();
+  });
+
+  it('adds a started clip to the list before opening its page', async () => {
+    const { wrapper, current } = await mountAt();
+    await type(wrapper, 'x'.repeat(100));
+    await wrapper.get('[data-test="generate"]').trigger('click');
+    await flushPromises();
+    await vi.waitFor(() => expect(current()).toBe('/tools/video-generation/jobs/j1'));
+
+    const list = JSON.parse(localStorage.getItem(RECENT_CLIPS_KEY) ?? '[]') as RecentClip[];
+    expect(list.map((c) => c.job_id)).toEqual(['j1']);
+    expect(list[0]!.prompt).toBe('x'.repeat(80));
+    expect(Date.now() - Date.parse(list[0]!.created_at)).toBeLessThan(60_000);
+    wrapper.unmount();
+  });
+
+  it('does not list a clip, but still opens it, when the retention period is unknown', async () => {
+    configReply = () => json(500, { error: { code: 'internal_error', message: 'x' } });
+    const { wrapper, current } = await mountAt();
+    expect(wrapper.find('[data-test="retention"]').exists()).toBe(false);
+    await type(wrapper, 'a clip');
+    await wrapper.get('[data-test="generate"]').trigger('click');
+    await flushPromises();
+    await vi.waitFor(() => expect(current()).toBe('/tools/video-generation/jobs/j1'));
+    expect(storedIds()).toEqual([]);
     wrapper.unmount();
   });
 });

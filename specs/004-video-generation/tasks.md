@@ -168,13 +168,13 @@ second paid request.
 **Independent Test**: Start two jobs, reload the page: both listed with status; restart during
 generation: the job completes and the fake provider counted one `submit` (quickstart §1).
 
-- [ ] T025 [US2] Resume interrupted generations in `backend/src/videokit/tools/video_generation/pipeline.py` (data-model.md "Resume rules", research V3)
+- [x] T025 [US2] Resume interrupted generations in `backend/src/videokit/tools/video_generation/pipeline.py` (data-model.md "Resume rules", research V3)
   - On `run`: `operation.json` present → poll it, never submit; `submit.json` only → `AppError("resume_impossible", …)`; neither → fresh submit.
   - Tests: `backend/tests/integration/test_video_generation.py` (restart the app between submit and completion with `operation.json` → done with exactly one submit; only `submit.json` → `resume_impossible`; a queued video job survives restart and runs; YouTube Prep jobs in the same restart still fail `server_restarted`), `backend/tests/integration/test_log_hygiene.py` (the resume path logs no prompt), `backend/tests/integration/test_purge.py` (SC-007: after a video job's TTL the purge removes `inputs.json`, `pictures/`, `submit.json`, `operation.json`, `clip.mp4`, `thumbnail.jpg` and `result.json` together with the row).
-- [ ] T026 [P] [US2] Keep the device-local list in `frontend/src/tools/video-generation/recentClips.ts` (data-model.md "Recent clip entry")
+- [x] T026 [P] [US2] Keep the device-local list in `frontend/src/tools/video-generation/recentClips.ts` (data-model.md "Recent clip entry")
   - Key `videokit.video_generation.recent`; entries `{job_id, created_at, prompt (first 80 characters)}`, newest first, "≤ 20 entries" (oldest dropped); prune entries older than `job_ttl_hours` from `/api/config`; every storage access wrapped so unavailable storage yields an empty list; `add`, `remove`, `list`.
   - Tests: `frontend/tests/unit/recent-clips.spec.ts` (cap, ordering, age prune with a fake clock, throwing `localStorage`).
-- [ ] T027 [US2] Show Recent clips on the tool page in `frontend/src/tools/video-generation/VideoGenerationPage.vue`
+- [x] T027 [US2] Show Recent clips on the tool page in `frontend/src/tools/video-generation/VideoGenerationPage.vue`
   - Add an entry after a successful create; on load, fetch `GET /api/jobs/{id}` per entry: `404 job_not_found` → remove; show status, thumbnail for `done` (`…/thumbnail`), prompt snippet; tap → job page; retention note "clips are deleted after N hours" from `job_ttl_hours`.
   - Tests: `frontend/tests/unit/video-generation.spec.ts` (list rendering per state, 404 entry removed silently, empty list when storage throws); extend `frontend/tests/e2e/video-generation.spec.ts` (reload → clip in Recent clips).
 

@@ -141,6 +141,32 @@ test('the home page lists Video Generation and its card opens the form', async (
   await expect(page.getByTestId('prompt')).toBeVisible();
 });
 
+test('a started clip is in Recent clips after a reload, ready, and opens its page', async ({
+  page,
+}) => {
+  const prompt = `${PROMPT} ${Date.now()}`;
+  await openForm(page);
+  await page.getByTestId('prompt').fill(prompt);
+  await page.getByTestId('generate').click();
+  await page.waitForURL(/\/tools\/video-generation\/jobs\//);
+  const jobUrl = page.url();
+  await expect(page.getByTestId('download')).toBeVisible({ timeout: 60_000 });
+
+  await openForm(page);
+  await page.reload();
+  const clip = page.getByTestId('recent-clip').filter({ hasText: prompt });
+  await expect(clip).toBeVisible();
+  await expect(clip.getByTestId('recent-status')).toHaveText('Ready');
+  await expect(clip.getByRole('img')).toBeVisible();
+  await expect(page.getByTestId('retention')).toBeVisible();
+  await expectNoHorizontalScroll(page);
+  await expectTouchTargets(page);
+
+  await clip.click();
+  await expect(page).toHaveURL(jobUrl);
+  await expect(page.getByTestId('download')).toBeVisible();
+});
+
 test.describe('at 360 px wide', () => {
   test.use({ viewport: NARROW });
 
@@ -180,6 +206,13 @@ test.describe('at 360 px wide', () => {
     await page.getByTestId('generate').click();
     await expect(page.getByTestId('download')).toBeVisible({ timeout: 60_000 });
     await expect(page.getByTestId('share')).toBeVisible();
+    await expectNoHorizontalScroll(page);
+    await expectTouchTargets(page);
+
+    // The list of the clips made above (cancelled and ready) fits the screen too.
+    await openForm(page);
+    await expect(page.getByTestId('recent-clip').first()).toBeVisible();
+    await expect(page.getByTestId('recent-status').filter({ hasText: 'Cancelled' })).toBeVisible();
     await expectNoHorizontalScroll(page);
     await expectTouchTargets(page);
   });
