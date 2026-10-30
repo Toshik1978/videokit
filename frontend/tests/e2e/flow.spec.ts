@@ -90,6 +90,31 @@ test('copy falls back to selecting the text when the clipboard is unavailable', 
   expect(selected).toBe(await area.inputValue());
 });
 
+test('the language picker is a 44x44 touch target and does not widen the page', async ({
+  page,
+}) => {
+  await page.goto('/tools/youtube-prep');
+  const select = page.getByTestId('language');
+  await expect(select).toBeVisible();
+  // Wait for the language list: "Same as the speech" plus the endonyms.
+  await expect.poll(() => select.locator('option').count()).toBeGreaterThan(2);
+  const box = await select.boundingBox();
+  expect(box?.width ?? 0).toBeGreaterThanOrEqual(44);
+  expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
+  await expect(page.getByLabel('Output language')).toBeVisible();
+
+  // Pick the longest label: it must not stretch the page either.
+  const longest = await select
+    .locator('option')
+    .evaluateAll(
+      (os) =>
+        (os as HTMLOptionElement[]).reduce((a, b) => (b.text.length > a.text.length ? b : a)).value,
+    );
+  await select.selectOption(longest);
+  await expectNoHorizontalScroll(page);
+  await expectTouchTargets(page);
+});
+
 test.describe('at 360 px wide', () => {
   test.use({ viewport: NARROW });
 

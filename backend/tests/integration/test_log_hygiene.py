@@ -45,6 +45,7 @@ from videokit.core.worker import Providers, Worker
 from videokit.main import create_app
 from videokit.tools.video_generation import pipeline as video_pipeline
 from videokit.tools.video_generation.inputs import CreationInputs, store_inputs
+from videokit.tools.youtube_prep.languages import instruction
 
 MakeVideo = Callable[..., Path]
 needs_ffmpeg = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")
@@ -192,6 +193,54 @@ def test_full_run_logs_no_transcript_frames_hints_or_keys(
         forbidden += [base64.b64encode(jpeg).decode(), base64.b64encode(jpeg[63:159]).decode(), repr(jpeg[:64])[2:-1]]
     leaks = [s[:40] for s in forbidden if s in log]
     assert leaks == [], f"secrets or private data in the logs: {leaks}"
+
+
+LANGUAGE_MARKER = "Xylophone-language-6b9f"
+
+
+@needs_ffmpeg
+def test_job_with_language_and_fallback_logs_no_content_turns_or_language_values(
+    tmp_path: Path, make_video: MakeVideo, captured: Capture
+) -> None:
+    settings = Settings(
+        transcribe_providers=["openai"],
+        data_dir=tmp_path / "data",
+        anthropic_api_key=SecretStr(ANTHROPIC_KEY),
+        openai_api_key=SecretStr(OPENAI_KEY),
+        log_level="DEBUG",
+        max_upload_gb=1,
+    )
+    segments = [Segment(0.0, 30.0, TRANSCRIPT_MARKERS[0])]
+    llm = FakeLLM([RESULT, {**RESULT, "title": "A shorter hotel tour"}])
+    providers = Providers(
+        transcriber=TranscriberChain([FakeTranscriber(name="fake", segments=segments)]), llm=LLMChain([llm])
+    )
+    data = make_video(audio=True, colors=("red", "blue"), segment_s=12.0).read_bytes()
+
+    with TestClient(create_app(settings, providers, static_dir=tmp_path / "static")) as client:
+        rejected = client.post(
+            "/api/tools/youtube_prep/jobs", json={"size": len(data), "language": LANGUAGE_MARKER}
+        )  # unsupported language: rejected with 422
+        created = client.post(
+            "/api/tools/youtube_prep/jobs",
+            json={"size": len(data), "language": "de", "fallback_language": f"fr-{LANGUAGE_MARKER}"},
+        )
+        job_id = created.json()["job_id"]
+        assert client.patch(f"/api/uploads/{job_id}", content=data, headers=TUS_PATCH).status_code == 204
+        assert _wait_done(client, job_id)["state"] == "done"
+        regenerated = client.post(f"/api/tools/youtube_prep/jobs/{job_id}/regenerate", json={"section": "title"})
+
+    assert rejected.status_code == 422
+    assert regenerated.status_code == 200
+    # The providers really received the language instruction in the turns ...
+    turns = [t.text for request in llm.requests for t in request.turns]
+    assert any(instruction("de") in text for text in turns)
+    log = "\n".join(captured.lines)
+    # ... and none of it, nor the content, nor the raw values, reached the logs.
+    forbidden = [TRANSCRIPT_MARKERS[0], LANGUAGE_MARKER, instruction("de"), "Write all output in"]
+    leaks = [s for s in forbidden if s in log]
+    assert leaks == [], f"private data in the logs: {leaks}"
+    assert "language.json" not in log
 
 
 SERVER_URL = "http://whisper.example.com:8000/v1"

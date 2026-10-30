@@ -151,10 +151,10 @@ afterwards or an interrupted upload is resumed.
 
 ## Phase 4: Polish & Cross-Cutting Concerns
 
-- [ ] T011 [P] Keep the mobile rules and log hygiene with the picker in `frontend/tests/e2e/` and `backend/tests/integration/test_log_hygiene.py` (FR-013, SC-005)
+- [x] T011 [P] Keep the mobile rules and log hygiene with the picker in `frontend/tests/e2e/` and `backend/tests/integration/test_log_hygiene.py` (FR-013, SC-005)
   - e2e: the YouTube Prep page with the picker has no horizontal scroll at 360 px, and the select is at least 44×44 px on every device profile (desktop-chrome, iphone, pixel, mobile-360).
   - Log hygiene: a job created with a language and a fallback logs neither the uploaded content nor the turns.
-- [ ] T012 Update the output-language documentation in `README.md`, `.claude/CLAUDE.md` and `specs/001-videokit-youtube-prep/contracts/http-api.md`
+- [x] T012 Update the output-language documentation in `README.md`, `.claude/CLAUDE.md` and `specs/001-videokit-youtube-prep/contracts/http-api.md`
   - README YouTube Prep section: the language choice, that the device remembers it, and the silent-video fallback.
   - CLAUDE.md: the "Output language" rule now reads: the picked language, else the detected one, else the browser's language for silent videos, else English. Add `specs/006-youtube-prep-language/` to the specs list.
   - 001 http-api: a one-line pointer from the YouTube Prep create route to 006's delta.

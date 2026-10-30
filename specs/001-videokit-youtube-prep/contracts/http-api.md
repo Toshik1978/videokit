@@ -38,6 +38,8 @@ Creates a job in `uploading` state and its upload resource. Each video tool owns
 (004 research V1; it replaced the platform-wide `POST /api/jobs`), implemented over
 `JobAccess.create` by the shared helper `videokit.core.uploads.create_upload_job`.
 Request: `{"size": 1234567890, "file_name": "trip.mp4"}`
+(YouTube Prep also accepts optional `language` and `fallback_language`; see
+`specs/006-youtube-prep-language/contracts/http-api.md`.)
 - `file_name` is optional (string, at most 1024 characters; longer → `422 invalid_request`). Core keeps
   only its last path component (split on `/` and `\`), removes control characters, trims
   surrounding whitespace and cuts it to 255 characters; empty → none. It is stored for the tool's

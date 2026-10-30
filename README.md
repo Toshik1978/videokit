@@ -24,7 +24,7 @@ No issues, no pull requests and no support: the repository is provided as is (se
 ## YouTube Prep
 
 Upload a finished video and get ready-to-paste YouTube metadata, written in the language spoken in
-the video:
+the video, or in a language you pick:
 
 - **Cover titles**: 3 options, at most 5 words each.
 - **Title**: at most 100 characters.
@@ -40,6 +40,11 @@ the video:
 
 Other features:
 
+- Output language picker on the upload page. "Same as the speech" is the default, followed by the
+  supported languages, each shown by its own name. The device remembers your choice. A picked
+  language always wins; with "Same as the speech" the output follows the detected speech, and a video
+  with no speech uses the browser's language if it is supported, else English. Regenerate keeps the
+  job's language, and the result page shows it.
 - Resumable, chunked uploads (50 MB per request), so large videos survive flaky connections and
   request-size limits in front of the app.
 - Every section is editable in the browser and has a Copy button. Edits are not saved on the
