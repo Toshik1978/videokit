@@ -8,6 +8,39 @@ Versions follow [semver](https://semver.org). Commits follow
 
 ---
 
+## v0.3.0 — 2026-10-30
+
+VideoKit gets its third tool, Video Generation: write a prompt, optionally add up to seven pictures
+(JPEG, PNG, WebP or HEIC) in the order the prompt refers to them, and get one silent 5–10 s MP4
+clip, 9:16 or 16:9, at 1080p or 720p, to download, share or try again with the same inputs. The
+estimated cost is shown before you start (about US$0.10 per second at 720p and US$0.15 at 1080p),
+up to three clips generate at once, and recent clips are remembered on the device. It uses Gemini
+Omni through a Google AI Studio key and stays hidden until you set `VIDEO_PROVIDERS=omni` and
+`GEMINI_API_KEY`; nothing else needs configuring. A restart resumes a running generation instead
+of paying for it twice. Breaking change for scripts that call the API directly: `POST /api/jobs` is
+gone, and jobs are now created with `POST /api/tools/<id>/jobs`. The web app already uses the new
+route.
+
+### Features
+
+- feat: tool-owned job creation and video generation building blocks ([d8fa603](https://github.com/toshik1978/videokit/commit/d8fa603d6d3f534c015fe4ac8d4ed3206f47c6bf))
+- feat: generate a short silent clip from a prompt and pictures ([c7f6728](https://github.com/toshik1978/videokit/commit/c7f6728ae088937b5522787a1677e2ac59754827))
+- feat: resume interrupted generations and list recent clips on the device ([5e63a03](https://github.com/toshik1978/videokit/commit/5e63a03fc374e2cf5229fe12d2d0697062213a92))
+- feat: try again with the same pictures, prompt and options ([8e1cb64](https://github.com/toshik1978/videokit/commit/8e1cb64a92a088c21d214ec763cd6bb5fbf07f50))
+- feat: show the Video Generation card and hide the tool when it is not configured ([0eb8439](https://github.com/toshik1978/videokit/commit/0eb8439e27fcc59e83b3f1ee24022ff63e52cd71))
+
+### Bug Fixes
+
+- fix: show the clip's actual properties, play everywhere and reorder pictures by drag ([b99b3bc](https://github.com/toshik1978/videokit/commit/b99b3bcd314e094f1bc6979f834fd015a042efcd))
+- fix: never charge twice after a restart and download 1080p clips by URI ([7a6d352](https://github.com/toshik1978/videokit/commit/7a6d35274d47b99fffbfe611672c917d99d297ed))
+- fix: show a refused prompt as refused, not as a failed clip ([933ce05](https://github.com/toshik1978/videokit/commit/933ce05b464d4cbaa488a0dc62c57049826cb738))
+
+### Others
+
+- docs: document Video Generation and check the silent clip in the image ([a29cacd](https://github.com/toshik1978/videokit/commit/a29cacd9f3665d6f2e8ea961fb7c8f3eed741090))
+
+---
+
 ## v0.2.0 — 2026-10-14
 
 VideoKit gets its second tool, Audio Extract: upload a video and download its main audio track as
