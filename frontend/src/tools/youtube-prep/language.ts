@@ -44,3 +44,9 @@ export function saveChoice(value: string): void {
 export function sortedLanguages(codes: readonly string[]): string[] {
   return [...codes].sort((a, b) => endonym(a).localeCompare(endonym(b)));
 }
+
+/** The browser's language as a lower-cased base subtag ("pt-BR" gives "pt"), or `undefined` when it reports none. */
+export function browserLanguage(): string | undefined {
+  const tag = globalThis.navigator?.language?.split(/[-_]/)[0]?.trim().toLowerCase();
+  return tag ? tag : undefined;
+}

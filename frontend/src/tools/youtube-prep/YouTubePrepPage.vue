@@ -7,6 +7,7 @@ import { getJson } from '@/api/client';
 import UploadPanel from '@/components/UploadPanel.vue';
 import {
   AUTO_LANGUAGE,
+  browserLanguage,
   endonym,
   loadChoice,
   saveChoice,
@@ -18,7 +19,10 @@ const router = useRouter();
 
 const languages = ref<string[]>([]);
 const language = ref(AUTO_LANGUAGE);
-const createFields = computed(() => ({ language: language.value }));
+const createFields = computed(() => ({
+  language: language.value,
+  fallback_language: browserLanguage(),
+}));
 
 onMounted(async () => {
   try {

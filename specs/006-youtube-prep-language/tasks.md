@@ -113,14 +113,14 @@ when that language is supported, else in English. Videos with speech behave exac
 produces `result.language == "pt"`. With `"xx"` or no value it produces `en`. An `auto` job with
 speech produces the detected language, whatever the fallback.
 
-- [ ] T008 [US2] Accept and normalize `fallback_language` in `backend/src/videokit/tools/youtube_prep/languages.py` and `backend/src/videokit/tools/youtube_prep/routes.py` (FR-007; research L5)
+- [x] T008 [US2] Accept and normalize `fallback_language` in `backend/src/videokit/tools/youtube_prep/languages.py` and `backend/src/videokit/tools/youtube_prep/routes.py` (FR-007; research L5)
   - `normalize_fallback(value)` trims the value, splits it on `-` or `_`, lower-cases the base subtag and returns it if supported, else `"en"`. `None` gives `"en"`.
   - `CreateJobRequest.fallback_language: str | None = Field(None, max_length=35)`; longer values get `422 invalid_request`, and anything else never refuses.
   - Store the normalized value in `language.json`.
   - Tests:
     - `backend/tests/unit/test_youtube_prep_languages.py`: `pt-BR`, `PT_br`, ` de `, `xx`, empty and `None`;
     - `backend/tests/integration/test_youtube_prep_language_api.py`: the stored fallback, the too-long case, and a full silent-video job with fake providers getting the fallback language, while a job with speech ignores it.
-- [ ] T009 [US2] Send the browser's language from `frontend/src/tools/youtube-prep/language.ts` and `frontend/src/tools/youtube-prep/YouTubePrepPage.vue`
+- [x] T009 [US2] Send the browser's language from `frontend/src/tools/youtube-prep/language.ts` and `frontend/src/tools/youtube-prep/YouTubePrepPage.vue`
   - `browserLanguage()` returns `navigator.language`, or `undefined` when there is none. The page passes `{language, fallback_language}` as `createFields`.
   - Tests: `frontend/tests/unit/youtube-prep-language.spec.ts`, `frontend/tests/unit/youtube-prep-page.spec.ts` (the create fields include `fallback_language`, and it is omitted when the browser reports none).
 

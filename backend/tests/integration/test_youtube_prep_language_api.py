@@ -1,8 +1,10 @@
 """YouTube Prep job creation accepts an output language; GET /options lists the supported codes."""
 
 import sqlite3
-from collections.abc import Iterator
+import time
+from collections.abc import Callable, Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
@@ -93,3 +95,85 @@ def test_audio_extract_create_is_unaffected(client: TestClient, data_dir: Path) 
     res = client.post("/api/tools/audio_extract/jobs", json={"size": 1000, "language": "xx"})
     assert res.status_code == 201
     assert not (data_dir / "jobs" / res.json()["job_id"] / languages.LANGUAGE_JSON).exists()
+
+
+@pytest.mark.parametrize(
+    ("sent", "stored"),
+    [("pt-BR", "pt"), ("PT_br", "pt"), (" de ", "de"), ("xx", "en"), ("", "en"), (None, "en"), ("ja", "ja")],
+)
+def test_fallback_language_is_normalized_and_stored(
+    client: TestClient, data_dir: Path, sent: str | None, stored: str
+) -> None:
+    res = client.post(CREATE, json={"size": 1000, "language": "auto", "fallback_language": sent})
+    assert res.status_code == 201
+    assert _setting(client, data_dir, res.json()["job_id"]) == LanguageSetting(choice="auto", fallback=stored)
+
+
+def test_no_fallback_language_stores_english(client: TestClient, data_dir: Path) -> None:
+    res = client.post(CREATE, json={"size": 1000})
+    assert _setting(client, data_dir, res.json()["job_id"]).fallback == "en"
+
+
+def test_overlong_fallback_language_is_refused_without_a_job(client: TestClient, data_dir: Path) -> None:
+    before = _job_count(data_dir)
+    res = client.post(CREATE, json={"size": 1000, "fallback_language": "a" * 36})
+    assert res.status_code == 422
+    assert res.json()["error"]["code"] == "invalid_request"
+    assert _job_count(data_dir) == before
+    assert client.post(CREATE, json={"size": 1000, "fallback_language": "a" * 35}).status_code == 201
+
+
+TUS_PATCH = {"Tus-Resumable": "1.0.0", "Content-Type": "application/offset+octet-stream", "Upload-Offset": "0"}
+OUTPUT: dict[str, Any] = {
+    "language": "en",
+    "cover_titles": ["Hidden Gem Resort", "Worth The  Price?", "Best Pool Ever"],
+    "title": "Hotel tour: lobby, pool and rooms",
+    "description": "A tour of a small resort.\n\nWe look at the lobby, the pool and a room.",
+    "tags": ["hotel review", "travel", "Travel"],
+    "hashtags": ["travel", "#hotel", "#re view"],
+    "chapters": [
+        {"start_seconds": 0, "title": "Arrival"},
+        {"start_seconds": 12, "title": "Lobby - and pool"},
+        {"start_seconds": 24.5, "title": "Rooms"},
+    ],
+}
+
+
+def _run_job(tmp_path: Path, video: Path, fallback: str | None) -> tuple[dict[str, Any], FakeLLM]:
+    llm = FakeLLM([OUTPUT], model="claude-opus-5-5")
+    settings = Settings(
+        transcribe_providers=["openai"],
+        openai_transcribe_api_key=SecretStr("stt-test"),
+        data_dir=tmp_path / "run-data",
+        anthropic_api_key=SecretStr("sk-test"),
+    )
+    providers = Providers(transcriber=TranscriberChain([FakeTranscriber(name="fake")]), llm=LLMChain([llm]))
+    app = create_app(settings, providers, tools_package="videokit.tools", static_dir=tmp_path / "static")
+    with TestClient(app) as c:
+        data = video.read_bytes()
+        res = c.post(CREATE, json={"size": len(data), "language": "auto", "fallback_language": fallback})
+        job_id = res.json()["job_id"]
+        assert c.patch(f"/api/uploads/{job_id}", content=data, headers=TUS_PATCH).status_code == 204
+        deadline = time.monotonic() + 20
+        while True:
+            body: dict[str, Any] = c.get(f"/api/jobs/{job_id}").json()
+            if body["state"] in ("done", "failed", "cancelled"):
+                return body, llm
+            assert time.monotonic() < deadline, "job did not finish in time"
+            time.sleep(0.05)
+
+
+def test_silent_video_uses_the_stored_fallback(tmp_path: Path, make_video: Callable[..., Path]) -> None:
+    video = make_video(audio=False, colors=("red", "blue", "green"), segment_s=12.0)
+    body, llm = _run_job(tmp_path, video, "pt-BR")
+    assert body["state"] == "done"
+    assert languages.instruction("pt") in llm.requests[0].turns[0].text
+    assert body["result"]["language"] == "pt"
+
+
+def test_video_with_speech_ignores_the_fallback(tmp_path: Path, make_video: Callable[..., Path]) -> None:
+    video = make_video(audio=True, colors=("red", "blue", "green"), segment_s=12.0)
+    body, llm = _run_job(tmp_path, video, "pt")
+    assert body["state"] == "done"
+    assert languages.instruction("en") in llm.requests[0].turns[0].text
+    assert languages.instruction("pt") not in llm.requests[0].turns[0].text

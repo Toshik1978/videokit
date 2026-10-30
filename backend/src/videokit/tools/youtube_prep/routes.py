@@ -11,7 +11,7 @@ from videokit.core import uploads
 from videokit.core.errors import AppError
 from videokit.core.registry import JobAccess, JobNotFound, job_access
 from videokit.tools.youtube_prep import pipeline
-from videokit.tools.youtube_prep.languages import AUTO, LANGUAGES, LanguageSetting, write_setting
+from videokit.tools.youtube_prep.languages import AUTO, LANGUAGES, LanguageSetting, normalize_fallback, write_setting
 from videokit.tools.youtube_prep.schema import SECTIONS
 
 TOOL_ID = "youtube_prep"
@@ -35,11 +35,12 @@ def _not_found() -> AppError:
 
 class CreateJobRequest(uploads.CreateUploadRequest):
     language: str = AUTO
+    fallback_language: str | None = Field(default=None, max_length=35)
 
 
-def _store_language(job_dir: Path, choice: str) -> None:
+def _store_language(job_dir: Path, setting: LanguageSetting) -> None:
     job_dir.mkdir(parents=True, exist_ok=True)  # a new job has no directory until its first file
-    write_setting(job_dir, LanguageSetting(choice=choice))
+    write_setting(job_dir, setting)
 
 
 @router.get("/options")
@@ -53,10 +54,11 @@ async def create_job(body: CreateJobRequest, request: Request) -> dict[str, str]
     """Create a job and its tus upload (the client then sends the video to the returned `upload_url`)."""
     if body.language != AUTO and body.language not in LANGUAGES:
         raise AppError("invalid_language", "This language is not supported.", 422)
+    setting = LanguageSetting(choice=body.language, fallback=normalize_fallback(body.fallback_language))
     created = await uploads.create_upload_job(request, TOOL_ID, body)
     access = job_access(request)
     try:
-        await asyncio.to_thread(_store_language, access.job_dir(created["job_id"]), body.language)
+        await asyncio.to_thread(_store_language, access.job_dir(created["job_id"]), setting)
     except BaseException:
         await access.discard(created["job_id"])
         raise

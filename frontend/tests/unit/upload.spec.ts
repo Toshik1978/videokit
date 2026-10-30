@@ -112,6 +112,7 @@ describe('upload page', () => {
     const post = fetchMock.mock.calls.find(([url]) => url === '/api/tools/youtube_prep/jobs');
     expect(JSON.parse((post![1] as RequestInit).body as string)).toEqual({
       language: 'auto',
+      fallback_language: 'en',
       size: 500,
       file_name: 'clip.mp4',
     });

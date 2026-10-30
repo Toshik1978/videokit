@@ -84,6 +84,28 @@ describe('youtube prep language picker', () => {
     expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({ language: 'ru' });
   });
 
+  async function createBody(): Promise<Record<string, unknown>> {
+    const fetchFn = stubFetch(okOptions);
+    const wrapper = await setup();
+    const input = wrapper.get('input[type="file"]');
+    const file = new File([new Uint8Array(1)], 'clip.mp4', { type: 'video/mp4' });
+    Object.defineProperty(input.element, 'files', { value: [file], configurable: true });
+    await input.trigger('change');
+    await flushPromises();
+    const call = fetchFn.mock.calls.find((c) => c[0] === '/api/tools/youtube_prep/jobs');
+    return JSON.parse(String(call?.[1]?.body));
+  }
+
+  it('sends the browser language as the fallback language', async () => {
+    vi.stubGlobal('navigator', { language: 'fr-CA' });
+    expect(await createBody()).toMatchObject({ language: 'auto', fallback_language: 'fr' });
+  });
+
+  it('omits the fallback language when the browser reports none', async () => {
+    vi.stubGlobal('navigator', { language: '' });
+    expect(await createBody()).not.toHaveProperty('fallback_language');
+  });
+
   it('offers only auto when the options request fails', async () => {
     stubFetch(() => json(500, {}));
     const wrapper = await setup();

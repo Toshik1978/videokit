@@ -84,6 +84,14 @@ class LanguageSetting:
     fallback: str = "en"
 
 
+def normalize_fallback(value: str | None) -> str:
+    """A browser language tag (`pt-BR`, `PT_br`) reduced to a supported base code; anything else gives English."""
+    if value is None:
+        return "en"
+    base = value.strip().replace("_", "-").split("-", 1)[0].lower()
+    return base if base in LANGUAGES else "en"
+
+
 def write_setting(job_dir: Path, setting: LanguageSetting) -> None:
     """Write `language.json` atomically (temp file + replace)."""
     target = job_dir / LANGUAGE_JSON

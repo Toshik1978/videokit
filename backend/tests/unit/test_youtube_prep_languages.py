@@ -9,6 +9,7 @@ from videokit.tools.youtube_prep.languages import (
     LANGUAGES,
     LanguageSetting,
     instruction,
+    normalize_fallback,
     read_setting,
     write_setting,
 )
@@ -78,3 +79,22 @@ def test_instruction_text() -> None:
 
 def test_instruction_unknown_code_uses_code_as_name() -> None:
     assert instruction("haw") == "Write all output in haw (language code haw)."
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("pt-BR", "pt"),
+        ("PT_br", "pt"),
+        (" de ", "de"),
+        ("zh-Hant-TW", "zh"),
+        ("xx", "en"),
+        ("auto", "en"),
+        ("", "en"),
+        ("   ", "en"),
+        ("-", "en"),
+        (None, "en"),
+    ],
+)
+def test_normalize_fallback(value: str | None, expected: str) -> None:
+    assert normalize_fallback(value) == expected

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   AUTO_LANGUAGE,
+  browserLanguage,
   endonym,
   LANGUAGE_KEY,
   loadChoice,
@@ -109,5 +110,21 @@ describe('sortedLanguages', () => {
     const names = codes.map(endonym).sort((a, b) => a.localeCompare(b));
     expect(sortedLanguages(codes).map(endonym)).toEqual(names);
     expect(codes).toEqual(['ja', 'fr', 'de']);
+  });
+});
+
+describe('browserLanguage', () => {
+  it('returns the base subtag of the browser language, lower-cased', () => {
+    vi.stubGlobal('navigator', { language: 'pt-BR' });
+    expect(browserLanguage()).toBe('pt');
+    vi.stubGlobal('navigator', { language: 'DE' });
+    expect(browserLanguage()).toBe('de');
+  });
+
+  it('is undefined when the browser reports none', () => {
+    vi.stubGlobal('navigator', { language: '' });
+    expect(browserLanguage()).toBeUndefined();
+    vi.stubGlobal('navigator', {});
+    expect(browserLanguage()).toBeUndefined();
   });
 });
