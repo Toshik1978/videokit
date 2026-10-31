@@ -38,6 +38,10 @@ the video, or in a language you pick:
   0:00 "Arrival and lobby"
   ```
 
+  Videos shorter than 45 seconds get no chapters. If the chapters still break these rules after
+  one automatic repair attempt, they are left out with a notice, the other sections are kept, and
+  you can regenerate the chapters.
+
 Other features:
 
 - Output language picker on the upload page. "Same as the speech" is the default, followed by the

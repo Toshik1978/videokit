@@ -73,11 +73,11 @@ class E2EVideoGenerator(FakeVideoGenerator):
 
 
 def make_video(out: Path) -> None:
-    """Write a 36 s, 160x120 clip (three solid-color segments with a tone): long enough for chapters."""
+    """Write a 48 s, 160x120 clip (three solid-color segments with a tone): long enough for chapters."""
     cmd = ["ffmpeg", "-v", "error", "-y"]
     for color in ("red", "blue", "green"):
-        cmd += ["-f", "lavfi", "-i", f"color=c={color}:s=160x120:r=10:d=12"]
-    cmd += ["-f", "lavfi", "-i", "sine=frequency=440:duration=36"]
+        cmd += ["-f", "lavfi", "-i", f"color=c={color}:s=160x120:r=10:d=16"]
+    cmd += ["-f", "lavfi", "-i", "sine=frequency=440:duration=48"]
     cmd += ["-filter_complex", "[0:v][1:v][2:v]concat=n=3:v=1:a=0[v]", "-map", "[v]", "-map", "3:a", "-c:a", "aac"]
     cmd += ["-c:v", "libx264", "-pix_fmt", "yuv420p", str(out)]
     subprocess.run(cmd, check=True, capture_output=True)

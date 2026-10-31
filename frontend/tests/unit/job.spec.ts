@@ -391,6 +391,28 @@ describe('result cards', () => {
     wrapper.unmount();
   });
 
+  it('shows the chapters-omitted notice above the cards and keeps chapters regenerable', async () => {
+    const omitted = job({
+      state: 'done',
+      queue_position: null,
+      result: {
+        language: 'en',
+        notices: ['chapters_omitted'],
+        rendered: { ...RENDERED, chapters: '' },
+      },
+    });
+    jobReplies = [() => json(200, omitted)];
+    stubFetch();
+    const wrapper = await mountPage();
+    expect(wrapper.findAll('[data-test="notice"]').map((n) => n.text())).toEqual([
+      en.job.notices.chapters_omitted,
+    ]);
+    const chapters = wrapper.get('[data-test="card-chapters"]');
+    expect(chapters.find('[data-test="card-notice"]').exists()).toBe(false);
+    expect(chapters.find('[data-test="regenerate"]').exists()).toBe(true);
+    wrapper.unmount();
+  });
+
   it('shows the too-short notice inside the chapters card instead of an empty textarea', async () => {
     const tooShort = job({
       state: 'done',

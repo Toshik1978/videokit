@@ -41,7 +41,7 @@ in ascending order, and the last one at least 10 seconds before the end of the v
 - Chapter titles are short (a few words) and plain: no dashes, no emojis, no symbols or \
 decoration, no quotation marks.
 - start_seconds is a number of seconds from the start of the video.
-- If the video is shorter than 30 seconds, return an empty chapters list.
+- If the video is shorter than 45 seconds, return an empty chapters list.
 
 Output
 - Reply only with JSON matching the provided schema.\

@@ -34,7 +34,7 @@ MakeVideo = Callable[..., Path]
 pytestmark = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")
 
 MODEL = "claude-opus-5-5"
-LONG = {"colors": ("red", "blue", "green"), "segment_s": 12.0}  # 36 s, long enough for chapters
+LONG = {"colors": ("red", "blue", "green"), "segment_s": 16.0}  # 48 s, long enough for chapters
 VALID: dict[str, Any] = {
     "language": "en",
     "cover_titles": ["Hidden Gem Resort", "Worth The  Price?", "Best Pool Ever"],
@@ -183,7 +183,7 @@ async def test_happy_path_writes_the_result_and_records_the_job(
 
     job = _job(store, job_id)
     assert job.state is JobState.GENERATING  # the worker sets `done` once `run` returns
-    assert job.duration_s == pytest.approx(36.0, abs=0.3)
+    assert job.duration_s == pytest.approx(48.0, abs=0.3)
     assert job.language == "en"
     assert job.no_speech is False
     assert job.providers == {"transcription": "fake", "llm": f"fake:{MODEL}"}
@@ -234,8 +234,8 @@ async def test_generation_request_has_a_stable_prefix_and_the_duration_in_the_tu
     [turn] = req.turns
     assert turn.role == "user"
     assert languages.instruction("en") in turn.text  # the detected language is enforced in the turn
-    assert "0:36" in turn.text  # the duration lives in the turn ...
-    assert "0:36" not in req.context_text and "36" not in req.system  # ... not in the cached prefix
+    assert "0:48" in turn.text  # the duration lives in the turn ...
+    assert "0:48" not in req.context_text and "48" not in req.system  # ... not in the cached prefix
     assert pipeline.build_prefix(media, job_dir).request(OUTPUT_SCHEMA, req.turns) == req
 
 
@@ -247,8 +247,8 @@ async def test_transcript_segments_are_sanitized_before_media_json(
         Segment(20.0, 25.0, "second"),
         Segment(5.0, 5.0, "zero length"),
         Segment(-1.0, 4.0, "first"),
-        Segment(30.0, 50.0, "runs past the end"),
-        Segment(40.0, 45.0, "after the end"),
+        Segment(40.0, 60.0, "runs past the end"),
+        Segment(50.0, 55.0, "after the end"),
         Segment(8.0, 7.0, "backwards"),
     ]
     llm = FakeLLM([VALID], model=MODEL)
@@ -259,11 +259,11 @@ async def test_transcript_segments_are_sanitized_before_media_json(
     assert [(s.start, s.text) for s in media.segments] == [
         (0.0, "first"),
         (20.0, "second"),
-        (30.0, "runs past the end"),
+        (40.0, "runs past the end"),
     ]
     assert media.segments[-1].end == pytest.approx(media.duration_s)
     assert all(0 <= s.start < s.end <= media.duration_s for s in media.segments)
-    assert llm.requests[0].context_text == "[0:00] first\n[0:20] second\n[0:30] runs past the end"
+    assert llm.requests[0].context_text == "[0:00] first\n[0:20] second\n[0:40] runs past the end"
 
 
 # --- repair ------------------------------------------------------------------------------------------------------
@@ -303,7 +303,7 @@ async def test_repair_reuses_the_identical_request_prefix(
     assert json.loads(repair.turns[1].text) == invalid
     assert repair.turns[2].role == "user"
     assert "title is 120 characters, at most 100 allowed" in repair.turns[2].text
-    assert "0:36" in repair.turns[2].text
+    assert "0:48" in repair.turns[2].text
     assert len(repair.turns) == 3
 
 
@@ -433,7 +433,7 @@ async def test_output_language_is_the_language_detected_by_transcription(
 
 def _media_for(language: str, no_speech: bool) -> MediaArtifacts:
     return MediaArtifacts(
-        duration_s=36.0, has_audio=True, language=language, no_speech=no_speech, segments=[], frames=[]
+        duration_s=48.0, has_audio=True, language=language, no_speech=no_speech, segments=[], frames=[]
     )
 
 
@@ -536,11 +536,66 @@ async def test_too_short_for_chapters(store: JobStore, settings: Settings, make_
     await _run(store, job_id, settings, FakeTranscriber(name="fake"), llm)
 
     assert len(llm.requests) == 1  # chapters are dropped by normalization, no repair needed
-    assert "30 seconds" in llm.requests[0].turns[0].text
+    assert "45 seconds" in llm.requests[0].turns[0].text
     result = _result(store, job_id)
     assert result["chapters"] == []
     assert result["rendered"]["chapters"] == ""
     assert result["notices"] == ["too_short_for_chapters"]
+
+
+async def test_a_video_just_over_30_s_gets_no_chapters(
+    store: JobStore, settings: Settings, make_video: MakeVideo
+) -> None:
+    # Three chapters 10 s apart with the last one 10 s before the end barely fit ~30 s, so the model kept
+    # missing them; chapters start at 45 s.
+    job_id = _queue(store, make_video(audio=True, colors=("red", "blue", "green"), segment_s=12.0))  # 36 s
+    llm = FakeLLM([VALID], model=MODEL)
+
+    await _run(store, job_id, settings, FakeTranscriber(name="fake"), llm)
+
+    assert len(llm.requests) == 1
+    result = _result(store, job_id)
+    assert result["chapters"] == []
+    assert result["notices"] == ["too_short_for_chapters"]
+
+
+def _bad_chapters() -> dict[str, Any]:
+    data = copy.deepcopy(VALID)
+    data["chapters"] = [{"start_seconds": 0, "title": "Arrival"}, {"start_seconds": 5, "title": "Lobby"}]
+    return data
+
+
+async def test_chapters_still_invalid_after_repair_are_omitted_and_the_rest_kept(
+    store: JobStore, settings: Settings, make_video: MakeVideo
+) -> None:
+    job_id = _queue(store, make_video(audio=True, **LONG))
+    llm = FakeLLM([_bad_chapters(), _bad_chapters()], model=MODEL)
+
+    await _run(store, job_id, settings, FakeTranscriber(name="fake"), llm)
+
+    assert len(llm.requests) == 2  # one repair attempt, as for any other rule
+    result = _result(store, job_id)
+    assert result["chapters"] == []
+    assert result["rendered"]["chapters"] == ""
+    assert result["notices"] == ["chapters_omitted"]
+    assert result["title"] == VALID["title"]
+    assert result["tags"]
+    assert _job(store, job_id).usage["input_tokens"] == 2000
+
+
+async def test_other_sections_still_invalid_after_repair_fail_the_job_even_with_bad_chapters(
+    store: JobStore, settings: Settings, make_video: MakeVideo
+) -> None:
+    job_id = _queue(store, make_video(audio=True, **LONG))
+    both = _bad_chapters()
+    both["title"] = TOO_LONG_TITLE
+    llm = FakeLLM([both, both], model=MODEL)
+
+    with pytest.raises(AppError) as exc:
+        await _run(store, job_id, settings, FakeTranscriber(name="fake"), llm)
+
+    assert exc.value.code == "generation_invalid"
+    assert not (store.job_dir(job_id) / "result.json").exists()
 
 
 # --- cancellation ------------------------------------------------------------------------------------------------

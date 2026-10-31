@@ -211,8 +211,12 @@ home screen.
 - Video with no speech (music only or silent): processed using visuals only; results carry a
   notice that no speech was detected; language defaults to English
   (superseded for silent videos by 006 FR-007).
-- Video shorter than 30 seconds (cannot satisfy 3 chapters 10 s apart): metadata is produced and
-  the chapters section states that the video is too short for chapters.
+- Video shorter than 45 seconds (3 chapters 10 s apart, the last one 10 s before the end, need
+  30 s, and below 45 s the model kept missing that fit): metadata is produced and the chapters
+  section states that the video is too short for chapters.
+- Chapters that still break FR-027/FR-028 after the repair attempt while every other section is
+  valid: the job completes without chapters and with a `chapters_omitted` notice; regenerating the
+  chapters clears it.
 - Video longer than 1 hour: chapter times use `h:mm:ss` from the first chapter at or past one
   hour; earlier chapters keep `m:ss` (`0:00`, `59:30`, `1:02:10`).
 - Model returns chapters that break the rules (not starting at 0:00, too close, out of order,
@@ -318,7 +322,7 @@ home screen.
   least 10 seconds after the previous one; strictly ascending; all within the video duration.
 - **FR-029**: If generated output violates FR-021–FR-028, the system MUST make one automatic repair
   attempt; if output still violates them, the job MUST fail with a readable reason (except the
-  too-short-video case, see Edge Cases).
+  too-short-video and chapters-only cases, see Edge Cases).
 - **FR-030**: Each result section MUST be editable in place in the browser and MUST have a Copy
   action that copies exactly the section's current (possibly edited) text. Edits are not saved on
   the server and are lost on page reload; generated-output rules (FR-021–FR-028) are not enforced

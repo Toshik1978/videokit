@@ -37,7 +37,7 @@ from videokit.tools.youtube_prep.languages import LanguageSetting
 from videokit.tools.youtube_prep.schema import OUTPUT_SCHEMA, SECTIONS, YouTubePrepResult
 
 MODEL = "claude-opus-5-5"
-DURATION_S = 36.0
+DURATION_S = 48.0
 VALID: dict[str, Any] = {
     "language": "en",
     "cover_titles": ["Hidden Gem Resort", "Worth The Price?", "Best Pool Ever"],
@@ -61,7 +61,7 @@ def _only(section: str, value: Any, language: str = "en") -> dict[str, Any]:
 
 
 class FakeMedia:
-    """Stands in for `MediaService`: writes a few frame files and reports a 36 s video."""
+    """Stands in for `MediaService`: writes a few frame files and reports a 48 s video."""
 
     def __init__(self, *, has_audio: bool = True) -> None:
         self.has_audio = has_audio
@@ -231,7 +231,7 @@ def test_regenerate_reuses_the_byte_identical_request_prefix(
     notes = pipeline.turn_notes(media, before["language"])
     assert turn.text == f"{prompt.regenerate_turn('title', 'shorter', before)}\n{notes}"
     assert "User hint: shorter" in turn.text
-    assert "0:36" in turn.text  # duration facts ride in the turn, as for generation
+    assert "0:48" in turn.text  # duration facts ride in the turn, as for generation
 
 
 def test_regenerate_enforces_the_detected_language(
@@ -370,6 +370,36 @@ def test_regenerated_chapters_follow_the_chapter_rules(
     assert result["title"] == VALID["title"]
 
 
+def test_regenerated_chapters_clear_the_chapters_omitted_notice(
+    tmp_path: Path, settings: Settings, store: JobStore
+) -> None:
+    bad_chapters = {**VALID, "chapters": [{"start_seconds": 0, "title": "a"}, {"start_seconds": 5, "title": "b"}]}
+    llm = FakeLLM([bad_chapters, bad_chapters], model=MODEL, usage=GEN_USAGE)
+    job_id = _seed(store, settings, llm)
+    assert _read_result(store, job_id)["notices"] == ["chapters_omitted"]
+    llm.script.append(_only("chapters", VALID["chapters"]))
+
+    with _client(tmp_path, settings, llm) as client:
+        result = client.post(_url(job_id), json={"section": "chapters"}).json()["result"]
+
+    assert len(result["chapters"]) == 3
+    assert result["notices"] == []
+
+
+def test_regenerating_another_section_keeps_the_chapters_omitted_notice(
+    tmp_path: Path, settings: Settings, store: JobStore
+) -> None:
+    bad_chapters = {**VALID, "chapters": [{"start_seconds": 0, "title": "a"}, {"start_seconds": 5, "title": "b"}]}
+    llm = FakeLLM([bad_chapters, bad_chapters, _only("title", "A new title")], model=MODEL, usage=GEN_USAGE)
+    job_id = _seed(store, settings, llm)
+
+    with _client(tmp_path, settings, llm) as client:
+        result = client.post(_url(job_id), json={"section": "title"}).json()["result"]
+
+    assert result["notices"] == ["chapters_omitted"]
+    assert result["chapters"] == []
+
+
 def test_no_speech_jobs_regenerate_in_english(
     tmp_path: Path, settings: Settings, store: JobStore, llm: FakeLLM
 ) -> None:
@@ -416,7 +446,7 @@ def test_invalid_section_is_repaired_once_with_the_same_prefix(
     assert json.loads(repair.turns[1].text) == invalid
     assert repair.turns[2].role == "user"
     assert "title is 120 characters, at most 100 allowed" in repair.turns[2].text
-    assert "0:36" in repair.turns[2].text
+    assert "0:48" in repair.turns[2].text
     assert len(repair.turns) == 3
 
 

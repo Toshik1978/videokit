@@ -177,15 +177,18 @@ def _call(job: JobHandle, ctx: CoreContext, req: GenerationRequest, providers: d
 
 def _generate(
     job: JobHandle, ctx: CoreContext, media: MediaArtifacts, language: str, providers: dict[str, str]
-) -> dict[str, Any]:
-    """Generate, normalize and validate, with at most one repair call (FR-029)."""
+) -> tuple[dict[str, Any], list[str]]:
+    """Generate, normalize and validate, with at most one repair call (FR-029): `(normalized, notices)`.
+
+    Chapters that still break the rules after the repair are dropped with a notice instead of failing the job.
+    """
     prefix = build_prefix(media, job.dir)
     duration = media.duration_s
     turns = [Turn("user", f"{prompt.generate_turn()}\n{turn_notes(media, language)}")]
     response = _call(job, ctx, prefix.request(OUTPUT_SCHEMA, turns), providers)
     normalized, problems = check_output(response.data, duration_s=duration)
     if not problems and normalized is not None:
-        return normalized
+        return normalized, []
     turns += [
         Turn("assistant", json.dumps(response.data, ensure_ascii=False)),
         Turn("user", f"{prompt.repair_turn(problems)}\n{turn_notes(media, language)}"),
@@ -193,16 +196,22 @@ def _generate(
     response = _call(job, ctx, prefix.request(OUTPUT_SCHEMA, turns), providers)
     normalized, problems = check_output(response.data, duration_s=duration)
     if not problems and normalized is not None:
-        return normalized
+        return normalized, []
+    if normalized is not None and {v.section for v in rules.validate(normalized, duration_s=duration)} == {"chapters"}:
+        # Broken chapters alone never cost the user the other sections; they can regenerate them later.
+        return {**normalized, "chapters": []}, [rules.NOTICE_CHAPTERS_OMITTED]
     listed = "; ".join(problems[:MAX_LISTED_PROBLEMS]) + ("; ..." if len(problems) > MAX_LISTED_PROBLEMS else "")
     raise AppError(
         "generation_invalid", f"the output still broke the YouTube rules after one repair attempt ({listed})", 502
     )
 
 
-def build_result(normalized: dict[str, Any], media: MediaArtifacts, language: str) -> YouTubePrepResult:
+def build_result(
+    normalized: dict[str, Any], media: MediaArtifacts, language: str, extra_notices: Sequence[str] = ()
+) -> YouTubePrepResult:
     notices = [NOTICE_NO_SPEECH] if media.no_speech else []
     notices += rules.notices(duration_s=media.duration_s)
+    notices += extra_notices
     sections = {section: normalized[section] for section in rules.SECTIONS}
     # The resolved output language, whatever the model claims (FR-020).
     return YouTubePrepResult(
@@ -261,6 +270,8 @@ def regenerate(
     data[section] = value
     data["rendered"][section] = rules.render({section: value})[section]
     data["regenerations"][section] = current.regenerations.get(section, 0) + 1
+    if section == "chapters":
+        data["notices"] = [n for n in data["notices"] if n != rules.NOTICE_CHAPTERS_OMITTED]
     updated = YouTubePrepResult.model_validate(data)
     write_result(job.dir, updated)
     return updated
@@ -281,4 +292,5 @@ def run(job: JobHandle, ctx: CoreContext) -> None:
     job.check_cancelled()
     job.set_state("generating", language=media.language, no_speech=media.no_speech)
     language = output_language(setting, media)
-    write_result(job.dir, build_result(_generate(job, ctx, media, language, providers), media, language))
+    normalized, notices = _generate(job, ctx, media, language, providers)
+    write_result(job.dir, build_result(normalized, media, language, notices))

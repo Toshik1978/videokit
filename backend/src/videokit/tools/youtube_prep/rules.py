@@ -25,9 +25,11 @@ HASHTAGS_MIN = 3
 HASHTAGS_MAX = 5
 CHAPTERS_MIN = 3
 CHAPTER_MIN_GAP_S = 10
-CHAPTERS_MIN_DURATION_S = 30
+# 3 chapters 10 s apart with the last one 10 s before the end need 30 s; below 45 s the model kept missing them.
+CHAPTERS_MIN_DURATION_S = 45
 
 NOTICE_TOO_SHORT = "too_short_for_chapters"
+NOTICE_CHAPTERS_OMITTED = "chapters_omitted"  # chapters still broke the rules after the repair attempt
 
 _SPACES = re.compile(r"\s+")
 _PARAGRAPH_BREAK = re.compile(r"\n\s*\n")

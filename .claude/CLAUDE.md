@@ -108,7 +108,9 @@ Dockerfile, compose.yaml, scripts/{docker_smoke.sh,image_size_guard.sh,changelog
 - **Deterministic rules live in code**, not prompts (`tools/youtube_prep/rules.py`): normalize →
   validate → at most one repair call → readable failure. Chapters: first at 0:00, ≥ 3, gaps ≥ 10 s,
   ascending, last chapter ≥ 10 s before the end, no dashes/emojis/decorative symbols, never damage
-  non-Latin scripts; `m:ss` below 1 h, `h:mm:ss` from 1 h. Videos < 30 s get no chapters + notice.
+  non-Latin scripts; `m:ss` below 1 h, `h:mm:ss` from 1 h. Videos < 45 s get no chapters + notice;
+  chapters that alone still fail after the repair are dropped (`chapters_omitted` notice) instead of
+  failing the job, and regenerating the chapters clears the notice.
 - **Tool-owned job creation**: there is no shared `POST /api/jobs`. Each tool mounts its own
   `POST /api/tools/<id>/jobs` and builds on `JobAccess` (`create`, `job_dir`, `complete`, `discard`);
   every job starts `uploading` ("inputs not complete") and `Worker.complete_inputs` — reached by the

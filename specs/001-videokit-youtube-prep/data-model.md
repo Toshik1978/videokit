@@ -90,7 +90,7 @@ Rules: segments sorted by `start`, `0 ≤ start < end ≤ duration_s`; frames so
 ```json
 {
   "language": "en",
-  "notices": ["no_speech" | "too_short_for_chapters"],
+  "notices": ["no_speech" | "too_short_for_chapters" | "chapters_omitted"],
   "cover_titles": ["Hidden Gem Resort", "Worth The Price?", "Best Pool Ever"],
   "title": "...",
   "description": "Paragraph one.\n\nParagraph two.",
@@ -120,7 +120,8 @@ Validation (code, FR-021–FR-028; normalize first, then validate, one repair ca
 | `hashtags` | add `#`, remove spaces, dedupe, keep first 5 | < 3 |
 | `chapters` | strip dashes, emojis, decorative symbols, `"`; collapse spaces | first ≠ 0; < 3; gap < 10 s; not ascending; ≥ duration; last < 10 s before the end; empty title |
 
-`chapters` is `[]` with notice `too_short_for_chapters` when `duration_s < 30`.
+`chapters` is `[]` with notice `too_short_for_chapters` when `duration_s < 45`, and `[]` with notice
+`chapters_omitted` when only the chapters still broke the rules after the repair attempt.
 
 Rendering: time `m:ss` when < 3600 s, else `h:mm:ss`; line `<time> "<title>"`; lines joined by `\n`.
 

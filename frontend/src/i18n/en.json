@@ -179,7 +179,8 @@
     "pressCopy": "Text selected. Press your device's copy command to copy it.",
     "notices": {
       "no_speech": "No speech was detected, so these results are based on the visuals only and written in {language}.",
-      "too_short_for_chapters": "The video is too short for chapters."
+      "too_short_for_chapters": "The video is too short for chapters.",
+      "chapters_omitted": "The chapters didn't meet YouTube's chapter rules, so they were left out. Regenerate them to try again."
     },
     "sections": {
       "cover_titles": "Cover titles",

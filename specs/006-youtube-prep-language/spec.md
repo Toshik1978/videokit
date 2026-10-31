@@ -122,7 +122,7 @@ second job; verify each job's output (and any regenerated section) stays in its 
   started, even if the choice changed in between.
 - Spoken language detected with low confidence: unchanged from today when "Same as the speech" is
   selected; irrelevant when a language is picked.
-- Videos shorter than 30 seconds (no chapters) follow the same language rules for the sections
+- Videos shorter than 45 seconds (no chapters) follow the same language rules for the sections
   they get.
 
 ## Requirements *(mandatory)*

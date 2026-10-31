@@ -155,13 +155,13 @@ def test_normalize_chapters_keeps_order_and_times() -> None:
     assert [c["start_seconds"] for c in out] == [50, 0.0]
 
 
-@pytest.mark.parametrize("duration", [0.0, 10.0, 29.999])
+@pytest.mark.parametrize("duration", [0.0, 10.0, 30.0, 44.999])
 def test_normalize_chapters_forced_empty_when_short(duration: float) -> None:
     assert normalize_section("chapters", good()["chapters"], duration_s=duration) == []
 
 
-def test_normalize_chapters_kept_at_30() -> None:
-    assert len(normalize_section("chapters", good()["chapters"], duration_s=30.0)) == 3
+def test_normalize_chapters_kept_at_45() -> None:
+    assert len(normalize_section("chapters", good()["chapters"], duration_s=45.0)) == 3
 
 
 def test_normalize_full_result_keeps_other_keys_and_skips_missing() -> None:
@@ -189,7 +189,7 @@ def test_normalize_unknown_section_raises() -> None:
 
 @pytest.mark.parametrize(
     ("duration", "expected"),
-    [(0.0, ["too_short_for_chapters"]), (29.9, ["too_short_for_chapters"]), (30.0, []), (600.0, [])],
+    [(0.0, ["too_short_for_chapters"]), (44.9, ["too_short_for_chapters"]), (45.0, []), (600.0, [])],
 )
 def test_notices(duration: float, expected: list[str]) -> None:
     assert notices(duration_s=duration) == expected
@@ -335,8 +335,8 @@ def test_validate_last_chapter_needs_10_s_before_the_end() -> None:
     assert validate_section("chapters", items, duration_s=50.0) == []
 
 
-def test_three_chapters_fit_a_30_s_video() -> None:
-    assert validate_section("chapters", chapters((0, "a"), (10, "b"), (20, "c")), duration_s=30.0) == []
+def test_three_chapters_fit_the_shortest_video_with_chapters() -> None:
+    assert validate_section("chapters", chapters((0, "a"), (10, "b"), (20, "c")), duration_s=45.0) == []
 
 
 def test_validate_collects_all_sections_in_order() -> None:
