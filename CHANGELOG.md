@@ -8,6 +8,20 @@ Versions follow [semver](https://semver.org). Commits follow
 
 ---
 
+## v0.4.1 — 2026-10-31
+
+YouTube Prep no longer fails a whole job over its chapters. Videos shorter than 45 seconds (was 30)
+get no chapters, because three chapters 10 seconds apart barely fit a video of about 30 seconds. If
+the chapters still break YouTube's rules after the automatic repair attempt, the job finishes with
+the title, description, tags and hashtags and a notice that the chapters were left out;
+regenerating the chapters brings them back. Nothing to change when you update.
+
+### Bug Fixes
+
+- fix: keep YouTube Prep results when only the chapters break the rules ([1245c4a](https://github.com/toshik1978/videokit/commit/1245c4ab475f9d44d76d97a312eb3e975cfadc51))
+
+---
+
 ## v0.4.0 — 2026-10-30
 
 Breaking change: VideoKit no longer runs Whisper itself. Transcription goes to OpenAI or to any
