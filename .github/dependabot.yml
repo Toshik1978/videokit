@@ -16,6 +16,15 @@ updates:
         update-types:
           - minor
           - patch
+      # Security updates are a repository setting, not something this file can
+      # switch on; it only shapes their PRs. One advisory often lands on several
+      # packages of one stack at once, and separate PRs each conflict on the
+      # lockfile or fail CI on the others' advisories, so they are grouped into
+      # a single PR that can actually go green.
+      backend-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
 
   # Frontend (npm). Same grouping as the backend.
   - package-ecosystem: npm
@@ -40,6 +49,11 @@ updates:
         update-types:
           - minor
           - patch
+      # Security updates grouped for the same reason as above.
+      frontend-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
 
   # Base images in the Dockerfile.
   # The Python minor version moves together in .mise.toml, backend/.python-version,
