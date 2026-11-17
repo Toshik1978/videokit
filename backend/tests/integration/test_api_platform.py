@@ -14,6 +14,7 @@ from videokit.core import providers as providers_module
 from videokit.core.config import VIDEO_PROVIDER_NAMES, Settings
 from videokit.core.jobs import JobState, JobStore
 from videokit.core.videogen import ProviderStatus
+from videokit.core.worker import Worker
 from videokit.main import StartupError, app_from_env, create_app
 
 INDEX_HTML = "<!doctype html><title>spa</title>"
@@ -322,6 +323,10 @@ def test_job_not_found(client: TestClient) -> None:
 
 def test_job_shape_and_queue_position(client: TestClient) -> None:
     store: JobStore = client.app.state.store  # type: ignore[attr-defined]
+    # The jobs are queued behind the API's back, so a live lane (its fallback poll, or a late first look under
+    # load) could claim the first one mid-test; with the lanes stopped, the queue stays as the test builds it.
+    worker: Worker = client.app.state.worker  # type: ignore[attr-defined]
+    client.portal.call(worker.stop)  # type: ignore[union-attr]
     first = store.create("demo_tool", 100)
     second = store.create("demo_tool", 100)
     for j in (first, second):
