@@ -7,7 +7,7 @@ default_install_hook_types: [pre-commit, pre-push, commit-msg, post-checkout, po
 
 repos:
   - repo: https://github.com/compilerla/conventional-pre-commit
-    rev: v4.4.0
+    rev: v4.5.0
     hooks:
       # Enforces Conventional Commits on every commit message. CI re-checks the
       # same rule (commit-lint.yml), so a contributor who never installed the
