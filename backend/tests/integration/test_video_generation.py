@@ -36,7 +36,7 @@ from videokit.tools.video_generation.inputs import CreationInputs, store_inputs
 
 MakePicture = Callable[..., Path]
 PROMPT = "A red fox runs across a snowy field"
-FAKE_MODEL = "gemini-omni-1.1-flash"  # a priced model, so the cost is known
+FAKE_MODEL = "gemini-omni-1.2-flash"  # a priced model, so the cost is known
 
 
 @pytest.fixture(autouse=True)
@@ -322,7 +322,7 @@ def test_usage_and_cost_are_recorded_from_the_provider_report(tmp_path: Path, ma
         job = _wait(client, job_id, JobState.DONE)
     assert job.usage["input_tokens"] == 1000
     assert job.usage["video_output_tokens"] == 50_000
-    assert job.usage["cost_usd"] == pytest.approx(1000 * 1.5 / 1e6 + 50_000 * 17.5 / 1e6)
+    assert job.usage["cost_usd"] == pytest.approx(1000 * 1.5 / 1e6 + 50_000 * 12.0 / 1e6)
 
 
 def test_the_default_fake_usage_follows_the_documented_rate(client: TestClient, make_picture: MakePicture) -> None:
@@ -330,7 +330,7 @@ def test_the_default_fake_usage_follows_the_documented_rate(client: TestClient, 
     job = _wait(client, job_id, JobState.DONE)
     assert job.usage["video_output_tokens"] == 7 * 5792
     assert job.usage["input_tokens"] == 1120
-    assert job.usage["cost_usd"] == pytest.approx(1120 * 1.5 / 1e6 + 7 * 5792 * 17.5 / 1e6)
+    assert job.usage["cost_usd"] == pytest.approx(1120 * 1.5 / 1e6 + 7 * 5792 * 12.0 / 1e6)
 
 
 def test_zero_reported_usage_falls_back_to_the_estimate_from_the_stored_inputs(
@@ -342,7 +342,7 @@ def test_zero_reported_usage_falls_back_to_the_estimate_from_the_stored_inputs(
         job = _wait(client, job_id, JobState.DONE)
     assert job.usage["video_output_tokens"] == 8 * 8688
     assert job.usage["input_tokens"] == 2 * 1120
-    assert job.usage["cost_usd"] == pytest.approx(2 * 1120 * 1.5 / 1e6 + 8 * 8688 * 17.5 / 1e6)
+    assert job.usage["cost_usd"] == pytest.approx(2 * 1120 * 1.5 / 1e6 + 8 * 8688 * 12.0 / 1e6)
 
 
 def test_an_unpriced_model_records_an_unknown_cost(tmp_path: Path) -> None:
@@ -553,7 +553,7 @@ def test_a_resumed_poll_without_reported_usage_is_billed_from_the_stored_inputs(
         job = _wait(client, job_id, JobState.DONE)
     assert job.usage["video_output_tokens"] == 8 * 8688
     assert job.usage["input_tokens"] == 2 * 1120
-    assert job.usage["cost_usd"] == pytest.approx(2 * 1120 * 1.5 / 1e6 + 8 * 8688 * 17.5 / 1e6)
+    assert job.usage["cost_usd"] == pytest.approx(2 * 1120 * 1.5 / 1e6 + 8 * 8688 * 12.0 / 1e6)
 
 
 def test_a_restart_with_only_submit_json_fails_resume_impossible_without_submitting(tmp_path: Path) -> None:
@@ -1103,7 +1103,7 @@ def test_options_describe_the_form_and_the_prices(omni: TestClient) -> None:
         "max_picture_bytes": 10_000_000,
         "picture_types": ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"],
         "max_prompt_chars": 2000,
-        "price_per_second_usd": {"720p": pytest.approx(0.10136), "1080p": pytest.approx(0.15204)},
+        "price_per_second_usd": {"720p": pytest.approx(0.069504), "1080p": pytest.approx(0.104256)},
         "price_per_picture_usd": pytest.approx(0.00168),
     }
 

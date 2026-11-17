@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     openai_model: str | None = None
     video_providers: Annotated[list[str], NoDecode] = []
     gemini_api_key: SecretStr | None = None
-    omni_model: str = "gemini-omni-1.1-flash"
+    omni_model: str = "gemini-omni-1.2-flash"
     pricing_overrides: dict[str, dict[str, float]] = {}
     log_level: str = "INFO"
 

@@ -177,7 +177,7 @@ def test_health_lists_the_configured_video_provider(settings: Settings, tools_pk
     app = create_app(_video_settings(settings), tools_package=tools_pkg, static_dir=static_dir)
     with TestClient(app) as client:
         response = client.get("/api/health")
-    expected = {"name": "omni", "ready": True, "detail": "model=gemini-omni-1.1-flash"}
+    expected = {"name": "omni", "ready": True, "detail": "model=gemini-omni-1.2-flash"}
     assert response.json()["providers"]["video"] == [expected]
     assert "gm-test-secret" not in response.text
     assert app.state.providers.video is not None

@@ -20,6 +20,8 @@ DEFAULT_PRICES: PriceTable = {
     "claude-opus-4-8": {"input": 5.0, "output": 25.0, "cache_read": 0.50, "cache_write": 6.25},
     "whisper-1": {"per_minute": 0.006},
     # Verified against the official Gemini API pricing page (research V8): video output is billed per token too.
+    "gemini-omni-1.2-flash": {"input": 1.50, "output": 9.00, "video_output": 12.00},
+    # Previous generation, kept for OMNI_MODEL overrides: from 2026-12-03 Google routes it to 1.2 at 1.2 rates.
     "gemini-omni-1.1-flash": {"input": 1.50, "output": 9.00, "video_output": 17.50},
 }
 

@@ -7,7 +7,7 @@ pick, with per-section regenerate.
 **Audio Extract** — upload a video, download or share its audio as a 192 kbps MP3 named after the
 video (no AI, no cost).
 **Video Generation** — a prompt plus up to 7 pictures (5–10 s, 9:16/16:9, 1080p/720p) become one silent
-MP4 clip via Gemini Omni Flash (paid; ≈ $0.10/s 720p, ≈ $0.15/s 1080p); the tool exists only when
+MP4 clip via Gemini Omni 1.2 Flash (paid; ≈ $0.07/s 720p, ≈ $0.10/s 1080p); the tool exists only when
 `VIDEO_PROVIDERS` is non-empty.
 
 Specs are the source of truth: `specs/001-videokit-youtube-prep/` (`spec.md`, `plan.md`,

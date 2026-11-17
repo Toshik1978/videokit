@@ -35,7 +35,7 @@ def test_defaults() -> None:
     assert s.log_level == "INFO"
     assert s.video_providers == []
     assert s.gemini_api_key is None
-    assert s.omni_model == "gemini-omni-1.1-flash"
+    assert s.omni_model == "gemini-omni-1.2-flash"
 
 
 def test_env_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -280,7 +280,7 @@ def test_polluted_host_environment_does_not_leak_into_tests() -> None:
     assert s.openai_transcribe_model == "whisper-1"
     assert s.video_providers == []
     assert s.gemini_api_key is None
-    assert s.omni_model == "gemini-omni-1.1-flash"
+    assert s.omni_model == "gemini-omni-1.2-flash"
 
 
 def test_transcribe_settings_default_to_none() -> None:

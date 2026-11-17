@@ -34,7 +34,7 @@ Provider facts were checked against Google's official documentation on 2026-10-2
   can find, and the creation route discards the job on any interruption, a cancelled request
   included.
 
-## V2. Provider: Gemini Omni 1.1 Flash via the Interactions API
+## V2. Provider: Gemini Omni Flash via the Interactions API
 
 - **Decision**: Model `gemini-omni-1.1-flash` (GA on the Gemini API since 2026-08-27, paid tier
   only) through the official `google-genai` SDK (`>=2.28`, the first release that knows the model;
@@ -43,7 +43,8 @@ Provider facts were checked against Google's official documentation on 2026-10-2
   "delivery": …}, background=True, store=True)`; the returned interaction `id` is the provider
   reference.
   Configuration: `VIDEO_PROVIDERS` (default empty; allowed `omni`), `GEMINI_API_KEY`,
-  `OMNI_MODEL` (default `gemini-omni-1.1-flash`). `check()` is local only — key present, model
+  `OMNI_MODEL` (default `gemini-omni-1.1-flash`; `gemini-omni-1.2-flash` since 2026-11-17, see
+  **Model update** below). `check()` is local only — key present, model
   named — like the Anthropic provider; `models.get` is free but a network call on every
   `/api/health`, and Google notes it does not prove billing works anyway.
 - **Rationale**: Veo 3.1 preview models on the Gemini API shut down on 2026-10-22; Omni is the only
@@ -69,6 +70,12 @@ Provider facts were checked against Google's official documentation on 2026-10-2
   **Live-verify**: the 1080p path (the URI's form, whether the file needs time to become available,
   the key handling) is unexercised until the live run (quickstart section 3 adds a 10 s 1080p case);
   inline delivery at 720p is likewise unconfirmed live.
+- **Model update** (2026-11-17): `gemini-omni-1.2-flash` is GA on the paid tier and Google's pricing
+  page labels 1.1 "Previous generation": from 2026-12-03 every request to `gemini-omni-1.1-flash`
+  is routed to 1.2 and billed at 1.2 rates. 1.2 keeps the request shape, the 720p/1080p token
+  rates and the input/text prices, costs $12.00 instead of $17.50 per 1M video tokens and accepts
+  3–15 s clips (the form keeps 5–10 s). The default moves to 1.2; the 1.1 price entry stays for
+  operators who pin it until the routing date.
 - **API version** (2026-11-17, google-genai 3.0): the SDK now calls `v1` unless told otherwise
   (`v1beta` before). On the Gemini Developer API the Interactions endpoint exists on both, but the
   Omni models are served only on `v1beta`: `GET v1/models/gemini-omni-1.1-flash` and `…-1.2-flash`
@@ -175,8 +182,9 @@ Provider facts were checked against Google's official documentation on 2026-10-2
 
 ## V8. Cost: token-based usage and the estimate (FR-007, FR-022, SC-005)
 
-- **Decision**: Price table entry `gemini-omni-1.1-flash`: `input` 1.50, `output` 9.00,
-  `video_output` 17.50 ($ per 1M tokens). `Usage` and the job `usage` JSON gain
+- **Decision**: Price table entries `gemini-omni-1.2-flash` (the default since 2026-11-17): `input`
+  1.50, `output` 9.00, `video_output` 12.00, and `gemini-omni-1.1-flash`: `input` 1.50, `output`
+  9.00, `video_output` 17.50 ($ per 1M tokens). `Usage` and the job `usage` JSON gain
   `video_output_tokens` (default 0), filled from the interaction's
   `usage.output_tokens_by_modality.video` (other output tokens → `output_tokens`, input →
   `input_tokens`). If the response carries no usage (**live-verify**), the tool falls back to the
@@ -184,8 +192,8 @@ Provider facts were checked against Google's official documentation on 2026-10-2
   The provider's `capabilities()` exposes `video_tokens_per_second` = `{720p: 5792, 1080p: 8688}`
   and `tokens_per_image` = 1120; `GET …/options` returns `price_per_second_usd` computed from them
   and the (override-aware) price table, and the form adds pictures × image price.
-- **Rationale**: Google bills Omni by token; per-second prices are a derived convenience (≈ $0.101
-  /s at 720p, ≈ $0.152/s at 1080p). The same table drives estimate and actual cost, so SC-005 holds
+- **Rationale**: Google bills Omni by token; per-second prices are a derived convenience (1.2:
+  ≈ $0.070/s at 720p, ≈ $0.104/s at 1080p, matching Google's footnote; 1.1: ≈ $0.101 and ≈ $0.152). The same table drives estimate and actual cost, so SC-005 holds
   within rounding. Verify against the official pricing page before merging (CLAUDE.md "Costs").
 - **Alternatives considered**: a per-second price field (does not match how Google bills; breaks
   when tokens/second change); no estimate (spec requires one).

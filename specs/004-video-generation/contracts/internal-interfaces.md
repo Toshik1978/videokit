@@ -154,7 +154,8 @@ class VideoChain:
 
 `Usage.video_output_tokens: int = 0` (summed by `__add__`, stored in the job `usage` JSON);
 price-table field `video_output` ($ per 1M tokens) used by `pricing.estimate`;
-`DEFAULT_PRICES["gemini-omni-1.1-flash"] = {"input": 1.50, "output": 9.00, "video_output": 17.50}`.
+`DEFAULT_PRICES["gemini-omni-1.2-flash"] = {"input": 1.50, "output": 9.00, "video_output": 12.00}` (the default
+model) and `DEFAULT_PRICES["gemini-omni-1.1-flash"] = {"input": 1.50, "output": 9.00, "video_output": 17.50}`.
 
 ## Shared download helper
 

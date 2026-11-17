@@ -501,7 +501,7 @@ def _leaky(code: str) -> VideoError:
 def test_video_generation_success_logs_no_prompt_picture_or_key(
     tmp_path: Path, make_picture: Callable[..., Path], monkeypatch: pytest.MonkeyPatch, captured: Capture
 ) -> None:
-    fake = FakeVideoGenerator(model="gemini-omni-1.1-flash", polls=["pending", "done"])
+    fake = FakeVideoGenerator(model="gemini-omni-1.2-flash", polls=["pending", "done"])
     body, jpeg = _video_run(tmp_path, make_picture, monkeypatch, fake)
     assert body["state"] == "done"
     _assert_video_log_clean("\n".join(captured.lines), jpeg)

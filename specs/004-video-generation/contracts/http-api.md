@@ -72,7 +72,7 @@ limits):
 ### `GET /api/jobs/{job_id}` for `tool_id == "video_generation"`
 
 - `state`: `queued → generating → done | failed | cancelled`.
-- `providers`: `{"video": "omni:gemini-omni-1.1-flash"}` once a provider accepted the request.
+- `providers`: `{"video": "omni:gemini-omni-1.2-flash"}` once a provider accepted the request.
 - `usage.video_output_tokens` added (all tools; 0 elsewhere).
 - `result` when `done`:
 
@@ -132,5 +132,5 @@ Lists `video_generation` only when the tool is enabled:
 
 ## Changed: `GET /api/health`
 
-`providers` gains `"video": [{"name": "omni", "ready": true, "detail": "model=gemini-omni-1.1-flash"}]` (empty
+`providers` gains `"video": [{"name": "omni", "ready": true, "detail": "model=gemini-omni-1.2-flash"}]` (empty
 list when none configured). `check()` makes no paid call (FR-021).

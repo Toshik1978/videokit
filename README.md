@@ -180,7 +180,7 @@ The most important variables:
 | `OPENAI_MODEL` | none | Required if `openai` is in `LLM_PROVIDERS`. It has no default so a stale model id is never pinned. |
 | `VIDEO_PROVIDERS` | empty | Ordered, comma-separated: `omni`. Empty hides the Video Generation tool. |
 | `GEMINI_API_KEY` | none | Required if `omni` is listed. A Google AI Studio key from a project with billing enabled. |
-| `OMNI_MODEL` | `gemini-omni-1.1-flash` | Model id sent to the Gemini API. |
+| `OMNI_MODEL` | `gemini-omni-1.2-flash` | Model id sent to the Gemini API. |
 | `MAX_UPLOAD_GB` | `10` | Largest accepted upload. Larger files are rejected before transfer. |
 | `JOB_TTL_HOURS` | `24` | How long job data is kept. |
 
@@ -201,7 +201,7 @@ VIDEO_PROVIDERS=omni
 GEMINI_API_KEY=<your-api-key>
 ```
 
-Video Generation uses Google's Gemini Omni Flash, which is available on the paid tier only:
+Video Generation uses Google's Gemini Omni 1.2 Flash, which is available on the paid tier only:
 
 - The key must belong to a Google AI Studio project with billing enabled. Billing is prepaid: you
   top up credit, and a clip fails with the "provider account needs topping up" message when it runs
@@ -274,9 +274,9 @@ shown in each job's footer. If prices change, override them with `PRICING_OVERRI
 configuration reference).
 
 Video Generation is billed by the provider per generated second, and it is much more expensive than
-the other tools: roughly US$0.10 per second at 720p and US$0.15 per second at 1080p (video output
-at US$17.50 per million tokens, 5,792 tokens per second at 720p and 8,688 at 1080p), so an 8-second
-1080p clip costs about US$1.20. Each picture adds a small input charge (about US$0.0017). The form
+the other tools: roughly US$0.07 per second at 720p and US$0.10 per second at 1080p (video output
+at US$12.00 per million tokens, 5,792 tokens per second at 720p and 8,688 at 1080p), so an 8-second
+1080p clip costs about US$0.83. Each picture adds a small input charge (about US$0.0017). The form
 shows the estimate before you submit, and the finished job shows the actual cost. A failed or
 cancelled attempt may still be charged by the provider.
 

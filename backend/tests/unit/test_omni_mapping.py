@@ -104,7 +104,7 @@ def test_satisfies_the_protocol_and_is_registered() -> None:
     provider = OmniProvider(_settings())
     assert isinstance(provider, VideoGenerator)
     assert provider.name == "omni"
-    assert provider.model == "gemini-omni-1.1-flash"
+    assert provider.model == "gemini-omni-1.2-flash"
     assert providers.VIDEOS["omni"] is OmniProvider
 
 
@@ -117,7 +117,7 @@ def test_check_is_local_and_reports_the_model() -> None:
         raise AssertionError("check() must not call the network")
 
     provider = _provider(never)
-    assert provider.check() == ProviderStatus(ready=True, detail="model=gemini-omni-1.1-flash")
+    assert provider.check() == ProviderStatus(ready=True, detail="model=gemini-omni-1.2-flash")
 
 
 @pytest.mark.parametrize("key", [None, SecretStr(""), SecretStr("  ")])
@@ -172,7 +172,7 @@ def test_submit_sends_text_then_pictures_in_position_order_and_returns_the_inter
     assert request.url.path.endswith("/interactions")
     assert request.headers["x-goog-api-key"] == KEY
     body = json.loads(request.content)
-    assert body["model"] == "gemini-omni-1.1-flash"
+    assert body["model"] == "gemini-omni-1.2-flash"
     assert body["background"] is True
     assert body["store"] is True
     assert body["response_format"] == {

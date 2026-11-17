@@ -17,6 +17,7 @@ def test_default_prices() -> None:
         "claude-opus-5": {"input": 5.0, "output": 25.0, "cache_read": 0.50, "cache_write": 6.25},
         "claude-opus-4-8": {"input": 5.0, "output": 25.0, "cache_read": 0.50, "cache_write": 6.25},
         "whisper-1": {"per_minute": 0.006},
+        "gemini-omni-1.2-flash": {"input": 1.50, "output": 9.00, "video_output": 12.00},
         "gemini-omni-1.1-flash": {"input": 1.50, "output": 9.00, "video_output": 17.50},
     }
 
@@ -135,6 +136,13 @@ def test_video_output_tokens_are_priced_at_the_video_rate() -> None:
     expected = (2 * 1120 * 1.50 + 8 * 8688 * 17.50) / 1_000_000
     assert estimate(usage, "gemini-omni-1.1-flash") == pytest.approx(expected)
     assert estimate(usage, "gemini-omni-1.1-flash") == pytest.approx(1.21968)
+
+
+def test_omni_1_2_video_costs_about_7_cents_a_second_at_720p() -> None:
+    # Google's pricing page: video output $12.00 per 1M tokens, about $0.07/s at 720p (5,792 tokens/s).
+    assert estimate(Usage(video_output_tokens=5792), "gemini-omni-1.2-flash") == pytest.approx(0.069504)
+    usage = Usage(input_tokens=2 * 1120, video_output_tokens=8 * 8688)  # 8 s at 1080p, two pictures
+    assert estimate(usage, "gemini-omni-1.2-flash") == pytest.approx((2 * 1120 * 1.50 + 8 * 8688 * 12.00) / 1_000_000)
 
 
 def test_text_output_and_video_output_are_priced_separately() -> None:

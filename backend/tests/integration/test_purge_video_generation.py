@@ -41,7 +41,7 @@ def test_a_video_job_ttl_purge_removes_every_file_with_the_row(
     providers = Providers(
         transcriber=TranscriberChain([FakeTranscriber()]),
         llm=LLMChain([FakeLLM([])]),
-        video=VideoChain([FakeVideoGenerator(model="gemini-omni-1.1-flash")]),
+        video=VideoChain([FakeVideoGenerator(model="gemini-omni-1.2-flash")]),
     )
     picture = make_picture("png", 64, 48).read_bytes()
     with TestClient(create_app(settings, providers, static_dir=tmp_path / "static")) as client:
