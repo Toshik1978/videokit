@@ -197,13 +197,15 @@ def test_probe_reads_the_video_stream_end(tmp_path: Path, make_video: MakeVideo)
     longer_audio = probe(make_video("a.mp4", colors=("red", "blue"), segment_s=2.0, audio=True, audio_s=8.0))
     assert longer_audio.duration_s == pytest.approx(8.0, abs=0.1)
     assert longer_audio.video_end_s == pytest.approx(4.0, abs=0.1)
-    mkv = probe(_make_h264_mp3_mkv(tmp_path))
-    assert mkv.video_end_s == pytest.approx(mkv.duration_s, abs=0.01)
     assert probe(make_video("b.mp4")).video_end_s == pytest.approx(6.0, abs=0.1)
-    # Shifted timestamps: video starts at 1.5 s, its DURATION tag (end) is 3.5 s, the container starts at
-    # ~1.475 s (audio priming), so the video ends ~2.025 s after the container start.
-    shifted = probe(_make_h264_mp3_mkv(tmp_path, ts_offset_s=1.5))
-    assert shifted.video_end_s == pytest.approx(2.025, abs=0.01)
+    # Matroska, as recorded and with every timestamp shifted by 1.5 s (DURATION tag = end = 3.5 s). Where the
+    # container starts depends on the ffmpeg version (7.x counts the 25 ms MP3 priming, 9.x does not), so the
+    # expected end comes from the file itself: the last frame's start plus one frame (15 fps), from that start.
+    for ts_offset_s in (0.0, 1.5):
+        path = _make_h264_mp3_mkv(tmp_path, ts_offset_s=ts_offset_s)
+        mkv = probe(path)
+        assert mkv.video_end_s == pytest.approx(_last_video_frame_s(path) + 1 / 15, abs=0.01)
+        assert mkv.video_end_s <= mkv.duration_s
 
 
 def test_shifted_timestamps_keep_frames_within_the_video(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
