@@ -755,7 +755,8 @@ def test_cancel_and_forget_call_the_interaction_endpoints() -> None:
     provider.cancel("int-1")
     provider.forget("int-1")
 
-    assert seen == [("POST", "/v1beta/interactions/int-1/cancel"), ("DELETE", "/v1beta/interactions/int-1")]
+    # google-genai 3.0 calls the v1 API by default (v1beta before); Interactions is not a v1beta-only feature.
+    assert seen == [("POST", "/v1/interactions/int-1/cancel"), ("DELETE", "/v1/interactions/int-1")]
 
 
 @pytest.mark.parametrize("operation", ["cancel", "forget"])
