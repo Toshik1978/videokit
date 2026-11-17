@@ -1,60 +1,5 @@
 version: 2
 updates:
-  # Backend (uv). Minor and patch updates share one PR; majors get their own.
-  - package-ecosystem: uv
-    directory: "/backend"
-    schedule:
-      interval: monthly
-    open-pull-requests-limit: 10
-    commit-message:
-      prefix: build
-      include: scope
-    groups:
-      backend:
-        patterns:
-          - "*"
-        update-types:
-          - minor
-          - patch
-      # Security updates are a repository setting, not something this file can
-      # switch on; it only shapes their PRs. One advisory often lands on several
-      # packages of one stack at once, and separate PRs each conflict on the
-      # lockfile or fail CI on the others' advisories, so they are grouped into
-      # a single PR that can actually go green.
-      backend-security:
-        applies-to: security-updates
-        patterns:
-          - "*"
-
-  # Frontend (npm). Same grouping as the backend.
-  - package-ecosystem: npm
-    directory: "/frontend"
-    schedule:
-      interval: monthly
-    open-pull-requests-limit: 10
-    commit-message:
-      prefix: build
-      include: scope
-    ignore:
-      # Pinned to 6.x: nothing here invokes tsc. vue-tsc and typescript-eslint consume the
-      # TypeScript programmatic API, which 7.0 dropped and 7.1 is expected to restore.
-      # Revisit once Volar and typescript-eslint support it.
-      - dependency-name: "typescript"
-        update-types:
-          - "version-update:semver-major"
-    groups:
-      frontend:
-        patterns:
-          - "*"
-        update-types:
-          - minor
-          - patch
-      # Security updates grouped for the same reason as above.
-      frontend-security:
-        applies-to: security-updates
-        patterns:
-          - "*"
-
   # Base images in the Dockerfile.
   # The Python minor version moves together in .mise.toml, backend/.python-version,
   # requires-python and the Dockerfile, only after checking that the
@@ -64,10 +9,10 @@ updates:
     directory: "/"
     schedule:
       interval: monthly
-    open-pull-requests-limit: 10
     commit-message:
       prefix: build
       include: scope
+    open-pull-requests-limit: 10
     ignore:
       - dependency-name: "python"
         update-types:
@@ -78,16 +23,17 @@ updates:
       - dependency-name: "node"
         update-types:
           - "version-update:semver-major"
-
+    cooldown:
+      default-days: 7
   # GitHub Actions used by the workflows.
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
       interval: monthly
-    open-pull-requests-limit: 10
     commit-message:
       prefix: ci
       include: scope
+    open-pull-requests-limit: 10
     # Every action is pinned to a moving major tag (@vN), which already receives
     # minor and patch releases. Without this ignore, Dependabot would "upgrade"
     # `@v4` to a frozen `@v4.x.y`, losing that. Only major bumps are proposed.
@@ -104,3 +50,76 @@ updates:
           - "*"
         update-types:
           - major
+    cooldown:
+      default-days: 7
+  # Frontend (npm). Same grouping as the backend.
+  - package-ecosystem: npm
+    directory: "/frontend"
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: build
+      include: scope
+    open-pull-requests-limit: 10
+    ignore:
+      # Pinned to 6.x: nothing here invokes tsc. vue-tsc and typescript-eslint consume the
+      # TypeScript programmatic API, which 7.0 dropped and 7.1 is expected to restore.
+      # Revisit once Volar and typescript-eslint support it.
+      - dependency-name: "typescript"
+        update-types:
+          - "version-update:semver-major"
+    groups:
+      frontend:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+      # Security updates grouped for the same reason as above.
+      frontend-security:
+        patterns:
+          - "*"
+        applies-to: security-updates
+    cooldown:
+      default-days: 7
+  - package-ecosystem: pre-commit
+    directory: "/"
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: build
+      include: scope
+    open-pull-requests-limit: 10
+    groups:
+      pre-commit:
+        patterns:
+          - "*"
+    cooldown:
+      default-days: 7
+  # Backend (uv). Minor and patch updates share one PR; majors get their own.
+  - package-ecosystem: uv
+    directory: "/backend"
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: build
+      include: scope
+    open-pull-requests-limit: 10
+    groups:
+      backend:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+      # Security updates are a repository setting, not something this file can
+      # switch on; it only shapes their PRs. One advisory often lands on several
+      # packages of one stack at once, and separate PRs each conflict on the
+      # lockfile or fail CI on the others' advisories, so they are grouped into
+      # a single PR that can actually go green.
+      backend-security:
+        patterns:
+          - "*"
+        applies-to: security-updates
+    cooldown:
+      default-days: 7
