@@ -6,17 +6,22 @@ description = "Self-hosted web app hosting video tools."
 authors = [{ name = "Anton Krivenko" }]
 requires-python = ">=3.14"
 dependencies = [
+    # Every third-party module src/ imports is declared here, even when another dependency brings it
+    # in today (tests/unit/test_dependencies.py): httpx left the image with google-genai 3.0.
     "fastapi",
+    "starlette",
     "uvicorn[standard]",
+    "httpx",
     "pydantic",
     "pydantic-settings",
     "anthropic",
     "openai",
     # HEIC decoding behind MediaService.normalize_picture (tiled phone photos); specs/004-video-generation/research.md V7.
     "pillow-heif>=1.8.1",
+    "pillow",
     # Gemini Omni video generation (Interactions API); >=2.28 is the first release that knows the model.
     # No extras: `local-tokenizer` pulls in torch. specs/004-video-generation/research.md V2.
-    "google-genai>=2.28",
+    "google-genai>=3.0.0",
     # FastAPI's form parser for the multipart picture upload; specs/004-video-generation/research.md V14.
     "python-multipart",
 ]
@@ -26,7 +31,6 @@ dev = [
     "pytest",
     "pytest-asyncio",
     "pytest-cov",
-    "httpx",
     "ruff",
     "mypy",
     "pyyaml",
