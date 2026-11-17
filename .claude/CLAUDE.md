@@ -185,6 +185,11 @@ Dockerfile, compose.yaml, scripts/{docker_smoke.sh,image_size_guard.sh,changelog
   before `docker compose up`, or Docker creates it as root. The smoke test checks both runs.
 - Backend tests are isolated from the developer's shell env by an autouse fixture (except `live`
   tests). Don't rely on exported provider keys in default tests.
+- The default suites must pass with any ordinary ffmpeg build (Debian's in the image and CI, Homebrew's on
+  macOS); the image's ffmpeg is the reference for behaviour. Fixtures use only encoders every build has
+  (png, mjpeg, libx264, libmp3lame, aac) or are made another way (WebP via Pillow), or skip with a reason
+  when an optional one is missing (HEIC needs libx265). Never hard-code values that depend on the ffmpeg
+  version (a container start, a priming delay): derive the expectation from the generated fixture.
 - Every vendor SDK client is built with an explicit base URL (`OPENAI_API_URL`, `ANTHROPIC_API_URL`,
   `GEMINI_API_URL`, or the configured `OPENAI_TRANSCRIBE_URL`): the SDKs otherwise read
   `OPENAI_BASE_URL` / `ANTHROPIC_BASE_URL` / `GOOGLE_GEMINI_BASE_URL` from the environment and would
