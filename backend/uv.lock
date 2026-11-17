@@ -1400,17 +1400,19 @@ dependencies = [
     { name = "anthropic" },
     { name = "fastapi" },
     { name = "google-genai" },
+    { name = "httpx" },
     { name = "openai" },
+    { name = "pillow" },
     { name = "pillow-heif" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "python-multipart" },
+    { name = "starlette" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
 [package.dev-dependencies]
 dev = [
-    { name = "httpx" },
     { name = "mypy" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -1425,17 +1427,19 @@ requires-dist = [
     { name = "anthropic" },
     { name = "fastapi" },
     { name = "google-genai", specifier = ">=3.0.0" },
+    { name = "httpx" },
     { name = "openai" },
+    { name = "pillow" },
     { name = "pillow-heif", specifier = ">=1.8.1" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "python-multipart" },
+    { name = "starlette" },
     { name = "uvicorn", extras = ["standard"] },
 ]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "httpx" },
     { name = "mypy" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
