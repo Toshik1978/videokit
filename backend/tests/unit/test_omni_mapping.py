@@ -755,8 +755,7 @@ def test_cancel_and_forget_call_the_interaction_endpoints() -> None:
     provider.cancel("int-1")
     provider.forget("int-1")
 
-    # google-genai 3.0 calls the v1 API by default (v1beta before); Interactions is not a v1beta-only feature.
-    assert seen == [("POST", "/v1/interactions/int-1/cancel"), ("DELETE", "/v1/interactions/int-1")]
+    assert seen == [("POST", "/v1beta/interactions/int-1/cancel"), ("DELETE", "/v1beta/interactions/int-1")]
 
 
 @pytest.mark.parametrize("operation", ["cancel", "forget"])
@@ -797,3 +796,21 @@ def test_gemini_base_url_env_never_redirects_the_key(monkeypatch: pytest.MonkeyP
     provider = OmniProvider(_settings())
     for client in (provider._sdk(), provider._creator()):
         assert client._api_client._http_options.base_url == "https://generativelanguage.googleapis.com/"
+
+
+def test_the_api_version_is_pinned_to_v1beta(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The Gemini Developer API serves the Omni models only on v1beta ("Model is not found ... for api version v1"),
+    # while google-genai >= 3.0 defaults to v1; neither the SDK default nor GOOGLE_GENAI_API_VERSION may move it.
+    monkeypatch.setenv("GOOGLE_GENAI_API_VERSION", "v1")
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url.path)
+        return httpx.Response(200, json={"id": "int-1", "status": "in_progress"})
+
+    provider = _provider(handler)
+    provider.submit(REQUEST)
+    provider.poll("int-1", Path("."))
+    assert seen == ["/v1beta/interactions", "/v1beta/interactions/int-1"]
+    for client in (provider._sdk(), provider._creator()):
+        assert client._api_client._http_options.api_version == "v1beta"

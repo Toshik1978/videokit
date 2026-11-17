@@ -69,6 +69,14 @@ Provider facts were checked against Google's official documentation on 2026-10-2
   **Live-verify**: the 1080p path (the URI's form, whether the file needs time to become available,
   the key handling) is unexercised until the live run (quickstart section 3 adds a 10 s 1080p case);
   inline delivery at 720p is likewise unconfirmed live.
+- **API version** (2026-11-17, google-genai 3.0): the SDK now calls `v1` unless told otherwise
+  (`v1beta` before). On the Gemini Developer API the Interactions endpoint exists on both, but the
+  Omni models are served only on `v1beta`: `GET v1/models/gemini-omni-1.1-flash` and `…-1.2-flash`
+  answer 404 "Model is not found … for api version v1", and a valid `interactions.create` on `v1`
+  fails with `NotFoundError` before anything is billed (the "GA on v1" announcements describe
+  Google Cloud's enterprise endpoint, not this API). The adapter therefore pins
+  `api_version="v1beta"` (`omni.GEMINI_API_VERSION`), which also overrides
+  `GOOGLE_GENAI_API_VERSION`; move to `v1` once `GET v1/models/<OMNI_MODEL>` answers 200.
 - **SDK gotcha**: `interactions.*` raises `google.genai._interactions.APIStatusError` subclasses
   (`BadRequestError`, `RateLimitError`, `PermissionDeniedError`, …) which are *not*
   `google.genai.errors.APIError`; the adapter catches both families and maps by HTTP status and

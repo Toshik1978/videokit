@@ -39,6 +39,9 @@ logger = logging.getLogger("videokit")
 
 # always explicit: the SDK would otherwise read GOOGLE_GEMINI_BASE_URL
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/"
+# The Gemini Developer API serves the Omni models only on v1beta: v1 answers "Model is not found ... for api
+# version v1", while google-genai >= 3.0 calls v1 unless told otherwise. Move once GET v1/models/<model> answers 200.
+GEMINI_API_VERSION = "v1beta"
 CAPABILITIES = Capabilities(
     durations_s=[5, 6, 7, 8, 9, 10],
     max_pictures=7,
@@ -232,6 +235,7 @@ class OmniProvider:
         key = self._api_key.get_secret_value() if self._api_key is not None else None
         options = (http_options or genai_types.HttpOptions()).model_copy()
         options.base_url = options.base_url or GEMINI_API_URL
+        options.api_version = GEMINI_API_VERSION
         return genai.Client(api_key=key, http_options=options)
 
     def _sdk(self) -> genai.Client:
