@@ -5,6 +5,7 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 
 import pytest
+from PIL import Image
 
 from fakes_videogen import write_clip
 from heic_sample import write_heic
@@ -15,7 +16,9 @@ MakePicture = Callable[..., Path]
 MakeClip = Callable[..., Path]
 
 _CLIP_ENCODERS = {"h264": "libx264", "hevc": "libx265"}
-_PICTURE_ENCODERS = {"png": ("png", "rgb24"), "jpeg": ("mjpeg", "yuvj420p"), "webp": ("libwebp", "yuv420p")}
+# Only encoders every ffmpeg build has: libwebp is optional (Homebrew's ffmpeg lacks it), so a WebP fixture is a
+# PNG converted by Pillow, whose wheels bundle libwebp. The code under test only decodes WebP.
+_PICTURE_ENCODERS = {"png": ("png", "rgb24"), "jpeg": ("mjpeg", "yuvj420p")}
 # An EXIF APP1 segment with a GPS latitude (12 deg 34 min 56 sec N), big-endian TIFF: IFD0 -> GPS IFD.
 _EXIF_GPS = (
     b"Exif\0\0MM\0*\0\0\0\x08"  # TIFF header, IFD0 at 8
@@ -119,10 +122,15 @@ def make_picture(tmp_path: Path) -> MakePicture:
             if " libx265 " not in encoders:
                 pytest.skip("the local ffmpeg cannot encode HEVC, so no HEIC fixture")
             return write_heic(out, w, h, grid=grid)
+        source = out.with_suffix(".png") if fmt == "webp" else out
         cmd = ["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", f"testsrc=s={w}x{h}:d=1", "-frames:v", "1"]
-        encoder, pix_fmt = _PICTURE_ENCODERS[fmt]
-        cmd += ["-c:v", encoder, "-pix_fmt", pix_fmt, str(out)]
+        encoder, pix_fmt = _PICTURE_ENCODERS["png" if fmt == "webp" else fmt]
+        cmd += ["-c:v", encoder, "-pix_fmt", pix_fmt, str(source)]
         subprocess.run(cmd, check=True, capture_output=True)
+        if fmt == "webp":
+            with Image.open(source) as image:
+                image.save(out, "WEBP")
+            source.unlink()
         if exif_gps:
             data = out.read_bytes()
             segment = b"\xff\xe1" + (len(_EXIF_GPS) + 2).to_bytes(2, "big") + _EXIF_GPS
