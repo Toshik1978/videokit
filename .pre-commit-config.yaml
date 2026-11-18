@@ -39,7 +39,7 @@ repos:
           - pre-commit
       - id: gitleaks
         name: gitleaks (staged)
-        entry: gitleaks protect --staged --redact --verbose
+        entry: gitleaks git --pre-commit --staged --redact --verbose
         language: system
         pass_filenames: false
         always_run: true
@@ -47,7 +47,7 @@ repos:
           - pre-commit
       - id: check-denylist
         name: personal-data denylist
-        entry: python scripts/check_denylist.py
+        entry: python3 scripts/check_denylist.py
         language: system
         pass_filenames: false
         always_run: true
@@ -98,3 +98,34 @@ repos:
           - post-checkout
           - post-merge
           - post-rewrite
+
+  # Stock file guards: oversized files, leftover conflict markers, YAML that
+  # does not parse. Not the whitespace fixers: they rewrite patches, fixtures
+  # and generated files (piloted on linux-config, 2026-11-18).
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-added-large-files
+        stages: [pre-commit]
+      - id: check-merge-conflict
+        stages: [pre-commit]
+      - id: check-yaml
+        stages: [pre-commit]
+
+  - repo: local
+    hooks:
+      - id: actionlint
+        name: actionlint
+        entry: actionlint
+        language: system
+        files: ^\.github/workflows/.*\.ya?ml$
+        stages: [pre-commit]
+
+      # hadolint comes from mise (dotfiles scripts/mise.sh; linux-config
+      # bootstrap/mise/config.toml on the server).
+      - id: hadolint
+        name: hadolint
+        entry: hadolint
+        language: system
+        types: [dockerfile]
+        stages: [pre-commit]
