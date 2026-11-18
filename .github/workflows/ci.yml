@@ -270,4 +270,4 @@ jobs:
           install_args: gitleaks
 
       - name: Scan history for secrets
-        run: gitleaks detect --redact --verbose
+        run: gitleaks git --redact --verbose

@@ -53,7 +53,7 @@ task test                       # pytest (+coverage, fail_under 80) and vitest (
 task e2e                        # Playwright: desktop-chrome, iphone (WebKit), pixel, mobile-360
 task format                     # auto-format both stacks
 cd backend && uv run pytest -m live --no-cov   # opt-in real-provider smoke tests (needs keys)
-gitleaks detect --redact        # full-history secret scan (CI does the same; see .gitleaks.toml)
+gitleaks git --redact           # full-history secret scan (CI does the same; see .gitleaks.toml)
 docker build -t videokit:ci . && scripts/docker_smoke.sh videokit:ci   # incl. codec decode check
 task docker:build && task docker:run   # run the image directly with ./.data bind-mounted
 task docker:size                # compressed image size vs the limit (scripts/image_size_guard.sh)
